@@ -6,6 +6,7 @@ object Mixer {
     fun mix(streams: List<ShortArray>): ShortArray {
         require(streams.isNotEmpty()) { "至少一路输入" }
         val len = streams[0].size
+        require(streams.all { it.size == len }) { "各路帧长必须一致: ${streams.map { it.size }}" }
         val out = ShortArray(len)
         for (i in 0 until len) {
             var sum = 0

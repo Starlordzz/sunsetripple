@@ -34,4 +34,14 @@ class MixerTest {
         val out = Mixer.mix(listOf(shortArrayOf(10), shortArrayOf(20), shortArrayOf(30)))
         assertArrayEquals(shortArrayOf(60), out)
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `帧长不一致时拒绝混音_首路较短`() {
+        Mixer.mix(listOf(shortArrayOf(1), shortArrayOf(1, 2, 3)))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `帧长不一致时拒绝混音_首路较长`() {
+        Mixer.mix(listOf(shortArrayOf(1, 2, 3), shortArrayOf(1)))
+    }
 }
