@@ -13,10 +13,14 @@ object RosterFrames {
      * 载荷超上限（成员过多/昵称过长）时返回 null 并告警——绝不静默丢弃，
      * 否则成员表会停发而 UI 毫无察觉。
      */
-    fun encode(hostId: Int, yourId: Int, members: List<MemberInfo>): Frame? = try {
-        Frame(FrameType.ROSTER, hostId, 0, RosterCodec.encode(yourId, members))
-    } catch (e: IllegalArgumentException) {
-        TransportLog.w("成员表编码失败，本次未下发（成员数 ${members.size}）: ${e.message}", e)
-        null
+    fun encode(hostId: Int, yourId: Int, members: List<MemberInfo>): Frame? {
+        // 只吞 RosterCodec 的载荷超限异常；Frame 构造的参数错误属编程错误，让它穿透。
+        val payload = try {
+            RosterCodec.encode(yourId, members)
+        } catch (e: IllegalArgumentException) {
+            TransportLog.w("成员表编码失败，本次未下发（成员数 ${members.size}）: ${e.message}", e)
+            return null
+        }
+        return Frame(FrameType.ROSTER, hostId, 0, payload)
     }
 }

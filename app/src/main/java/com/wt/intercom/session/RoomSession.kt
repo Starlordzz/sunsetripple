@@ -9,6 +9,9 @@ import com.wt.intercom.protocol.Frame
 import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
+import com.wt.intercom.transport.TransportLog
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -22,23 +25,53 @@ data class RoomUiState(
 )
 
 /**
+ * 音频出入口抽象。生产实现包装 [AudioEngine]；单元测试可替换以避开 Android 音频设备。
+ */
+internal interface AudioIo {
+    var micMuted: Boolean
+    fun start()
+    fun playPcm(pcm: ShortArray)
+    fun stop()
+}
+
+private class EngineAudioIo(private val engine: AudioEngine) : AudioIo {
+    override var micMuted: Boolean
+        get() = engine.micMuted
+        set(v) { engine.micMuted = v }
+    override fun start() = engine.start()
+    override fun playPcm(pcm: ShortArray) { engine.playPcm(pcm) }
+    override fun stop() = engine.stop()
+}
+
+/**
  * 网状会议会话：自己的麦克风帧编码后广播给全房；
  * 每个远端成员一路 JitterBuffer + 解码器，播放线程逐帧混音。
  * 传输无关——蓝牙房/Nearby 房复用本类。
+ *
+ * 生命周期是一次性的：[start] 只能调用一次，[shutdown] 之后本对象不可重用。
  */
 class RoomSession(private val selfNickname: String) : TransportListener {
 
     private val _state = MutableStateFlow(RoomUiState())
     val state: StateFlow<RoomUiState> = _state
 
-    private var transport: Transport? = null
-    private var engine: AudioEngine? = null
-    private var playThread: Thread? = null
+    @Volatile private var transport: Transport? = null
+    @Volatile private var engine: AudioIo? = null
+    @Volatile private var playThread: Thread? = null
     @Volatile private var running = false
     @Volatile private var selfId = -1
     private val encoder = OpusCodec()
     private var seq = 0
     private val selfSpeaking = SpeakingDetector()
+
+    private val started = AtomicBoolean(false)
+    private val stopped = AtomicBoolean(false)
+    /** 连续发送失败计数；成功一次即清零。 */
+    private val sendFailures = AtomicInteger(0)
+
+    /** 测试可替换的音频引擎工厂（入参为采集回调）。 */
+    internal var audioIoFactory: (((ShortArray) -> Unit) -> AudioIo) =
+        { cb -> EngineAudioIo(AudioEngine(cb)) }
 
     private class RemoteStream(val member: MemberInfo) {
         val jitter = JitterBuffer()
@@ -53,37 +86,69 @@ class RoomSession(private val selfNickname: String) : TransportListener {
         this.transport = transport
     }
 
+    /**
+     * 拉起采集与播放。一次性语义：重复调用或已 shutdown 后调用抛 [IllegalStateException]
+     * （二次 start 会覆盖 engine/playThread 引用，导致旧 AudioRecord/AudioTrack 泄漏）。
+     * 音频设备初始化失败时回滚 running 并释放已建资源后重抛。
+     */
     fun start(transport: Transport) {
+        check(started.compareAndSet(false, true)) { "RoomSession 已启动，不可重复 start" }
+        check(!stopped.get()) { "RoomSession 已结束，不可重用" }
         attachTransport(transport)
         running = true
-        val eng = AudioEngine { pcm ->
-            val id = selfId
-            if (id < 0) return@AudioEngine
-            selfSpeaking.feed(pcm)
-            this.transport?.broadcast(Frame(FrameType.AUDIO, id, seq, encoder.encode(pcm)))
-            seq = (seq + 1) and 0xFFFF
-        }
+        val eng = audioIoFactory(::onPcmCaptured)
         engine = eng
-        eng.start()
-        playThread = Thread({
-            val silence = ShortArray(AudioConfig.FRAME_SAMPLES)
-            while (running) {
-                val frames = ArrayList<ShortArray>(4)
-                synchronized(remotes) {
-                    for (r in remotes.values) {
-                        val packet = r.jitter.poll()
-                        // 必须无条件调用 poll()——started 只在 poll 内部翻转，
-                        // 把 hasStarted() 当前置条件会自锁（见 M1 P0 修复记录）。
-                        if (packet == null && !r.jitter.hasStarted()) continue
-                        val pcm = r.decoder.decode(packet)
-                        r.speaking.feed(pcm)
-                        frames.add(pcm)
-                    }
-                }
-                eng.playPcm(if (frames.isEmpty()) silence else Mixer.mix(frames))
-                publishState()
+        try {
+            eng.start()
+        } catch (e: Throwable) {
+            running = false
+            engine = null
+            runCatching { eng.stop() }
+            publishState()
+            throw e
+        }
+        playThread = Thread(::playbackLoop, "room-playback").apply { start() }
+    }
+
+    /**
+     * 采集回调：整体包异常保护。传输层（如 WiFi socket 半关闭）抛出的异常若穿透，
+     * 会打死 AudioEngine 采集线程——麦克风永久哑且 running 仍为 true。
+     */
+    private fun onPcmCaptured(pcm: ShortArray) {
+        val id = selfId
+        if (id < 0) return
+        runCatching {
+            selfSpeaking.feed(pcm)
+            transport?.broadcast(Frame(FrameType.AUDIO, id, seq, encoder.encode(pcm)))
+            seq = (seq + 1) and 0xFFFF
+        }.onSuccess {
+            sendFailures.set(0)
+        }.onFailure { e ->
+            val n = sendFailures.incrementAndGet()
+            TransportLog.w("音频帧发送失败（连续 $n 次）: ${e.message}", e)
+            if (n >= MAX_SEND_FAILURES) shutdown("发送失败")
+        }
+    }
+
+    private fun playbackLoop() {
+        val silence = ShortArray(AudioConfig.FRAME_SAMPLES)
+        while (running) {
+            // 锁内只做快照，解码/VAD/混音在锁外——避免 Opus 解码占着 remotes 锁阻塞接收线程。
+            // 快照后被 retainAll 移除的路，其解码结果本轮仍会被混入，可接受（至多多播一帧）。
+            val streams = synchronized(remotes) { remotes.values.toList() }
+            val frames = ArrayList<ShortArray>(streams.size)
+            for (r in streams) {
+                val packet = r.jitter.poll()
+                // 必须无条件调用 poll()——started 只在 poll 内部翻转，
+                // 把 hasStarted() 当前置条件会自锁（见 M1 P0 修复记录）。
+                if (packet == null && !r.jitter.hasStarted()) continue
+                val pcm = r.decoder.decode(packet)
+                r.speaking.feed(pcm)
+                frames.add(pcm)
             }
-        }, "room-playback").apply { start() }
+            engine?.playPcm(if (frames.isEmpty()) silence else Mixer.mix(frames))
+            publishState()
+        }
     }
 
     fun setMicMuted(muted: Boolean) {
@@ -128,18 +193,24 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     internal fun pendingPacketsFor(memberId: Int): Int? =
         synchronized(remotes) { remotes[memberId]?.jitter?.pendingCount() }
 
+    /**
+     * 释放全部资源。leave()（UI 线程）与 onDisconnected()（接收线程）会真实并发，
+     * 用 CAS 保证释放只执行一次；状态更新无条件执行，首个非空 reason 生效。
+     */
     private fun shutdown(reason: String?) {
-        val wasRunning = running
-        running = false
-        if (wasRunning) {
-            playThread?.join(500)
+        if (stopped.compareAndSet(false, true)) {
+            running = false
+            // 从采集线程触发时（发送连续失败），engine.stop() 内部对自身线程 join 会等到超时，
+            // 不会死锁；播放线程 join 同理受 500ms 上限保护。
+            playThread?.takeIf { it != Thread.currentThread() }?.join(500)
             playThread = null
             engine?.stop()
             engine = null
+            runCatching { transport?.close() }
+            transport = null
         }
-        transport?.close()
-        transport = null
-        _state.value = _state.value.copy(connected = false, endedReason = reason)
+        val cur = _state.value
+        _state.value = cur.copy(connected = false, endedReason = cur.endedReason ?: reason)
     }
 
     private fun publishState() {
@@ -156,5 +227,10 @@ class RoomSession(private val selfNickname: String) : TransportListener {
             micMuted = engine?.micMuted ?: false,
             endedReason = _state.value.endedReason,
         )
+    }
+
+    private companion object {
+        /** 连续发送失败达此次数即判定链路已死并停机。 */
+        const val MAX_SEND_FAILURES = 10
     }
 }
