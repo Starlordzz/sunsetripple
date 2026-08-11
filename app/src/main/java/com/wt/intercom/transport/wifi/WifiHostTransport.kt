@@ -5,11 +5,13 @@ import com.wt.intercom.protocol.FrameStreamReader
 import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.session.MemberInfo
 import com.wt.intercom.session.Roster
+import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.RosterFrames
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import com.wt.intercom.transport.TransportLog
 import com.wt.intercom.transport.readFrameSafely
+import java.io.IOException
 import java.io.OutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -39,8 +41,14 @@ class WifiHostTransport(
         const val AUDIO_PORT = 8989
         const val HOST_IP = "192.168.49.1"
         const val HOST_ID = 0
+        /** 房间人数上限（含主机），见设计规格「人数上限 6 台（含建房者）」。 */
+        const val MAX_MEMBERS = 6
         /** 客户端 ID 上限：帧头 senderId 只有 1 字节。 */
         private const val MAX_MEMBER_ID = 255
+        /** 入房握手读超时：连上却不发 JOIN 的对端不许占着线程和 fd 不放。 */
+        private const val HANDSHAKE_TIMEOUT_MS = 5000
+        /** 入房后的读超时：客户端每 3s 一个 PING，静默这么久即判定链路已死。 */
+        private const val READ_TIMEOUT_MS = 10000
         private const val UDP_BUFFER = 2048
     }
 
@@ -53,13 +61,22 @@ class WifiHostTransport(
     )
 
     private val lock = Any()
+    /** 成员表下发的串行锁：见 [pushRosterToAll]。 */
+    private val pushLock = Any()
     private val clients = linkedMapOf<Int, Client>()
     private var nextId = 1
     @Volatile private var running = true
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private val server = ServerSocket(signalPort)
-    private val udp = DatagramSocket(audioBindPort)
+    private val udp = try {
+        DatagramSocket(audioBindPort)
+    } catch (e: Exception) {
+        // 此时信令端口已经绑住了：不关掉的话 8988 会被这个建不起来的实例永久占着，
+        // 用户重试建房必然再失败（"端口已被占用"且看不出是自己占的）。
+        runCatching { server.close() }
+        throw e
+    }
 
     /** 实际监听端口（构造传 0 时由系统分配）。 */
     val signalPort: Int get() = server.localPort
@@ -96,6 +113,10 @@ class WifiHostTransport(
      */
     private fun clientLoop(socket: Socket) {
         val reader = try {
+            // 握手期必须有读超时：连上却不发 JOIN 的对端（扫端口的、半开链路）否则会把
+            // 这个线程和 fd 永久钉在 read 上，而它还没进 clients，close() 也够不着。
+            // 这类未 JOIN 的 socket 不纳入 close() 的清理范围，靠本超时自然退出，最长滞留 5s。
+            socket.soTimeout = HANDSHAKE_TIMEOUT_MS
             FrameStreamReader(socket.getInputStream())
         } catch (e: Exception) {
             TransportLog.w("取客户端输入流失败: ${e.message}", e)
@@ -103,28 +124,29 @@ class WifiHostTransport(
             return
         }
         // 入房第一帧必须是 JOIN；否则视为非法连接直接关掉。
-        val join = reader.readFrameSafely()
+        // 这里只兜 IOException（含握手超时）：协议错误归 readFrameSafely 收敛成 null。
+        // 切勿加宽泛的 catch(Exception)，否则换回裸 readFrame() 时行为无差别，测试也就失去判别力。
+        val join = try {
+            reader.readFrameSafely()
+        } catch (e: IOException) {
+            TransportLog.w("等待入房帧失败（超时或断流）: ${e.message}", e)
+            runCatching { socket.close() }
+            return
+        }
         val ip = socket.inetAddress?.hostAddress
         if (join == null || join.type != FrameType.JOIN || ip == null) {
             TransportLog.w("非法入房请求（type=${join?.type}, ip=$ip），关闭连接")
             runCatching { socket.close() }
             return
         }
-        val client: Client = synchronized(lock) {
-            if (nextId > MAX_MEMBER_ID) null else {
-                Client(
-                    nextId++,
-                    String(join.payload, Charsets.UTF_8),
-                    ip,
-                    socket,
-                    socket.getOutputStream(),
-                ).also { clients[it.id] = it }
-            }
-        } ?: run {
-            TransportLog.w("成员 ID 已用尽，拒绝入房")
+        // 昵称按 RosterCodec 同口径截断后再入表，免得主机 UI 显示的和下发出去的不一致。
+        val nick = RosterCodec.truncateNickname(String(join.payload, Charsets.UTF_8))
+        val client = admit(nick, ip, socket) ?: run {
             runCatching { socket.close() }
             return
         }
+        // 入房后放宽到心跳级超时，别清零：清零就退回"永久阻塞"，链路半开时这条线程再也回不来。
+        runCatching { socket.soTimeout = READ_TIMEOUT_MS }
         pushRosterToAll()
         try {
             while (running) {
@@ -150,10 +172,44 @@ class WifiHostTransport(
     }
 
     /**
+     * 准入控制：满员或候选成员表编不进一帧 ROSTER 时拒绝入房，返回 null 由调用方关连接。
+     *
+     * 必须挡在入表之前——一旦超限的成员进了 clients，之后每一轮 [RosterFrames.encode]
+     * 都会对所有人失败（载荷 > 512B），全房成员表当场冻结、新人麦克风哑、UI 永远不 connected。
+     * 拒一个人只影响他自己。
+     */
+    private fun admit(nickname: String, ip: String, socket: Socket): Client? = synchronized(lock) {
+        if (nextId > MAX_MEMBER_ID) {
+            TransportLog.w("成员 ID 已用尽，拒绝入房")
+            return null
+        }
+        // +1 是主机自己；已经坐满就不再放人进来。
+        if (clients.size + 1 >= MAX_MEMBERS) {
+            TransportLog.w("房间已满（上限 $MAX_MEMBERS 人含主机），拒绝「$nickname」入房")
+            return null
+        }
+        val candidate = MemberInfo(nextId, nickname, ip)
+        // 再试编一次：人数没到上限时，超长 IP（IPv6）也可能把载荷顶爆。
+        try {
+            RosterCodec.encode(candidate.id, membersSnapshot() + candidate)
+        } catch (e: IllegalArgumentException) {
+            TransportLog.w("成员表将超载荷，拒绝「$nickname」入房: ${e.message}", e)
+            return null
+        }
+        nextId++
+        Client(candidate.id, nickname, ip, socket, socket.getOutputStream())
+            .also { clients[it.id] = it }
+    }
+
+    /**
      * 给每个客户端下发个性化成员表（yourId 不同），并更新主机自己的会话。
      * 下发失败的对端就地剔除，然后重发一轮——否则其他人看到的成员表会留着死人。
+     *
+     * 全程串行（[pushLock]）：并发 join 时若两个线程各取快照再交错写出，最后落地的可能是旧快照，
+     * 全房成员表就停在缺人的版本上——客户端据此 retainAll 会把新成员的解码流删掉，
+     * 该成员一直哑到下次进出房才自愈。取 pushLock 时不持有 [lock]，无锁序倒置。
      */
-    private fun pushRosterToAll() {
+    private fun pushRosterToAll() = synchronized(pushLock) {
         while (true) {
             val members = membersSnapshot()
             listener.onRoster(Roster(HOST_ID, members))
@@ -161,10 +217,11 @@ class WifiHostTransport(
             val dead = ArrayList<Client>()
             for (c in targets) {
                 // 硬指标：ROSTER 一律经 RosterFrames.encode；null＝载荷超限（已告警），跳过本轮下发。
+                // 有 admit() 的准入控制兜底，正常路径不该走到这里。
                 val frame = RosterFrames.encode(HOST_ID, c.id, members) ?: continue
                 if (!sendTo(c, frame)) dead.add(c)
             }
-            if (dead.isEmpty()) return
+            if (dead.isEmpty()) return@synchronized
             for (c in dead) dropClient(c, "成员表下发失败")
         }
     }
@@ -197,15 +254,23 @@ class WifiHostTransport(
     private fun udpReceiveLoop() {
         val buf = ByteArray(UDP_BUFFER)
         while (running) {
-            try {
+            val frame = try {
                 val packet = DatagramPacket(buf, buf.size)
                 udp.receive(packet)
-                listener.onFrame(Frame.decode(buf.copyOf(packet.length)))
+                Frame.decode(buf.copyOf(packet.length))
             } catch (e: IllegalArgumentException) {
                 TransportLog.w("丢弃畸形音频包: ${e.message}", e)   // UDP 单包坏了不影响后续
+                continue
             } catch (e: Exception) {
                 if (!running || udp.isClosed) break
                 TransportLog.w("音频端口接收异常: ${e.message}", e)
+                continue
+            }
+            // 回调单独兜底：listener 抛出不是"坏包"，不能记成丢包，更不能打死接收线程。
+            try {
+                listener.onFrame(frame)
+            } catch (e: Exception) {
+                TransportLog.w("音频帧回调异常: ${e.message}", e)
             }
         }
     }

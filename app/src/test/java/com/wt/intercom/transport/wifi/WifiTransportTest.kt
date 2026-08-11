@@ -7,6 +7,7 @@ import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import org.junit.After
@@ -62,6 +63,28 @@ class WifiTransportTest {
             )
         ).also { it.start() }
 
+    /** 连上主机并发一帧 JOIN 的裸 socket 成员，用来把房间填到指定人数。 */
+    private fun joinRaw(host: WifiHostTransport, nickname: String): Socket {
+        val s = trackSocket(Socket())
+        s.connect(InetSocketAddress("127.0.0.1", host.signalPort), 2000)
+        s.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, nickname.toByteArray(Charsets.UTF_8)).encode())
+            flush()
+        }
+        return s
+    }
+
+    /** 断言主机已断开这条连接：正常收 FIN 读到 -1，被复位则抛 SocketException，都算断开；超时即失败。 */
+    private fun assertDropped(s: Socket, what: String) {
+        s.soTimeout = 3000
+        val read = try {
+            s.getInputStream().read()
+        } catch (e: SocketException) {
+            -1
+        }
+        assertEquals("$what：连接应被主机关闭", -1, read)
+    }
+
     @Test
     fun `客户端入房后双方拿到一致成员表`() {
         val hostRec = Recorder()
@@ -78,7 +101,7 @@ class WifiTransportTest {
         assertEquals(listOf(0, 1), roster.members.map { it.id })
         assertEquals(listOf("主机", "小明"), roster.members.map { it.nickname })
 
-        await(what = "主机成员表含 2 人") { hostRec.rosters.last().members.size == 2 }
+        await(what = "主机成员表含 2 人") { hostRec.rosters.lastOrNull()?.members?.size == 2 }
         assertEquals(0, hostRec.rosters.last().yourId)
     }
 
@@ -117,13 +140,13 @@ class WifiTransportTest {
         val cliRec = Recorder()
         val client = WifiClientTransport("小明", "127.0.0.1", cliRec, signalPort = host.signalPort, audioBindPort = 0)
         client.start()
-        await(what = "主机成员表含 2 人") { hostRec.rosters.last().members.size == 2 }
+        await(what = "主机成员表含 2 人") { hostRec.rosters.lastOrNull()?.members?.size == 2 }
 
         client.close()
 
         await(what = "主机产出 LEAVE") { hostRec.frames.any { it.type == FrameType.LEAVE } }
         assertEquals(1, hostRec.frames.first { it.type == FrameType.LEAVE }.senderId)
-        await(what = "主机成员表回到 1 人") { hostRec.rosters.last().members.size == 1 }
+        await(what = "主机成员表回到 1 人") { hostRec.rosters.lastOrNull()?.members?.size == 1 }
     }
 
     @Test
@@ -136,9 +159,66 @@ class WifiTransportTest {
             write(Frame(FrameType.AUDIO, 9, 0, ByteArray(4)).encode())
             flush()
         }
-        raw.soTimeout = 3000
-        assertEquals(-1, raw.getInputStream().read())
+        assertDropped(raw, "首帧非 JOIN")
         assertEquals(1, hostRec.rosters.last().members.size)
+    }
+
+    /**
+     * 硬指标 1 的判别用例：入房首帧就畸形（未知类型 99）时该连接必须被断掉，主机继续服务别人。
+     * 把 `clientLoop` 的首帧读换回裸 `readFrame()` 本例即失败——IAE 穿透打死该线程，
+     * socket 永远不关，下面的 read 会超时而不是读到 -1。
+     */
+    @Test
+    fun `首帧畸形的连接被断开且主机继续服务`() {
+        val hostRec = Recorder()
+        val host = startHost(hostRec)
+        val raw = trackSocket(Socket())
+        raw.connect(InetSocketAddress("127.0.0.1", host.signalPort), 2000)
+        raw.getOutputStream().apply {
+            write(byteArrayOf(99, 1, 0, 0, 0, 0))   // 未知帧类型：Frame.decode 抛 IllegalArgumentException
+            flush()
+        }
+
+        assertDropped(raw, "首帧畸形")
+
+        val cliRec = Recorder()
+        val client = track(
+            WifiClientTransport("小明", "127.0.0.1", cliRec, signalPort = host.signalPort, audioBindPort = 0)
+        )
+        client.start()
+        await(what = "新客户端入房") { cliRec.rosters.isNotEmpty() }
+        assertEquals(listOf(0, 1), cliRec.rosters.last().members.map { it.id })
+        assertEquals(2, hostRec.rosters.last().members.size)
+    }
+
+    /**
+     * 规格：房间上限 6 人（含建房者）。第 7 人必须在门口被拒——放他进表会让全员的
+     * ROSTER 编码超 512B，成员表当场冻结（既有成员的 UI 从此不再更新）。
+     */
+    @Test
+    fun `房间满员后拒绝新成员且既有成员表不受影响`() {
+        val hostRec = Recorder()
+        val host = startHost(hostRec)
+        // 4 个裸 socket + 1 个真客户端 = 5 名成员，加主机正好坐满 6 人。昵称取满 60 字节逼近载荷上限。
+        repeat(4) { i -> joinRaw(host, "c$i".padEnd(60, 'x')) }
+        val cliRec = Recorder()
+        val client = track(
+            WifiClientTransport(
+                "last".padEnd(60, 'x'), "127.0.0.1", cliRec,
+                signalPort = host.signalPort, audioBindPort = 0,
+            )
+        )
+        client.start()
+        await(what = "房间坐满 6 人") { hostRec.rosters.lastOrNull()?.members?.size == 6 }
+        await(what = "末位成员拿到 6 人成员表") { cliRec.rosters.lastOrNull()?.members?.size == 6 }
+
+        val seventh = joinRaw(host, "第七人")
+
+        assertDropped(seventh, "第 7 人应被拒")
+        // 前 6 人的成员表原样健在，也没人被踢
+        assertEquals(listOf(0, 1, 2, 3, 4, 5), hostRec.rosters.last().members.map { it.id })
+        assertEquals(listOf(0, 1, 2, 3, 4, 5), cliRec.rosters.last().members.map { it.id })
+        assertTrue("既有成员不该收到断开通知", cliRec.disconnects.isEmpty())
     }
 
     /** 硬指标 1：接收循环用 readFrameSafely，畸形帧（未知类型）不得炸线程，只断该对端。 */
@@ -151,13 +231,13 @@ class WifiTransportTest {
         val out = raw.getOutputStream()
         out.write(Frame(FrameType.JOIN, 0, 0, "捣乱".toByteArray()).encode())
         out.flush()
-        await(what = "捣乱者入房") { hostRec.rosters.last().members.size == 2 }
+        await(what = "捣乱者入房") { hostRec.rosters.lastOrNull()?.members?.size == 2 }
 
         // 未知帧类型 99：FrameStreamReader.readFrame 内部 Frame.decode 抛 IllegalArgumentException
         out.write(byteArrayOf(99, 1, 0, 0, 0, 0))
         out.flush()
 
-        await(what = "主机踢掉畸形对端") { hostRec.rosters.last().members.size == 1 }
+        await(what = "主机踢掉畸形对端") { hostRec.rosters.lastOrNull()?.members?.size == 1 }
 
         // 主机仍能接受新连接
         val cliRec = Recorder()

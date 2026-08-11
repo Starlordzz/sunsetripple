@@ -13,6 +13,13 @@ object RosterCodec {
     /** 昵称 UTF-8 字节上限。 */
     const val MAX_NICK_BYTES = 60
 
+    /**
+     * 按 [encode] 的同一口径截断昵称（<= [MAX_NICK_BYTES] 字节，不劈开多字节字符）。
+     * 传输层入表前先过一遍，主机自己看到的昵称才和下发给成员的一致。
+     */
+    fun truncateNickname(s: String): String =
+        String(truncateUtf8(s, MAX_NICK_BYTES), Charsets.UTF_8)
+
     fun encode(yourId: Int, members: List<MemberInfo>): ByteArray {
         require(yourId in 0..255) { "yourId 越界: $yourId" }
         require(members.size in 0..255) { "成员数越界: ${members.size}" }

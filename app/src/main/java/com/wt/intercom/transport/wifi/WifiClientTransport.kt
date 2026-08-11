@@ -78,50 +78,57 @@ class WifiClientTransport(
             notifyDisconnected("房间已结束")
             return
         }
-        while (running) {
-            // 硬指标：接收循环一律走 readFrameSafely——null＝断流或协议错误，判定房间结束。
-            val f = try {
-                reader.readFrameSafely()
-            } catch (e: Exception) {
-                // 本端 close() 或对端复位会让 read 抛 IOException，同样按房间结束处理。
-                if (running) TransportLog.w("信令连接读取异常: ${e.message}", e)
-                notifyDisconnected("房间已结束")
-                return
-            }
-            if (f == null) {
-                notifyDisconnected("房间已结束")
-                return
-            }
-            when (f.type) {
-                FrameType.ROSTER -> {
-                    val roster = try {
-                        RosterCodec.decode(f.payload)
-                    } catch (e: IllegalArgumentException) {
-                        TransportLog.w("成员表解析失败，忽略本帧: ${e.message}", e)
-                        continue
+        // 对齐 Host clientLoop 的兜底结构：读异常、协议错误、listener 回调抛出，
+        // 统统收口到 finally 的断开通知。回调穿透若只是打死本线程而不上报，
+        // UI 会永远停在"已连接"，用户对着一个死房间说话。
+        try {
+            while (running) {
+                // 硬指标：接收循环一律走 readFrameSafely——null＝断流或协议错误，判定房间结束。
+                val f = reader.readFrameSafely() ?: break
+                when (f.type) {
+                    FrameType.ROSTER -> {
+                        val roster = try {
+                            RosterCodec.decode(f.payload)
+                        } catch (e: IllegalArgumentException) {
+                            TransportLog.w("成员表解析失败，忽略本帧: ${e.message}", e)
+                            continue
+                        }
+                        selfId = roster.yourId
+                        peers = roster.members
+                        listener.onRoster(roster)
                     }
-                    selfId = roster.yourId
-                    peers = roster.members
-                    listener.onRoster(roster)
+                    FrameType.JOIN -> Unit   // 主机不会下发 JOIN，忽略
+                    else -> listener.onFrame(f)
                 }
-                FrameType.JOIN -> Unit   // 主机不会下发 JOIN，忽略
-                else -> listener.onFrame(f)
             }
+        } catch (e: Exception) {
+            // 本端 close() 或对端复位会让 read 抛 IOException；listener 回调抛出也在此收口。
+            if (running) TransportLog.w("信令连接读取异常: ${e.message}", e)
+        } finally {
+            notifyDisconnected("房间已结束")
         }
     }
 
     private fun udpReceiveLoop() {
         val buf = ByteArray(UDP_BUFFER)
         while (running) {
-            try {
+            val frame = try {
                 val packet = DatagramPacket(buf, buf.size)
                 udp.receive(packet)
-                listener.onFrame(Frame.decode(buf.copyOf(packet.length)))
+                Frame.decode(buf.copyOf(packet.length))
             } catch (e: IllegalArgumentException) {
                 TransportLog.w("丢弃畸形音频包: ${e.message}", e)
+                continue
             } catch (e: Exception) {
                 if (!running || udp.isClosed) break
                 TransportLog.w("音频端口接收异常: ${e.message}", e)
+                continue
+            }
+            // 回调单独兜底：listener 抛出不是"坏包"，不能记成丢包，更不能打死接收线程。
+            try {
+                listener.onFrame(frame)
+            } catch (e: Exception) {
+                TransportLog.w("音频帧回调异常: ${e.message}", e)
             }
         }
     }
