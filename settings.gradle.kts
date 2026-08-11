@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "bluetooth_wt"
+rootProject.name = "SunsetRipple"
 include(":app")
