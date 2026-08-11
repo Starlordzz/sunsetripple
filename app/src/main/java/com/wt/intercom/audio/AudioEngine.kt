@@ -22,6 +22,7 @@ class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
     private var track: AudioTrack? = null
     private var aec: AcousticEchoCanceler? = null
     private var captureThread: Thread? = null
+    private val ioLock = Any()
 
     @SuppressLint("MissingPermission")  // 调用方保证已获 RECORD_AUDIO
     fun start() {
@@ -47,6 +48,10 @@ class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
             maxOf(minPlay, AudioConfig.FRAME_SAMPLES * 4),
             AudioTrack.MODE_STREAM,
             AudioManager.AUDIO_SESSION_ID_GENERATE)
+        if (rec.state != AudioRecord.STATE_INITIALIZED) {
+            rec.release(); trk.release()
+            throw IllegalStateException("麦克风初始化失败（可能被其他应用占用）")
+        }
         if (AcousticEchoCanceler.isAvailable()) {
             aec = AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
         }
@@ -59,30 +64,34 @@ class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
             val buf = ShortArray(AudioConfig.FRAME_SAMPLES)
             while (running) {
                 var off = 0
+                var dead = false
                 while (off < buf.size && running) {
                     val n = rec.read(buf, off, buf.size - off)
-                    if (n <= 0) break
+                    if (n <= 0) { dead = true; break }
                     off += n
                 }
-                if (running && off == buf.size && !micMuted) onPcmFrame(buf.copyOf())
+                if (dead) break   // 持久性错误：退出线程，避免 100% CPU 空转
+                if (running && !micMuted) onPcmFrame(buf.copyOf())
             }
         }, "audio-capture").apply { start() }
     }
 
     /** 阻塞写入一帧待播放 PCM。 */
     fun playPcm(pcm: ShortArray) {
-        track?.write(pcm, 0, pcm.size)
+        synchronized(ioLock) { track?.write(pcm, 0, pcm.size) }
     }
 
     fun stop() {
         running = false
         captureThread?.join(500)
         captureThread = null
-        aec?.release()
-        aec = null
-        record?.let { runCatching { it.stop() }; it.release() }
-        record = null
-        track?.let { runCatching { it.stop() }; it.release() }
-        track = null
+        synchronized(ioLock) {
+            aec?.release()
+            aec = null
+            record?.let { runCatching { it.stop() }; it.release() }
+            record = null
+            track?.let { runCatching { it.stop() }; it.release() }
+            track = null
+        }
     }
 }

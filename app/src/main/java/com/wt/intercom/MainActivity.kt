@@ -3,6 +3,7 @@ package com.wt.intercom
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -54,8 +55,11 @@ fun LoopbackScreen(controller: LoopbackController) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            controller.start()
-            running = true
+            runCatching { controller.start() }
+                .onSuccess { running = true }
+                .onFailure { Toast.makeText(context, it.message ?: "启动失败", Toast.LENGTH_LONG).show() }
+        } else {
+            Toast.makeText(context, "需要录音权限才能使用回环测试", Toast.LENGTH_LONG).show()
         }
     }
     Column(
@@ -75,8 +79,9 @@ fun LoopbackScreen(controller: LoopbackController) {
             } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                 == PackageManager.PERMISSION_GRANTED
             ) {
-                controller.start()
-                running = true
+                runCatching { controller.start() }
+                    .onSuccess { running = true }
+                    .onFailure { Toast.makeText(context, it.message ?: "启动失败", Toast.LENGTH_LONG).show() }
             } else {
                 permLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }

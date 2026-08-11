@@ -10,6 +10,7 @@ class LoopbackController {
     private var playThread: Thread? = null
 
     fun start() {
+        if (running) return
         val encoder = OpusCodec()
         val decoder = OpusCodec()
         val jitter = JitterBuffer()
@@ -24,7 +25,11 @@ class LoopbackController {
         val silence = ShortArray(AudioConfig.FRAME_SAMPLES)
         playThread = Thread({
             while (running) {
-                val out = if (jitter.hasStarted()) decoder.decode(jitter.poll()) else silence
+                val packet = jitter.poll()
+                // 必须无条件调用 poll()——started 标志只在 poll 内部翻转，
+                // 把 hasStarted() 当调用前置条件会自锁（预缓冲永远攒不满）。
+                val out = if (packet == null && !jitter.hasStarted()) silence
+                          else decoder.decode(packet)
                 eng.playPcm(out)   // 阻塞写提供 20ms 节拍
             }
         }, "audio-playback").apply { start() }
