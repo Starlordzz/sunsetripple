@@ -35,22 +35,28 @@ class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
             maxOf(minRec, AudioConfig.FRAME_SAMPLES * 4))
         val minPlay = AudioTrack.getMinBufferSize(
             AudioConfig.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val trk = AudioTrack(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build(),
-            AudioFormat.Builder()
-                .setSampleRate(AudioConfig.SAMPLE_RATE)
-                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                .build(),
-            maxOf(minPlay, AudioConfig.FRAME_SAMPLES * 4),
-            AudioTrack.MODE_STREAM,
-            AudioManager.AUDIO_SESSION_ID_GENERATE)
-        if (rec.state != AudioRecord.STATE_INITIALIZED) {
+        val trk: AudioTrack
+        try {
+            trk = AudioTrack(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+                AudioFormat.Builder()
+                    .setSampleRate(AudioConfig.SAMPLE_RATE)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build(),
+                maxOf(minPlay, AudioConfig.FRAME_SAMPLES * 4),
+                AudioTrack.MODE_STREAM,
+                AudioManager.AUDIO_SESSION_ID_GENERATE)
+        } catch (e: Throwable) {
+            rec.release()
+            throw IllegalStateException("音频输出初始化失败", e)
+        }
+        if (rec.state != AudioRecord.STATE_INITIALIZED || trk.state != AudioTrack.STATE_INITIALIZED) {
             rec.release(); trk.release()
-            throw IllegalStateException("麦克风初始化失败（可能被其他应用占用）")
+            throw IllegalStateException("音频设备初始化失败（可能被其他应用占用）")
         }
         if (AcousticEchoCanceler.isAvailable()) {
             aec = AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
@@ -85,6 +91,7 @@ class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
         running = false
         captureThread?.join(500)
         captureThread = null
+        runCatching { track?.stop() }   // 先 stop 解除 playPcm 中可能阻塞的 write，再进锁释放，防止主线程在 ioLock 上挂死
         synchronized(ioLock) {
             aec?.release()
             aec = null

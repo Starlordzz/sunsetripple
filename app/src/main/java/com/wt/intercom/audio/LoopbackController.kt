@@ -21,7 +21,13 @@ class LoopbackController {
         }
         engine = eng
         running = true
-        eng.start()
+        try {
+            eng.start()
+        } catch (e: Throwable) {
+            running = false
+            engine = null
+            throw e
+        }
         val silence = ShortArray(AudioConfig.FRAME_SAMPLES)
         playThread = Thread({
             while (running) {
