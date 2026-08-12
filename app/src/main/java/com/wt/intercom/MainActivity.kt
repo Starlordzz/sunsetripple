@@ -13,7 +13,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,6 +41,7 @@ import com.wt.intercom.ui.RoomScreen
 import com.wt.intercom.ui.RoomStart
 import com.wt.intercom.ui.ScanScreen
 import com.wt.intercom.ui.Screen
+import com.wt.intercom.ui.SunsetRippleTheme
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
         wifi.register()
         watchRoomDeath()
         handleLeaveIntent(intent)
-        setContent { MaterialTheme { App() } }
+        setContent { SunsetRippleTheme { App() } }
     }
 
     override fun onNewIntent(intent: Intent) {

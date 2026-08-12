@@ -24,8 +24,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:icon="@mipmap/ic_launcher"
         android:label="落日后残波"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.SunsetRipple">
         <activity
             android:name=".MainActivity"
             android:exported="true"
