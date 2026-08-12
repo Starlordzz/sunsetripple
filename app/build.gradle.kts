@@ -37,5 +37,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.5")
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
     testImplementation("junit:junit:4.13.2")
 }
