@@ -1,6 +1,8 @@
 package com.wt.intercom.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,8 +21,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +42,7 @@ fun RoomScreen(
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
     onLeave: () -> Unit,
+    onPttChanged: ((Boolean) -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().background(SunsetColors.Canvas)) {
         SunsetBrandHeader(height = 188.dp) {
@@ -100,15 +109,59 @@ fun RoomScreen(
         Column(
             modifier = Modifier.fillMaxWidth().background(SunsetColors.Surface).padding(20.dp, 16.dp, 20.dp, 20.dp)
         ) {
-            Row(Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = onToggleMute,
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(if (state.micMuted) "打开麦克风" else "静音")
+            if (onPttChanged != null) {
+                var pressed by remember { mutableStateOf(false) }
+                DisposableEffect(onPttChanged) {
+                    onDispose { onPttChanged(false) }
                 }
-                Spacer(Modifier.width(10.dp))
+                Button(
+                    onClick = {},
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(68.dp)
+                        .pointerInput(onPttChanged) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                pressed = true
+                                onPttChanged(true)
+                                try {
+                                    var heldInside: Boolean
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        heldInside = event.changes.any { change ->
+                                            change.pressed &&
+                                                change.position.x in 0f..size.width.toFloat() &&
+                                                change.position.y in 0f..size.height.toFloat()
+                                        }
+                                    } while (heldInside)
+                                } finally {
+                                    pressed = false
+                                    onPttChanged(false)
+                                }
+                            }
+                        },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (pressed) SunsetColors.CoralDark else SunsetColors.Coral,
+                    ),
+                ) {
+                    RippleStatusMark(active = pressed, modifier = Modifier.size(34.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (pressed) "正在说话" else "按住说话")
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+            Row(Modifier.fillMaxWidth()) {
+                if (onPttChanged == null) {
+                    OutlinedButton(
+                        onClick = onToggleMute,
+                        modifier = Modifier.weight(1f).height(50.dp),
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(if (state.micMuted) "打开麦克风" else "静音")
+                    }
+                    Spacer(Modifier.width(10.dp))
+                }
                 OutlinedButton(
                     onClick = onToggleSpeaker,
                     modifier = Modifier.weight(1f).height(50.dp),

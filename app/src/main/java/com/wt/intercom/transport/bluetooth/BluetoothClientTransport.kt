@@ -40,6 +40,10 @@ class BluetoothClientTransport internal constructor(
             close()
             throw e
         }
+        if (closed.get()) {
+            runCatching { opened.close() }
+            return
+        }
         connection = opened
         running = true
         connected.set(true)

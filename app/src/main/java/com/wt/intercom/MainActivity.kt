@@ -1,6 +1,8 @@
 package com.wt.intercom
 
 import android.Manifest
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
@@ -27,15 +29,23 @@ import com.wt.intercom.audio.LoopbackController
 import com.wt.intercom.service.CallForegroundService
 import com.wt.intercom.session.RoomSession
 import com.wt.intercom.session.RoomUiState
+import com.wt.intercom.session.BluetoothRoomSession
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.bluetooth.BluetoothClientTransport
+import com.wt.intercom.transport.bluetooth.BluetoothHostTransport
+import com.wt.intercom.transport.bluetooth.BluetoothRoomManager
 import com.wt.intercom.transport.wifi.WifiClientTransport
 import com.wt.intercom.transport.wifi.WifiDirectManager
 import com.wt.intercom.transport.wifi.WifiHostTransport
 import com.wt.intercom.ui.GroupInfo
+import com.wt.intercom.ui.BluetoothPermissions
+import com.wt.intercom.ui.BluetoothRoomRole
+import com.wt.intercom.ui.BluetoothScanScreen
 import com.wt.intercom.ui.HomeScreen
 import com.wt.intercom.ui.LoopbackScreen
 import com.wt.intercom.ui.RoomFlow
 import com.wt.intercom.ui.RoomPermissions
+import com.wt.intercom.ui.RoomKind
 import com.wt.intercom.ui.RoomRole
 import com.wt.intercom.ui.RoomScreen
 import com.wt.intercom.ui.RoomStart
@@ -55,11 +65,21 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
+    private data class WifiRoomSnapshot(
+        val session: RoomSession?,
+        val group: GroupInfo?,
+        val channelLost: Boolean,
+        val kind: RoomKind?,
+    )
+
     private lateinit var wifi: WifiDirectManager
+    private lateinit var bluetooth: BluetoothRoomManager
     private val loopback = LoopbackController()
 
     /** 会话得让 Compose 观察得到（建/散都要触发重组），所以用 StateFlow 而不是裸字段。 */
     private val sessionFlow = MutableStateFlow<RoomSession?>(null)
+    private val bluetoothSessionFlow = MutableStateFlow<BluetoothRoomSession?>(null)
+    private val roomKindFlow = MutableStateFlow<RoomKind?>(null)
 
     /** 通知栏「离开」按钮的请求计数：自增一次＝要求离房一次。 */
     private val leaveRequests = MutableStateFlow(0)
@@ -74,6 +94,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         wifi = WifiDirectManager(this)
+        bluetooth = BluetoothRoomManager(this)
         wifi.register()
         watchRoomDeath()
         handleLeaveIntent(intent)
@@ -90,6 +111,7 @@ class MainActivity : ComponentActivity() {
         loopback.stop()
         releaseRoom()
         wifi.unregister()
+        bluetooth.close()
         activityScope.cancel()
         super.onDestroy()
     }
@@ -108,15 +130,20 @@ class MainActivity : ComponentActivity() {
      */
     private fun watchRoomDeath() {
         activityScope.launch {
-            combine(sessionFlow, wifi.connection, wifi.channelLost) { session, info, channelLost ->
+            combine(sessionFlow, wifi.connection, wifi.channelLost, roomKindFlow) { session, info, channelLost, kind ->
                 val group = info?.let {
                     GroupInfo(it.groupFormed, it.isGroupOwner, it.groupOwnerAddress?.hostAddress)
                 }
-                Triple(session, group, channelLost)
-            }.collect { (session, group, channelLost) ->
-                if (session == null) return@collect
+                WifiRoomSnapshot(session, group, channelLost, kind)
+            }.collect { snapshot ->
+                val session = snapshot.session ?: return@collect
+                if (snapshot.kind != RoomKind.WIFI) return@collect
                 val reason =
-                    RoomFlow.deathReason(sessionActive = true, group = group, channelLost = channelLost)
+                    RoomFlow.deathReason(
+                        sessionActive = true,
+                        group = snapshot.group,
+                        channelLost = snapshot.channelLost,
+                    )
                         ?: return@collect
                 TransportLog.w("P2P 组网中断，停机：$reason")
                 // 停机要 join 播放线程，别压在主线程上。
@@ -144,12 +171,24 @@ class MainActivity : ComponentActivity() {
         CallForegroundService.start(this, label)
     }
 
-    /** 释放房间：会话 → P2P 组 → 前台服务 → 音频模式。幂等，主线程调用。 */
+    /** 释放当前房型资源：会话 → manager → 前台服务 → 音频模式。幂等，主线程调用。 */
     private fun releaseRoom() {
-        val session = sessionFlow.value
-        sessionFlow.value = null
-        session?.let { runCatching { it.leave() }.onFailure { e -> TransportLog.w("离房异常: ${e.message}", e) } }
-        wifi.disconnect()
+        when (roomKindFlow.value) {
+            RoomKind.WIFI -> {
+                val session = sessionFlow.value
+                sessionFlow.value = null
+                session?.let { runCatching { it.leave() }.onFailure { e -> TransportLog.w("WiFi 离房异常: ${e.message}", e) } }
+                wifi.disconnect()
+            }
+            RoomKind.BLUETOOTH -> {
+                val session = bluetoothSessionFlow.value
+                bluetoothSessionFlow.value = null
+                session?.let { runCatching { it.leave() }.onFailure { e -> TransportLog.w("蓝牙离房异常: ${e.message}", e) } }
+                bluetooth.close()
+            }
+            null -> Unit
+        }
+        roomKindFlow.value = null
         CallForegroundService.stop(this)
         setCommunicationMode(false)
     }
@@ -164,9 +203,11 @@ class MainActivity : ComponentActivity() {
 
     /** 会话为空时退化成一条恒定的空状态流，免得条件式调用 Composable。 */
     @Composable
-    private fun rememberRoomState(session: RoomSession?): RoomUiState {
+    private fun rememberRoomState(session: RoomSession?, bluetoothSession: BluetoothRoomSession?): RoomUiState {
         val flow: StateFlow<RoomUiState> =
-            remember(session) { session?.state ?: MutableStateFlow(RoomUiState()) }
+            remember(session, bluetoothSession) {
+                session?.state ?: bluetoothSession?.state ?: MutableStateFlow(RoomUiState())
+            }
         return flow.collectAsStateWithLifecycle().value
     }
 
@@ -182,6 +223,8 @@ class MainActivity : ComponentActivity() {
         var isHost by remember { mutableStateOf(false) }
         var speakerOn by remember { mutableStateOf(true) }
         var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+        var pendingBluetoothRole by remember { mutableStateOf<BluetoothRoomRole?>(null) }
+        var pendingBluetoothAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
         val required = remember(sdkInt) { RoomPermissions.required(sdkInt) }
         val requested = remember(sdkInt) { RoomPermissions.requested(sdkInt).toTypedArray() }
@@ -190,8 +233,14 @@ class MainActivity : ComponentActivity() {
         val peers by wifi.peers.collectAsStateWithLifecycle()
         val wifiError by wifi.lastError.collectAsStateWithLifecycle()
         val session by sessionFlow.collectAsStateWithLifecycle()
+        val bluetoothSession by bluetoothSessionFlow.collectAsStateWithLifecycle()
+        val roomKind by roomKindFlow.collectAsStateWithLifecycle()
+        val bondedDevices by bluetooth.bondedDevices.collectAsStateWithLifecycle()
+        val discoveredDevices by bluetooth.discoveredDevices.collectAsStateWithLifecycle()
+        val bluetoothDiscovering by bluetooth.discovering.collectAsStateWithLifecycle()
+        val bluetoothError by bluetooth.lastError.collectAsStateWithLifecycle()
         val leaveRequest by leaveRequests.collectAsStateWithLifecycle()
-        val roomState = rememberRoomState(session)
+        val roomState = rememberRoomState(session, bluetoothSession)
         val group = connection?.let {
             GroupInfo(it.groupFormed, it.isGroupOwner, it.groupOwnerAddress?.hostAddress)
         }
@@ -240,6 +289,54 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        val bluetoothPermLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { result ->
+            val action = pendingBluetoothAction
+            val bluetoothRole = pendingBluetoothRole
+            pendingBluetoothAction = null
+            pendingBluetoothRole = null
+            if (bluetoothRole == null) return@rememberLauncherForActivityResult
+            val denied = BluetoothPermissions.blockingDenied(result, sdkInt, bluetoothRole)
+            if (denied.isEmpty()) {
+                action?.invoke()
+            } else {
+                val message = BluetoothPermissions.deniedMessage(denied)
+                status = message
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        fun startBluetoothHost() {
+            val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            val newSession = BluetoothRoomSession(nickname)
+            val transport = BluetoothHostTransport(nickname, newSession, adapter)
+            bluetoothSessionFlow.value = newSession
+            roomKindFlow.value = RoomKind.BLUETOOTH
+            isHost = true
+            beginCall(BLUETOOTH_HOST_LABEL, speakerOn)
+            runCatching { newSession.start(transport) }
+                .onSuccess {
+                    status = null
+                    screen = Screen.ROOM
+                }
+                .onFailure { error ->
+                    TransportLog.w("蓝牙建房失败: ${error.message}", error)
+                    Toast.makeText(context, "蓝牙建房失败：${error.message}", Toast.LENGTH_LONG).show()
+                    goHome("蓝牙建房失败：${error.message}")
+                }
+        }
+
+        val discoverableLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == RESULT_CANCELED) {
+                status = "需要允许蓝牙可发现才能创建房间"
+            } else {
+                startBluetoothHost()
+            }
+        }
+
         /** 进房前置条件：权限齐 +（旧版本上）系统定位服务开着。 */
         fun withRoomPreconditions(action: () -> Unit) {
             val missing = required.any {
@@ -265,6 +362,49 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        fun withBluetoothPermissions(bluetoothRole: BluetoothRoomRole, action: () -> Unit) {
+            val requiredPermissions = BluetoothPermissions.required(sdkInt, bluetoothRole)
+            val missing = requiredPermissions.any {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing) {
+                pendingBluetoothRole = bluetoothRole
+                pendingBluetoothAction = action
+                bluetoothPermLauncher.launch(requiredPermissions.toTypedArray())
+            } else {
+                action()
+            }
+        }
+
+        fun startBluetoothGuest(device: BluetoothDevice) {
+            val newSession = BluetoothRoomSession(nickname)
+            bluetoothSessionFlow.value = newSession
+            roomKindFlow.value = RoomKind.BLUETOOTH
+            isHost = false
+            status = "正在连接 ${device.name.orEmpty().ifBlank { device.address }}……"
+            val nick = nickname
+            val speaker = speakerOn
+            beginCall(BLUETOOTH_GUEST_LABEL, speaker)
+            thread(name = "bluetooth-join") {
+                val transport = BluetoothClientTransport(nick, newSession, device)
+                try {
+                    newSession.start(transport)
+                } catch (error: Exception) {
+                    TransportLog.w("蓝牙入房失败: ${error.message}", error)
+                    runOnUiThread { goHome("蓝牙入房失败：${error.message}") }
+                    return@thread
+                }
+                runOnUiThread {
+                    if (bluetoothSessionFlow.value !== newSession) {
+                        runCatching { newSession.leave() }
+                        return@runOnUiThread
+                    }
+                    status = null
+                    screen = Screen.ROOM
+                }
+            }
+        }
+
         fun startHost(hostIp: String) {
             val newSession = RoomSession(nickname)
             // 构造即绑端口，失败要让用户看见（8988/8989 被占）。
@@ -277,6 +417,7 @@ class MainActivity : ComponentActivity() {
                 return
             }
             sessionFlow.value = newSession
+            roomKindFlow.value = RoomKind.WIFI
             isHost = true
             beginCall(HOST_LABEL, speakerOn)
             try {
@@ -296,6 +437,7 @@ class MainActivity : ComponentActivity() {
         fun startGuest(hostIp: String) {
             val newSession = RoomSession(nickname)
             sessionFlow.value = newSession
+            roomKindFlow.value = RoomKind.WIFI
             isHost = false
             status = "正在入房……"
             val nick = nickname
@@ -353,7 +495,7 @@ class MainActivity : ComponentActivity() {
 
         // 通知栏「离开」按钮。
         LaunchedEffect(leaveRequest) {
-            if (leaveRequest > 0 && sessionFlow.value != null) goHome(null)
+            if (leaveRequest > 0 && (sessionFlow.value != null || bluetoothSessionFlow.value != null)) goHome(null)
         }
 
         BackHandler(enabled = screen != Screen.HOME) {
@@ -369,6 +511,9 @@ class MainActivity : ComponentActivity() {
                     wifi.disconnect()
                     status = null
                     screen = Screen.HOME
+                }
+                Screen.BLUETOOTH_SCAN -> {
+                    goHome(null)
                 }
                 Screen.HOME -> Unit
             }
@@ -391,6 +536,25 @@ class MainActivity : ComponentActivity() {
                         status = null
                         wifi.discoverPeers()
                         screen = Screen.SCAN
+                    }
+                },
+                onCreateBluetoothRoom = {
+                    withBluetoothPermissions(BluetoothRoomRole.HOST) {
+                        bluetooth.register()
+                        val intent = bluetooth.requestDiscoverableIntent(300)
+                        if (intent == null) {
+                            status = bluetooth.lastError.value
+                        } else {
+                            discoverableLauncher.launch(intent)
+                        }
+                    }
+                },
+                onJoinBluetoothRoom = {
+                    withBluetoothPermissions(BluetoothRoomRole.GUEST) {
+                        bluetooth.register()
+                        bluetooth.discoverDevices()
+                        status = null
+                        screen = Screen.BLUETOOTH_SCAN
                     }
                 },
                 onLoopbackTest = {
@@ -424,9 +588,33 @@ class MainActivity : ComponentActivity() {
                 },
             )
 
+            Screen.BLUETOOTH_SCAN -> BluetoothScanScreen(
+                bondedDevices = bondedDevices,
+                discoveredDevices = discoveredDevices,
+                discovering = bluetoothDiscovering,
+                status = status ?: bluetoothError,
+                onPick = { device ->
+                    if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                        bluetooth.close()
+                        startBluetoothGuest(device)
+                    } else {
+                        status = "请在系统配对弹窗中确认"
+                        runCatching { device.createBond() }
+                            .onFailure { status = "发起配对失败：${it.message}" }
+                    }
+                },
+                onScanAgain = { bluetooth.discoverDevices() },
+                onBack = {
+                    goHome(null)
+                },
+            )
+
             Screen.ROOM -> RoomScreen(
                 state = roomState,
-                roomLabel = if (isHost) HOST_LABEL else GUEST_LABEL,
+                roomLabel = when (roomKind) {
+                    RoomKind.BLUETOOTH -> if (isHost) BLUETOOTH_HOST_LABEL else BLUETOOTH_GUEST_LABEL
+                    else -> if (isHost) HOST_LABEL else GUEST_LABEL
+                },
                 speakerOn = speakerOn,
                 onToggleMute = { session?.setMicMuted(!roomState.micMuted) },
                 onToggleSpeaker = {
@@ -434,6 +622,9 @@ class MainActivity : ComponentActivity() {
                     setSpeaker(speakerOn)
                 },
                 onLeave = { goHome(null) },
+                onPttChanged = if (roomKind == RoomKind.BLUETOOTH) {
+                    { pressed -> bluetoothSession?.setPttPressed(pressed) }
+                } else null,
             )
 
             Screen.LOOPBACK -> LoopbackScreen(
@@ -448,5 +639,7 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val HOST_LABEL = "WiFi 房（我是房主）"
         const val GUEST_LABEL = "WiFi 房"
+        const val BLUETOOTH_HOST_LABEL = "蓝牙房（我是房主）"
+        const val BLUETOOTH_GUEST_LABEL = "蓝牙房"
     }
 }

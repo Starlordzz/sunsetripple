@@ -42,6 +42,10 @@ class BluetoothRoomManager(context: Context) {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 BluetoothDevice.ACTION_FOUND -> deviceFrom(intent)?.let(::addDiscoveredDevice)
+                BluetoothDevice.ACTION_BOND_STATE_CHANGED -> deviceFrom(intent)?.let { device ->
+                    addDiscoveredDevice(device)
+                    refreshBondedDevices()
+                }
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> _discovering.value = false
                 BluetoothAdapter.ACTION_STATE_CHANGED -> when (
                     intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
@@ -67,6 +71,7 @@ class BluetoothRoomManager(context: Context) {
         if (registered) return
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
         }

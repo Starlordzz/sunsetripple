@@ -32,6 +32,8 @@ fun HomeScreen(
     onNicknameChange: (String) -> Unit,
     onCreateWifiRoom: () -> Unit,
     onJoinWifiRoom: () -> Unit,
+    onCreateBluetoothRoom: () -> Unit,
+    onJoinBluetoothRoom: () -> Unit,
     onLoopbackTest: () -> Unit,
     status: String?,
 ) {
@@ -104,6 +106,37 @@ fun HomeScreen(
                     shape = RoundedCornerShape(8.dp),
                 ) {
                     Text("加入房间")
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
+            Text(
+                text = "蓝牙房",
+                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
+                color = SunsetColors.Ink,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "按住说话，适合无网络的近距离协作",
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                color = SunsetColors.Muted,
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onCreateBluetoothRoom,
+                    modifier = Modifier.weight(1f).height(54.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.CoralDark),
+                ) {
+                    Text("创建蓝牙房")
+                }
+                OutlinedButton(
+                    onClick = onJoinBluetoothRoom,
+                    modifier = Modifier.weight(1f).height(54.dp),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text("加入蓝牙房")
                 }
             }
 

@@ -188,6 +188,28 @@ class BluetoothTransportContractTest {
     }
 
     @Test
+    fun `客户端连接中 close 后工厂返回的连接仍被关闭`() {
+        val connection = RecordingConnection()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val client = BluetoothClientTransport("成员", Recorder()) {
+            entered.countDown()
+            release.await()
+            connection
+        }
+        val startThread = Thread { runCatching { client.start() } }
+        startThread.start()
+        assertTrue(entered.await(1, TimeUnit.SECONDS))
+
+        client.close()
+        release.countDown()
+        startThread.join(1_000)
+
+        assertTrue(connection.closed.get())
+        assertTrue(!startThread.isAlive)
+    }
+
+    @Test
     fun `sendTo 只把帧发给目标成员`() {
         val room = room()
         val first = room.client("成员一")
