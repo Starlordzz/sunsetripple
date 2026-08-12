@@ -125,6 +125,7 @@ class WifiDirectManager(context: Context) {
 
     @SuppressLint("MissingPermission")
     fun connect(device: WifiP2pDevice) {
+        ensureChannel()
         val config = WifiP2pConfig().apply { deviceAddress = device.deviceAddress }
         manager.connect(channel, config, actionListener("连接"))
     }
@@ -134,15 +135,20 @@ class WifiDirectManager(context: Context) {
      * 把它当错误显示的话，每次正常离房首页都会挂一条红字。顺手清掉上一轮的错误提示。
      */
     fun disconnect() {
-        manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                TransportLog.w("WiFi Direct 组已解散")
-            }
+        runCatching {
+            manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    TransportLog.w("WiFi Direct 组已解散")
+                }
 
-            override fun onFailure(reason: Int) {
-                TransportLog.w("WiFi Direct 解散组失败（code=$reason，无组时属正常）")
-            }
-        })
+                override fun onFailure(reason: Int) {
+                    TransportLog.w("WiFi Direct 解散组失败（code=$reason，无组时属正常）")
+                }
+            })
+        }.onFailure {
+            // ChannelListener 可能刚把旧 channel 标成失效；状态清理仍须完成，不能让离房崩溃。
+            TransportLog.w("WiFi Direct 解散组调用失败（可能是 channel 已断开）: ${it.message}", it)
+        }
         connection.value = null
         peers.value = emptyList()
         lastError.value = null
