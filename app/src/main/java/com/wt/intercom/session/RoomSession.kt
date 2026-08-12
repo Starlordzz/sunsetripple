@@ -2,6 +2,8 @@ package com.wt.intercom.session
 
 import com.wt.intercom.audio.AudioConfig
 import com.wt.intercom.audio.AudioEngine
+import com.wt.intercom.audio.AudioIo
+import com.wt.intercom.audio.EngineAudioIo
 import com.wt.intercom.audio.JitterBuffer
 import com.wt.intercom.audio.Mixer
 import com.wt.intercom.audio.OpusCodec
@@ -23,25 +25,6 @@ data class RoomUiState(
     val micMuted: Boolean = false,
     val endedReason: String? = null,
 )
-
-/**
- * 音频出入口抽象。生产实现包装 [AudioEngine]；单元测试可替换以避开 Android 音频设备。
- */
-internal interface AudioIo {
-    var micMuted: Boolean
-    fun start()
-    fun playPcm(pcm: ShortArray)
-    fun stop()
-}
-
-private class EngineAudioIo(private val engine: AudioEngine) : AudioIo {
-    override var micMuted: Boolean
-        get() = engine.micMuted
-        set(v) { engine.micMuted = v }
-    override fun start() = engine.start()
-    override fun playPcm(pcm: ShortArray) { engine.playPcm(pcm) }
-    override fun stop() = engine.stop()
-}
 
 /**
  * 网状会议会话：自己的麦克风帧编码后广播给全房；
