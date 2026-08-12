@@ -19,14 +19,46 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * 权限（ACCESS_FINE_LOCATION / NEARBY_WIFI_DEVICES）由调用方在进入扫描/建房前申请，
  * 本类的 @SuppressLint("MissingPermission") 仅表示"此处不重复检查"。
  */
-class WifiDirectManager(private val context: Context) {
+class WifiDirectManager(context: Context) {
+
+    /** 只留 applicationContext：本类活到进程级（广播注册横跨 Activity 重建），持 Activity 会泄漏。 */
+    private val appContext = context.applicationContext
 
     val peers = MutableStateFlow<List<WifiP2pDevice>>(emptyList())
     val connection = MutableStateFlow<WifiP2pInfo?>(null)
     val lastError = MutableStateFlow<String?>(null)
 
-    private val manager = context.getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
-    private val channel = manager.initialize(context, context.mainLooper, null)
+    /**
+     * 框架侧 P2P channel 已断开（WiFi 被关、系统 P2P 服务重启等）。
+     *
+     * 这是组主侧仅有的两个房间死亡信号之一（另一个是组解散的连接广播）：主机的传输层
+     * 没有任何 onDisconnected 路径，不靠它驱动停机，房主会对着一个已不存在的房间继续说话。
+     */
+    val channelLost = MutableStateFlow(false)
+
+    private val manager = appContext.getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
+
+    /** channel 断开后必须重开一条才能继续用，故为 var。 */
+    @Volatile private var channel: WifiP2pManager.Channel = openChannel()
+
+    private fun openChannel(): WifiP2pManager.Channel =
+        manager.initialize(appContext, appContext.mainLooper) {
+            TransportLog.w("WiFi P2P channel 已断开")
+            channelLost.value = true
+            connection.value = null
+            peers.value = emptyList()
+        }
+
+    /**
+     * channel 断过就重开一条并清标志，没断过是空操作。
+     * 建房/扫描前都会调用——断开后的旧 channel 上所有请求都会静默失败。
+     */
+    fun ensureChannel() {
+        if (!channelLost.value) return
+        channel = openChannel()
+        channelLost.value = false
+        TransportLog.w("WiFi P2P channel 已重建")
+    }
 
     /** register/unregister 幂等：重复注册同一 receiver 会导致 unregister 后仍有回调残留。 */
     @Volatile private var registered = false
@@ -51,10 +83,10 @@ class WifiDirectManager(private val context: Context) {
         }
         // P2P 广播是系统发出的受保护广播；Android 13+ 要求显式声明导出属性，否则注册被拒。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.registerReceiver(receiver, filter)
+            appContext.registerReceiver(receiver, filter)
         }
         registered = true
     }
@@ -62,7 +94,7 @@ class WifiDirectManager(private val context: Context) {
     fun unregister() {
         if (!registered) return
         registered = false
-        runCatching { context.unregisterReceiver(receiver) }
+        runCatching { appContext.unregisterReceiver(receiver) }
             .onFailure { TransportLog.w("注销 WiFi Direct 广播失败: ${it.message}", it) }
     }
 
@@ -77,6 +109,7 @@ class WifiDirectManager(private val context: Context) {
     /** 建 WiFi Direct 组并成为组主。先清掉可能残留的旧组，成功与否都继续建组。 */
     @SuppressLint("MissingPermission")
     fun createGroup() {
+        ensureChannel()
         manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
             override fun onSuccess() = manager.createGroup(channel, actionListener("建房"))
             override fun onFailure(reason: Int) = manager.createGroup(channel, actionListener("建房"))
@@ -85,6 +118,7 @@ class WifiDirectManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun discoverPeers() {
+        ensureChannel()
         peers.value = emptyList()
         manager.discoverPeers(channel, actionListener("扫描"))
     }
@@ -95,9 +129,22 @@ class WifiDirectManager(private val context: Context) {
         manager.connect(channel, config, actionListener("连接"))
     }
 
+    /**
+     * 解散/退出当前组。失败只记日志不写 [lastError]：本来就没有组时 removeGroup 必然失败（BUSY/ERROR），
+     * 把它当错误显示的话，每次正常离房首页都会挂一条红字。顺手清掉上一轮的错误提示。
+     */
     fun disconnect() {
-        manager.removeGroup(channel, null)
+        manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                TransportLog.w("WiFi Direct 组已解散")
+            }
+
+            override fun onFailure(reason: Int) {
+                TransportLog.w("WiFi Direct 解散组失败（code=$reason，无组时属正常）")
+            }
+        })
         connection.value = null
         peers.value = emptyList()
+        lastError.value = null
     }
 }
