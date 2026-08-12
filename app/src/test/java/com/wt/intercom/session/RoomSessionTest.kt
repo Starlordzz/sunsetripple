@@ -35,13 +35,17 @@ class RoomSessionTest {
         private val failOnStart: Boolean = false,
     ) : AudioIo {
         override var micMuted = false
+        @Volatile var failPlay = false
         var started = false
         var stopCount = 0
         override fun start() {
             if (failOnStart) throw IllegalStateException("音频设备初始化失败")
             started = true
         }
-        override fun playPcm(pcm: ShortArray) { Thread.sleep(1) }
+        override fun playPcm(pcm: ShortArray) {
+            Thread.sleep(1)
+            if (failPlay) throw IllegalStateException("AudioTrack write 失败")
+        }
         override fun stop() { stopCount++ }
     }
 
@@ -250,6 +254,22 @@ class RoomSessionTest {
         assertEquals(1, io()!!.stopCount)          // 已建资源被释放
         assertFalse(s.state.value.connected)       // running 已回滚
         s.leave()                                  // 收尾仍可正常关闭传输
+        assertTrue(t.closed)
+    }
+
+    @Test
+    fun `音频播放失败时结束会话并关闭传输`() {
+        val (s, io) = sessionWithFakeIo()
+        val t = FakeTransport()
+        s.start(t)
+        s.onRoster(roster(1, 1, 2))
+
+        io()!!.failPlay = true
+
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2)
+        while (s.state.value.endedReason == null && System.nanoTime() < deadline) Thread.sleep(10)
+        assertEquals("音频播放失败", s.state.value.endedReason)
+        assertFalse(s.state.value.connected)
         assertTrue(t.closed)
     }
 }

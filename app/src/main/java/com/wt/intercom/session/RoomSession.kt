@@ -146,7 +146,13 @@ class RoomSession(private val selfNickname: String) : TransportListener {
                 r.speaking.feed(pcm)
                 frames.add(pcm)
             }
-            engine?.playPcm(if (frames.isEmpty()) silence else Mixer.mix(frames))
+            try {
+                engine?.playPcm(if (frames.isEmpty()) silence else Mixer.mix(frames))
+            } catch (e: Exception) {
+                TransportLog.w("音频播放失败: ${e.message}", e)
+                shutdown("音频播放失败")
+                break
+            }
             publishState()
         }
     }

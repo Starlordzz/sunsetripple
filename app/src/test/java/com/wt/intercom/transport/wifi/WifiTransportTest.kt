@@ -3,6 +3,7 @@ package com.wt.intercom.transport.wifi
 import com.wt.intercom.protocol.Frame
 import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.session.Roster
+import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import java.net.InetSocketAddress
@@ -103,6 +104,55 @@ class WifiTransportTest {
 
         await(what = "主机成员表含 2 人") { hostRec.rosters.lastOrNull()?.members?.size == 2 }
         assertEquals(0, hostRec.rosters.last().yourId)
+    }
+
+    @Test
+    fun `主机昵称与客户端昵称使用同一截断规则`() {
+        val hostRec = Recorder()
+        val host = track(
+            WifiHostTransport(
+                nickname = "主".repeat(40),
+                listener = hostRec,
+                hostIp = "127.0.0.1",
+                signalPort = 0,
+                audioBindPort = 0,
+            )
+        ).also { it.start() }
+        val cliRec = Recorder()
+        val client = track(
+            WifiClientTransport("成员", "127.0.0.1", cliRec, signalPort = host.signalPort, audioBindPort = 0)
+        )
+        client.start()
+
+        await(what = "客户端收到成员表") { cliRec.rosters.isNotEmpty() }
+        val hostName = cliRec.rosters.last().members.first { it.id == 0 }.nickname
+        assertEquals(60, hostName.toByteArray(Charsets.UTF_8).size)
+        assertEquals(RosterCodec.truncateNickname("主".repeat(40)), hostName)
+    }
+
+    @Test
+    fun `成员离开后其 ID 可被下一位成员复用`() {
+        val hostRec = Recorder()
+        val host = startHost(hostRec)
+        val firstRec = Recorder()
+        val first = WifiClientTransport(
+            "成员一", "127.0.0.1", firstRec, signalPort = host.signalPort, audioBindPort = 0,
+        )
+        first.start()
+        await(what = "首位成员入房") { firstRec.rosters.isNotEmpty() }
+        assertEquals(1, firstRec.rosters.last().yourId)
+        first.close()
+        await(what = "首位成员离房") { hostRec.rosters.lastOrNull()?.members?.size == 1 }
+
+        val secondRec = Recorder()
+        val second = track(
+            WifiClientTransport(
+                "成员二", "127.0.0.1", secondRec, signalPort = host.signalPort, audioBindPort = 0,
+            )
+        )
+        second.start()
+        await(what = "第二位成员入房") { secondRec.rosters.isNotEmpty() }
+        assertEquals(1, secondRec.rosters.last().yourId)
     }
 
     @Test

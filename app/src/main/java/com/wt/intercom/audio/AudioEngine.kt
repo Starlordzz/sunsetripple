@@ -84,7 +84,13 @@ class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
 
     /** 阻塞写入一帧待播放 PCM。 */
     fun playPcm(pcm: ShortArray) {
-        synchronized(ioLock) { track?.write(pcm, 0, pcm.size) }
+        synchronized(ioLock) {
+            val written = track?.write(pcm, 0, pcm.size)
+                ?: throw IllegalStateException("音频输出未启动")
+            if (written < pcm.size) {
+                throw IllegalStateException("音频输出写入失败: $written/${pcm.size}")
+            }
+        }
     }
 
     fun stop() {

@@ -64,7 +64,6 @@ class WifiHostTransport(
     /** 成员表下发的串行锁：见 [pushRosterToAll]。 */
     private val pushLock = Any()
     private val clients = linkedMapOf<Int, Client>()
-    private var nextId = 1
     @Volatile private var running = true
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
@@ -141,7 +140,13 @@ class WifiHostTransport(
         }
         // 昵称按 RosterCodec 同口径截断后再入表，免得主机 UI 显示的和下发出去的不一致。
         val nick = RosterCodec.truncateNickname(String(join.payload, Charsets.UTF_8))
-        val client = admit(nick, ip, socket) ?: run {
+        val client = try {
+            admit(nick, ip, socket)
+        } catch (e: IOException) {
+            TransportLog.w("初始化入房连接失败: ${e.message}", e)
+            runCatching { socket.close() }
+            return
+        } ?: run {
             runCatching { socket.close() }
             return
         }
@@ -179,7 +184,8 @@ class WifiHostTransport(
      * 拒一个人只影响他自己。
      */
     private fun admit(nickname: String, ip: String, socket: Socket): Client? = synchronized(lock) {
-        if (nextId > MAX_MEMBER_ID) {
+        val memberId = (1..MAX_MEMBER_ID).firstOrNull { it !in clients }
+        if (memberId == null) {
             TransportLog.w("成员 ID 已用尽，拒绝入房")
             return null
         }
@@ -188,7 +194,7 @@ class WifiHostTransport(
             TransportLog.w("房间已满（上限 $MAX_MEMBERS 人含主机），拒绝「$nickname」入房")
             return null
         }
-        val candidate = MemberInfo(nextId, nickname, ip)
+        val candidate = MemberInfo(memberId, nickname, ip)
         // 再试编一次：人数没到上限时，超长 IP（IPv6）也可能把载荷顶爆。
         try {
             RosterCodec.encode(candidate.id, membersSnapshot() + candidate)
@@ -196,7 +202,6 @@ class WifiHostTransport(
             TransportLog.w("成员表将超载荷，拒绝「$nickname」入房: ${e.message}", e)
             return null
         }
-        nextId++
         Client(candidate.id, nickname, ip, socket, socket.getOutputStream())
             .also { clients[it.id] = it }
     }
