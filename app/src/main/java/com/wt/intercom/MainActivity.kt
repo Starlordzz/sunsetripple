@@ -546,7 +546,13 @@ class MainActivity : ComponentActivity() {
             }
             nearbyManagerFlow.value = null
             val newSession = RoomSession(nickname)
-            val transport = NearbyRoomTransport.guest(nickname, newSession, port, endpoint.id)
+            val transport = NearbyRoomTransport.guest(
+                nickname,
+                newSession,
+                port,
+                endpoint.id,
+                discoveryAlreadyActive = true,
+            )
             sessionFlow.value = newSession
             roomKindFlow.value = RoomKind.NEARBY
             isHost = false

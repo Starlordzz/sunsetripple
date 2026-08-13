@@ -59,7 +59,7 @@ class NearbyRoomTransportTest {
         transport.start()
 
         port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-1", "成员一"))
-        port.callback!!.onConnectionResult("endpoint-1", true)
+        port.callback!!.onConnectionResult("endpoint-1", NearbyConnectionResult.ACCEPTED)
         port.callback!!.onBytesReceived(
             "endpoint-1",
             Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16), "成员一")).encode(),
@@ -91,7 +91,7 @@ class NearbyRoomTransportTest {
         assertEquals("不得向已断开的 endpoint 下发 roster", sentBeforeDisconnect, port.sent.size)
 
         port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-2", "成员一"))
-        port.callback!!.onConnectionResult("endpoint-2", true)
+        port.callback!!.onConnectionResult("endpoint-2", NearbyConnectionResult.ACCEPTED)
         port.callback!!.onBytesReceived(
             "endpoint-2",
             Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, "成员一")).encode(),
@@ -131,7 +131,7 @@ class NearbyRoomTransportTest {
         for (id in 1..2) {
             val endpoint = "endpoint-$id"
             port.callback!!.onConnectionInitiated(NearbyEndpoint(endpoint, "成员$id"))
-            port.callback!!.onConnectionResult(endpoint, true)
+            port.callback!!.onConnectionResult(endpoint, NearbyConnectionResult.ACCEPTED)
             port.callback!!.onBytesReceived(
                 endpoint,
                 Frame(
@@ -168,7 +168,7 @@ class NearbyRoomTransportTest {
         assertEquals(listOf("成员一" to "host-endpoint"), port.requested)
 
         port.callback!!.onConnectionInitiated(NearbyEndpoint("host-endpoint", "主机"))
-        port.callback!!.onConnectionResult("host-endpoint", true)
+        port.callback!!.onConnectionResult("host-endpoint", NearbyConnectionResult.ACCEPTED)
         assertEquals(FrameType.JOIN, Frame.decode(port.sent.last().second).type)
 
         port.callback!!.onEndpointFound(NearbyEndpoint("endpoint-2", "成员二"))
@@ -187,13 +187,31 @@ class NearbyRoomTransportTest {
         assertTrue(port.requested.contains("成员一" to "endpoint-2"))
 
         port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-2", "成员二"))
-        port.callback!!.onConnectionResult("endpoint-2", true)
+        port.callback!!.onConnectionResult("endpoint-2", NearbyConnectionResult.ACCEPTED)
         port.sent.clear()
         transport.broadcast(Frame(FrameType.AUDIO, 1, 9, byteArrayOf(7)))
 
         assertEquals(listOf("endpoint-2", "host-endpoint"), port.sent.single().first.sorted())
         assertEquals(9, Frame.decode(port.sent.single().second).seq)
         assertEquals(1, recorder.rosters.last().yourId)
+    }
+
+    @Test
+    fun `客户端接管扫描端口时保留已发现端点并直接请求房主`() {
+        val port = FakePort()
+        val recorder = Recorder()
+        val transport = NearbyRoomTransport.guest(
+            nickname = "成员一",
+            listener = recorder,
+            port = port,
+            hostEndpointId = "host-endpoint",
+            discoveryAlreadyActive = true,
+        )
+
+        transport.start()
+
+        assertEquals(0, port.discoveryCount)
+        assertEquals(listOf("成员一" to "host-endpoint"), port.requested)
     }
 
     @Test
@@ -208,9 +226,9 @@ class NearbyRoomTransportTest {
         )
         transport.start()
         port.callback!!.onConnectionInitiated(NearbyEndpoint("host-endpoint", "主机"))
-        port.callback!!.onConnectionResult("host-endpoint", true)
+        port.callback!!.onConnectionResult("host-endpoint", NearbyConnectionResult.ACCEPTED)
         port.callback!!.onConnectionInitiated(NearbyEndpoint("unknown-endpoint", "未知设备"))
-        port.callback!!.onConnectionResult("unknown-endpoint", true)
+        port.callback!!.onConnectionResult("unknown-endpoint", NearbyConnectionResult.ACCEPTED)
         val roster = RosterCodec.encode(
             1,
             listOf(
@@ -242,7 +260,7 @@ class NearbyRoomTransportTest {
         transport.start()
         for ((endpointId, name) in listOf("host-endpoint" to "主机", "endpoint-2" to "成员二")) {
             port.callback!!.onConnectionInitiated(NearbyEndpoint(endpointId, name))
-            port.callback!!.onConnectionResult(endpointId, true)
+            port.callback!!.onConnectionResult(endpointId, NearbyConnectionResult.ACCEPTED)
         }
         sendRoster(port, "host-endpoint", memberIds = listOf(0, 1, 2))
         val rosterCount = recorder.rosters.size
@@ -269,12 +287,34 @@ class NearbyRoomTransportTest {
             hostEndpointId = "host-endpoint",
         ).start()
         port.callback!!.onConnectionInitiated(NearbyEndpoint("host-endpoint", "主机"))
-        port.callback!!.onConnectionResult("host-endpoint", true)
+        port.callback!!.onConnectionResult("host-endpoint", NearbyConnectionResult.ACCEPTED)
 
         port.callback!!.onDisconnected("host-endpoint")
         port.callback!!.onDisconnected("host-endpoint")
 
         assertEquals(listOf("Nearby 房间已结束"), recorder.disconnects)
+    }
+
+    @Test
+    fun `客户端连接房主被拒时立即显示 GMS 状态原因`() {
+        val port = FakePort()
+        val recorder = Recorder()
+        NearbyRoomTransport.guest(
+            nickname = "成员一",
+            listener = recorder,
+            port = port,
+            hostEndpointId = "host-endpoint",
+        ).start()
+
+        port.callback!!.onConnectionResult(
+            "host-endpoint",
+            NearbyConnectionResult.rejected(8001, "STATUS_ENDPOINT_UNKNOWN"),
+        )
+
+        assertEquals(
+            listOf("Nearby 连接失败（8001）：STATUS_ENDPOINT_UNKNOWN"),
+            recorder.disconnects,
+        )
     }
 
     @Test
@@ -293,16 +333,19 @@ class NearbyRoomTransportTest {
         )
         transport.start()
         port.callback!!.onConnectionInitiated(NearbyEndpoint("host-endpoint", "主机"))
-        port.callback!!.onConnectionResult("host-endpoint", true)
+        port.callback!!.onConnectionResult("host-endpoint", NearbyConnectionResult.ACCEPTED)
         sendRoster(port, "host-endpoint", memberIds = listOf(0, 1, 2))
         port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-2", "成员二"))
-        port.callback!!.onConnectionResult("endpoint-2", true)
+        port.callback!!.onConnectionResult("endpoint-2", NearbyConnectionResult.ACCEPTED)
         port.requested.clear()
 
         port.callback!!.onDisconnected("endpoint-2")
         repeat(3) { attempt ->
             await("第 ${attempt + 1} 次普通成员重连") { port.requested.size == attempt + 1 }
-            port.callback!!.onConnectionResult("endpoint-2", false)
+            port.callback!!.onConnectionResult(
+                "endpoint-2",
+                NearbyConnectionResult.rejected(null, null),
+            )
         }
 
         assertEquals(listOf(1_000L, 2_000L, 4_000L), observedDelays.toList())
@@ -324,14 +367,14 @@ class NearbyRoomTransportTest {
         )
         transport.start()
         port.callback!!.onConnectionInitiated(NearbyEndpoint("host-endpoint", "主机"))
-        port.callback!!.onConnectionResult("host-endpoint", true)
+        port.callback!!.onConnectionResult("host-endpoint", NearbyConnectionResult.ACCEPTED)
         sendRoster(port, "host-endpoint", memberIds = listOf(0, 1, 2))
         port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-2", "成员二"))
-        port.callback!!.onConnectionResult("endpoint-2", true)
+        port.callback!!.onConnectionResult("endpoint-2", NearbyConnectionResult.ACCEPTED)
 
         port.callback!!.onDisconnected("endpoint-2")
         await("普通成员重连请求") { port.requested.any { it.second == "endpoint-2" } }
-        port.callback!!.onConnectionResult("endpoint-2", true)
+        port.callback!!.onConnectionResult("endpoint-2", NearbyConnectionResult.ACCEPTED)
 
         assertEquals(listOf(2), recorder.reconnecting.toList())
         assertEquals(listOf(2), recorder.reconnected.toList())
@@ -399,7 +442,7 @@ class NearbyRoomTransportTest {
 
     private fun joinHost(port: FakePort, endpointId: String, nickname: String, token: ByteArray = ByteArray(16) { endpointId.hashCode().toByte() }) {
         port.callback!!.onConnectionInitiated(NearbyEndpoint(endpointId, nickname))
-        port.callback!!.onConnectionResult(endpointId, true)
+        port.callback!!.onConnectionResult(endpointId, NearbyConnectionResult.ACCEPTED)
         port.callback!!.onBytesReceived(
             endpointId,
             Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, nickname)).encode(),

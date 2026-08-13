@@ -18,11 +18,35 @@ interface NearbyConnectionsListener {
     fun onEndpointFound(endpoint: NearbyEndpoint) = Unit
     fun onEndpointLost(endpointId: String) = Unit
     fun onConnectionInitiated(endpoint: NearbyEndpoint) = Unit
-    fun onConnectionResult(endpointId: String, accepted: Boolean) = Unit
+    fun onConnectionResult(endpointId: String, result: NearbyConnectionResult) = Unit
     fun onConnectionRequestFailed(endpointId: String, error: Throwable) = Unit
     fun onDisconnected(endpointId: String) = Unit
     fun onBytesReceived(endpointId: String, bytes: ByteArray) = Unit
     fun onOperationFailed(operation: String, error: Throwable) = Unit
+}
+
+data class NearbyConnectionResult(
+    val accepted: Boolean,
+    val statusCode: Int? = null,
+    val statusMessage: String? = null,
+) {
+    fun failureReason(): String {
+        if (accepted) return ""
+        return when {
+            statusCode != null && !statusMessage.isNullOrBlank() ->
+                "Nearby 连接失败（$statusCode）：$statusMessage"
+            statusCode != null -> "Nearby 连接失败（$statusCode）"
+            !statusMessage.isNullOrBlank() -> "Nearby 连接失败：$statusMessage"
+            else -> "Nearby 连接失败"
+        }
+    }
+
+    companion object {
+        val ACCEPTED = NearbyConnectionResult(accepted = true)
+
+        fun rejected(statusCode: Int?, statusMessage: String?): NearbyConnectionResult =
+            NearbyConnectionResult(false, statusCode, statusMessage)
+    }
 }
 
 interface NearbyConnectionsPort {
@@ -57,7 +81,15 @@ class PlayServicesNearbyConnectionsPort(context: Context) : NearbyConnectionsPor
         }
 
         override fun onConnectionResult(endpointId: String, resolution: ConnectionResolution) {
-            listener?.onConnectionResult(endpointId, resolution.status.isSuccess)
+            val status = resolution.status
+            listener?.onConnectionResult(
+                endpointId,
+                if (status.isSuccess) {
+                    NearbyConnectionResult.ACCEPTED
+                } else {
+                    NearbyConnectionResult.rejected(status.statusCode, status.statusMessage)
+                },
+            )
         }
 
         override fun onDisconnected(endpointId: String) {

@@ -63,7 +63,7 @@ class NearbyRoomManagerTest {
 
         manager.requestConnection("我", "one")
         assertEquals(NearbyEndpointState.CONNECTING, manager.endpoints.value.single().state)
-        port.callback!!.onConnectionResult("one", true)
+        port.callback!!.onConnectionResult("one", NearbyConnectionResult.ACCEPTED)
         assertEquals(NearbyEndpointState.CONNECTED, manager.endpoints.value.single().state)
 
         port.callback!!.onOperationFailed("Nearby 扫描", IllegalStateException("不可用"))
@@ -79,7 +79,7 @@ class NearbyRoomManagerTest {
         manager.startDiscovery()
         port.callback!!.onEndpointFound(NearbyEndpoint("one", "房间一"))
         manager.requestConnection("我", "one")
-        port.callback!!.onConnectionResult("one", false)
+        port.callback!!.onConnectionResult("one", NearbyConnectionResult.rejected(null, null))
         assertTrue(manager.endpoints.value.isEmpty())
 
         port.callback!!.onEndpointFound(NearbyEndpoint("two", "房间二"))
@@ -95,7 +95,7 @@ class NearbyRoomManagerTest {
     }
 
     @Test
-    fun `交接端口时停止发现并解除 manager 监听但仍可由 transport 接管`() {
+    fun `交接端口时保留发现状态并解除 manager 监听供 transport 无缝接管`() {
         val port = FakePort()
         val manager = NearbyRoomManager(port, gmsAvailable = { true })
         manager.startDiscovery()
@@ -105,7 +105,7 @@ class NearbyRoomManagerTest {
         manager.onOperationFailed("迟到回调", IllegalStateException("不应显示"))
 
         assertTrue(handedOff === port)
-        assertEquals(1, port.stopCount)
+        assertEquals(0, port.stopCount)
         assertEquals(null, port.callback)
         assertFalse(manager.discovering.value)
         assertTrue(manager.endpoints.value.isEmpty())

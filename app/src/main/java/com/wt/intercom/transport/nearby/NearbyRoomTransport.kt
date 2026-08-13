@@ -10,6 +10,7 @@ import com.wt.intercom.transport.ReconnectPolicy
 import com.wt.intercom.transport.ResumeJoinCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
+import com.wt.intercom.transport.TransportLog
 import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -22,6 +23,7 @@ class NearbyRoomTransport private constructor(
     private val port: NearbyConnectionsPort,
     private val isHost: Boolean,
     private val hostEndpointId: String? = null,
+    private val discoveryAlreadyActive: Boolean = false,
     private val reconnectGraceMs: Long = RECONNECT_GRACE_MS,
     private val nextReconnectDelayMs: (ReconnectPolicy) -> Long? = { it.nextDelayMs() },
 ) : Transport, NearbyConnectionsListener {
@@ -59,7 +61,7 @@ class NearbyRoomTransport private constructor(
             port.startAdvertising(nickname)
         } else {
             port.startAdvertising(nickname)
-            port.startDiscovery()
+            if (!discoveryAlreadyActive) port.startDiscovery()
             port.requestConnection(nickname, hostEndpointId!!)
         }
     }
@@ -84,7 +86,8 @@ class NearbyRoomTransport private constructor(
         port.acceptConnection(endpoint.id)
     }
 
-    override fun onConnectionResult(endpointId: String, accepted: Boolean) {
+    override fun onConnectionResult(endpointId: String, result: NearbyConnectionResult) {
+        val accepted = result.accepted
         if (closed.get()) {
             if (accepted) port.disconnect(endpointId)
             return
@@ -92,6 +95,12 @@ class NearbyRoomTransport private constructor(
         synchronized(lock) {
             pendingConnections -= endpointId
             if (accepted) connectedEndpoints += endpointId else connectedEndpoints -= endpointId
+        }
+        if (!accepted && !isHost && endpointId == hostEndpointId) {
+            val reason = result.failureReason()
+            TransportLog.w(reason)
+            transportListener.onDisconnected(reason)
+            return
         }
         if (!isHost && endpointId != hostEndpointId) {
             if (accepted) finishPeerReconnect(endpointId) else schedulePeerReconnect(endpointId)
@@ -398,12 +407,14 @@ class NearbyRoomTransport private constructor(
             listener: TransportListener,
             port: NearbyConnectionsPort,
             hostEndpointId: String,
+            discoveryAlreadyActive: Boolean = false,
         ): NearbyRoomTransport = NearbyRoomTransport(
             nickname,
             listener,
             port,
             isHost = false,
             hostEndpointId = hostEndpointId,
+            discoveryAlreadyActive = discoveryAlreadyActive,
         )
 
         internal fun guest(

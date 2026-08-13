@@ -79,9 +79,9 @@ class NearbyRoomManager internal constructor(
         removeEndpoint(endpointId)
     }
 
-    override fun onConnectionResult(endpointId: String, accepted: Boolean) {
+    override fun onConnectionResult(endpointId: String, result: NearbyConnectionResult) {
         if (closed.get()) return
-        if (accepted) {
+        if (result.accepted) {
             updateEndpoint(endpointId) { it.copy(state = NearbyEndpointState.CONNECTED) }
         } else {
             removeEndpoint(endpointId)
@@ -102,7 +102,6 @@ class NearbyRoomManager internal constructor(
 
     fun handoffPort(): NearbyConnectionsPort {
         check(closed.compareAndSet(false, true)) { "NearbyRoomManager 已关闭或端口已交接" }
-        port.stopAll()
         port.setListener(null)
         clearActiveState()
         return port
