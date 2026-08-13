@@ -10,17 +10,18 @@ class NearbyPermissionsTest {
     private val fineLocation = "android.permission.ACCESS_FINE_LOCATION"
     private val scan = "android.permission.BLUETOOTH_SCAN"
     private val connect = "android.permission.BLUETOOTH_CONNECT"
+    private val advertise = "android.permission.BLUETOOTH_ADVERTISE"
     private val nearbyWifi = "android.permission.NEARBY_WIFI_DEVICES"
 
     @Test
     fun `Nearby 权限按 Android 版本分三段`() {
         assertEquals(listOf(record, fineLocation), NearbyPermissions.required(26))
         assertEquals(
-            listOf(record, scan, connect, fineLocation),
+            listOf(record, scan, connect, advertise, fineLocation),
             NearbyPermissions.required(31),
         )
         assertEquals(
-            listOf(record, scan, connect, nearbyWifi),
+            listOf(record, scan, connect, advertise, nearbyWifi),
             NearbyPermissions.required(33),
         )
     }
@@ -32,6 +33,7 @@ class NearbyPermissionsTest {
 
         assertTrue(message.contains("麦克风"))
         assertTrue(message.contains("附近设备"))
+        assertTrue(message.contains("广播"))
         assertTrue(message.contains("定位"))
         assertTrue(message.contains("扫描"))
     }
