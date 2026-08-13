@@ -25,14 +25,14 @@ class RoomPermissionsTest {
 
     @Test
     fun `SDK33 起改用附近设备权限`() {
-        assertEquals(listOf(record, nearbyWifi), RoomPermissions.required(33))
-        assertEquals(listOf(record, nearbyWifi), RoomPermissions.required(35))
+        assertEquals(listOf(record, nearbyWifi, postNotifications), RoomPermissions.required(33))
+        assertEquals(listOf(record, nearbyWifi, postNotifications), RoomPermissions.required(35))
     }
 
     @Test
-    fun `SDK33 起顺带申请通知权限但不作为进房前提`() {
+    fun `SDK33 起通知权限是锁屏控制的进房前提`() {
         assertTrue(RoomPermissions.requested(33).contains(postNotifications))
-        assertFalse(RoomPermissions.required(33).contains(postNotifications))
+        assertTrue(RoomPermissions.required(33).contains(postNotifications))
         assertFalse(RoomPermissions.requested(32).contains(postNotifications))
     }
 
@@ -56,14 +56,17 @@ class RoomPermissionsTest {
     }
 
     @Test
-    fun `通知权限被拒不拦截进房`() {
+    fun `通知权限被拒会拦截进房`() {
         val result = mapOf(record to true, nearbyWifi to true, postNotifications to false)
-        assertTrue(RoomPermissions.blockingDenied(result, 33).isEmpty())
+        assertEquals(listOf(postNotifications), RoomPermissions.blockingDenied(result, 33))
     }
 
     @Test
     fun `录音被拒时拦截并给出中文原因`() {
-        val denied = RoomPermissions.blockingDenied(mapOf(record to false, nearbyWifi to true), 33)
+        val denied = RoomPermissions.blockingDenied(
+            mapOf(record to false, nearbyWifi to true, postNotifications to true),
+            33,
+        )
         assertEquals(listOf(record), denied)
         assertTrue(RoomPermissions.deniedMessage(denied).contains("麦克风"))
     }
@@ -77,7 +80,10 @@ class RoomPermissionsTest {
 
     @Test
     fun `结果里没回传的权限一律按被拒处理`() {
-        assertEquals(listOf(record, nearbyWifi), RoomPermissions.blockingDenied(emptyMap(), 33))
+        assertEquals(
+            listOf(record, nearbyWifi, postNotifications),
+            RoomPermissions.blockingDenied(emptyMap(), 33),
+        )
     }
 
     @Test

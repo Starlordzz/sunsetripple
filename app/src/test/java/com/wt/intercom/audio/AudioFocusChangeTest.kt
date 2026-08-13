@@ -8,6 +8,12 @@ import org.junit.Test
 class AudioFocusChangeTest {
 
     @Test
+    fun `通话请求系统允许的独占瞬时音频焦点`() {
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE, AudioFocusChange.focusGain)
+        assertEquals(true, AudioFocusChange.pauseWhenDucked)
+    }
+
+    @Test
     fun `LOSS 系列进入只听而 GAIN 恢复上行`() {
         assertEquals(true, AudioFocusChange.interrupted(AudioManager.AUDIOFOCUS_LOSS))
         assertEquals(true, AudioFocusChange.interrupted(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT))

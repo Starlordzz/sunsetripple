@@ -20,6 +20,7 @@ object NearbyPermissions {
             }
             else -> add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
+        if (sdkInt >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     fun blockingDenied(result: Map<String, Boolean>, sdkInt: Int): List<String> =
@@ -34,6 +35,7 @@ object NearbyPermissions {
                 Manifest.permission.BLUETOOTH_ADVERTISE -> "附近设备广播"
                 Manifest.permission.NEARBY_WIFI_DEVICES -> "附近设备 WiFi 扫描"
                 Manifest.permission.ACCESS_FINE_LOCATION -> "定位（用于附近设备扫描）"
+                Manifest.permission.POST_NOTIFICATIONS -> "通知（用于锁屏对讲控制）"
                 else -> permission
             }
         }

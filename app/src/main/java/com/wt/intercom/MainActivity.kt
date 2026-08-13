@@ -29,6 +29,9 @@ import com.wt.intercom.audio.LoopbackController
 import com.wt.intercom.audio.AudioFocusController
 import com.wt.intercom.audio.AudioFocusRequestState
 import com.wt.intercom.service.CallForegroundService
+import com.wt.intercom.service.ActiveCallControls
+import com.wt.intercom.service.CallMode
+import com.wt.intercom.service.CallNotificationState
 import com.wt.intercom.session.RoomSession
 import com.wt.intercom.session.RoomUiState
 import com.wt.intercom.session.BluetoothRoomSession
@@ -178,14 +181,58 @@ class MainActivity : ComponentActivity() {
     private fun beginCall(label: String, speakerOn: Boolean) {
         setCommunicationMode(true)
         setSpeaker(speakerOn)
+        ActiveCallControls.attach(
+            stateProvider = {
+                when (roomKindFlow.value) {
+                    RoomKind.BLUETOOTH -> bluetoothSessionFlow.value?.state?.value?.let { state ->
+                        CallNotificationState(
+                            label = label,
+                            mode = CallMode.PUSH_TO_TALK,
+                            pttActive = state.pttPressed,
+                            audioFocusInterrupted = state.audioFocusInterrupted,
+                        )
+                    }
+                    RoomKind.WIFI, RoomKind.NEARBY -> sessionFlow.value?.state?.value?.let { state ->
+                        CallNotificationState(
+                            label = label,
+                            mode = CallMode.FULL_DUPLEX,
+                            micMuted = state.micMuted,
+                            audioFocusInterrupted = state.audioFocusInterrupted,
+                        )
+                    }
+                    null -> null
+                }
+            },
+            onControl = {
+                when (roomKindFlow.value) {
+                    RoomKind.BLUETOOTH -> bluetoothSessionFlow.value?.let { session ->
+                        session.setPttPressed(!session.state.value.pttPressed)
+                    }
+                    RoomKind.WIFI, RoomKind.NEARBY -> sessionFlow.value?.let { session ->
+                        session.setMicMuted(!session.state.value.micMuted)
+                    }
+                    null -> Unit
+                }
+            },
+            onLeave = {
+                leaveRequests.value += 1
+                releaseRoom()
+            },
+        )
         val focusState = audioFocus.request(::setAudioFocusInterrupted)
         setAudioFocusInterrupted(focusState != AudioFocusRequestState.GRANTED)
-        CallForegroundService.start(this, label)
+        val notificationState = ActiveCallControls.currentState()
+            ?: CallNotificationState(
+                label,
+                if (roomKindFlow.value == RoomKind.BLUETOOTH) CallMode.PUSH_TO_TALK else CallMode.FULL_DUPLEX,
+            )
+        CallForegroundService.start(this, notificationState)
     }
 
     private fun setAudioFocusInterrupted(interrupted: Boolean) {
         sessionFlow.value?.setAudioFocusInterrupted(interrupted)
         bluetoothSessionFlow.value?.setAudioFocusInterrupted(interrupted)
+        CallForegroundService.refresh()
     }
 
     /** 释放当前房型资源：会话 → manager → 前台服务 → 音频模式。幂等，主线程调用。 */
@@ -216,6 +263,7 @@ class MainActivity : ComponentActivity() {
             null -> Unit
         }
         roomKindFlow.value = null
+        ActiveCallControls.clear()
         audioFocus.abandon()
         CallForegroundService.stop(this)
         setCommunicationMode(false)
@@ -634,7 +682,7 @@ class MainActivity : ComponentActivity() {
 
         // 通知栏「离开」按钮。
         LaunchedEffect(leaveRequest) {
-            if (leaveRequest > 0 && (sessionFlow.value != null || bluetoothSessionFlow.value != null)) goHome(null)
+            if (leaveRequest > 0) goHome(null)
         }
 
         BackHandler(enabled = screen != Screen.HOME) {
@@ -776,14 +824,20 @@ class MainActivity : ComponentActivity() {
                     else -> if (isHost) HOST_LABEL else GUEST_LABEL
                 },
                 speakerOn = speakerOn,
-                onToggleMute = { session?.setMicMuted(!roomState.micMuted) },
+                onToggleMute = {
+                    session?.setMicMuted(!roomState.micMuted)
+                    CallForegroundService.refresh()
+                },
                 onToggleSpeaker = {
                     speakerOn = !speakerOn
                     setSpeaker(speakerOn)
                 },
                 onLeave = { goHome(null) },
                 onPttChanged = if (roomKind == RoomKind.BLUETOOTH) {
-                    { pressed -> bluetoothSession?.setPttPressed(pressed) }
+                    { pressed ->
+                        bluetoothSession?.setPttPressed(pressed)
+                        CallForegroundService.refresh()
+                    }
                 } else null,
             )
 

@@ -8,6 +8,9 @@ import android.media.AudioManager
 enum class AudioFocusRequestState { GRANTED, DELAYED, DENIED }
 
 object AudioFocusChange {
+    const val focusGain = AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+    const val pauseWhenDucked = true
+
     fun interrupted(focusChange: Int): Boolean? = when (focusChange) {
         AudioManager.AUDIOFOCUS_GAIN -> false
         AudioManager.AUDIOFOCUS_LOSS,
@@ -29,7 +32,7 @@ class AudioFocusController(context: Context) {
 
     fun request(onInterrupted: (Boolean) -> Unit): AudioFocusRequestState {
         abandon()
-        val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        val focusRequest = AudioFocusRequest.Builder(AudioFocusChange.focusGain)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -37,6 +40,7 @@ class AudioFocusController(context: Context) {
                     .build(),
             )
             .setAcceptsDelayedFocusGain(true)
+            .setWillPauseWhenDucked(AudioFocusChange.pauseWhenDucked)
             .setOnAudioFocusChangeListener { change ->
                 AudioFocusChange.interrupted(change)?.let(onInterrupted)
             }

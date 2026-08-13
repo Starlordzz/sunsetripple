@@ -11,6 +11,7 @@ class BluetoothPermissionsTest {
     private val scan = "android.permission.BLUETOOTH_SCAN"
     private val advertise = "android.permission.BLUETOOTH_ADVERTISE"
     private val fineLocation = "android.permission.ACCESS_FINE_LOCATION"
+    private val postNotifications = "android.permission.POST_NOTIFICATIONS"
 
     @Test
     fun `SDK31 起建房与加入申请各自所需的附近设备权限`() {
@@ -19,7 +20,7 @@ class BluetoothPermissionsTest {
             BluetoothPermissions.required(31, BluetoothRoomRole.HOST),
         )
         assertEquals(
-            listOf(record, connect, scan),
+            listOf(record, connect, scan, postNotifications),
             BluetoothPermissions.required(35, BluetoothRoomRole.GUEST),
         )
     }
@@ -40,10 +41,11 @@ class BluetoothPermissionsTest {
             role = BluetoothRoomRole.GUEST,
         )
 
-        assertEquals(listOf(record, connect, scan), denied)
+        assertEquals(listOf(record, connect, scan, postNotifications), denied)
         val message = BluetoothPermissions.deniedMessage(denied)
         assertTrue(message.contains("麦克风"))
         assertTrue(message.contains("附近设备"))
         assertTrue(message.contains("蓝牙扫描"))
+        assertTrue(message.contains("通知"))
     }
 }

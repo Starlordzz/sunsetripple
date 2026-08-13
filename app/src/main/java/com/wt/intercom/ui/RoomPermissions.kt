@@ -20,19 +20,19 @@ object RoomPermissions {
         // 33 起用 NEARBY_WIFI_DEVICES（neverForLocation），旧版本只能靠精确定位权限。
         if (sdkInt >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
         else add(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (sdkInt >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     /**
-     * 一次弹窗里申请的全部权限 = [required] + 两个不阻塞进房的附加项。
+     * 一次弹窗里申请的全部权限 = [required] + 旧系统的粗略定位附加项。
      *
      * - 粗略定位：Android 12 起单独申请 FINE 会被系统直接忽略（连弹窗都不弹），必须成对申请；
      *   但只有 FINE 满足得了 WiFi Direct 扫描，所以它不进 [required]。
-     * - 通知权限：只影响前台服务通知能不能显示，拒了照样能对讲。
+     * - 通知权限：Android 13+ 必须授权，确保锁屏时看得到通话状态与控制按钮。
      */
     fun requested(sdkInt: Int): List<String> = buildList {
         addAll(required(sdkInt))
         if (sdkInt < 33) add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (sdkInt >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     /**
@@ -49,6 +49,7 @@ object RoomPermissions {
                 Manifest.permission.RECORD_AUDIO -> "麦克风"
                 Manifest.permission.ACCESS_FINE_LOCATION -> "定位（用于 WiFi 直连扫描）"
                 Manifest.permission.NEARBY_WIFI_DEVICES -> "附近的设备"
+                Manifest.permission.POST_NOTIFICATIONS -> "通知（用于锁屏对讲控制）"
                 else -> it
             }
         }

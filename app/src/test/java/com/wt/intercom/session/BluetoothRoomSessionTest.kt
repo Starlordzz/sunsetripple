@@ -114,6 +114,18 @@ class BluetoothRoomSessionTest {
     }
 
     @Test
+    fun `UI 状态显式公开本机 PTT 供锁屏通知同步`() {
+        val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1))
+
+        h.session.setPttPressed(true)
+        assertTrue(h.session.state.value.pttPressed)
+
+        h.session.setAudioFocusInterrupted(true)
+        assertFalse(h.session.state.value.pttPressed)
+        h.session.leave()
+    }
+
+    @Test
     fun `焦点丢失立即释放 PTT 且恢复后不自动重新按下`() {
         val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1))
 

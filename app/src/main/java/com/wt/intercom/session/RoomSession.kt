@@ -31,6 +31,7 @@ data class RoomUiState(
     val members: List<MemberUi> = emptyList(),
     val micMuted: Boolean = false,
     val audioFocusInterrupted: Boolean = false,
+    val pttPressed: Boolean = false,
     val endedReason: String? = null,
 )
 

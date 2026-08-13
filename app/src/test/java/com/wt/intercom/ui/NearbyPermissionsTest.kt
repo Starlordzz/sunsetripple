@@ -12,6 +12,7 @@ class NearbyPermissionsTest {
     private val connect = "android.permission.BLUETOOTH_CONNECT"
     private val advertise = "android.permission.BLUETOOTH_ADVERTISE"
     private val nearbyWifi = "android.permission.NEARBY_WIFI_DEVICES"
+    private val postNotifications = "android.permission.POST_NOTIFICATIONS"
 
     @Test
     fun `Nearby 权限按 Android 版本分三段`() {
@@ -21,7 +22,7 @@ class NearbyPermissionsTest {
             NearbyPermissions.required(31),
         )
         assertEquals(
-            listOf(record, scan, connect, advertise, nearbyWifi),
+            listOf(record, scan, connect, advertise, nearbyWifi, postNotifications),
             NearbyPermissions.required(33),
         )
     }

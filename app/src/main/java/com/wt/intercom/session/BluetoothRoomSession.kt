@@ -314,6 +314,7 @@ class BluetoothRoomSession(
             connected = running && selfId >= 0,
             members = members,
             audioFocusInterrupted = audioFocusInterrupted,
+            pttPressed = pttPressed,
             endedReason = _state.value.endedReason,
         )
     }

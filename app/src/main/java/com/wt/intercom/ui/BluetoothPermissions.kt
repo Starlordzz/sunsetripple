@@ -16,6 +16,7 @@ object BluetoothPermissions {
         } else {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
+        if (sdkInt >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     fun blockingDenied(
@@ -32,6 +33,7 @@ object BluetoothPermissions {
                 Manifest.permission.BLUETOOTH_SCAN -> "蓝牙扫描"
                 Manifest.permission.BLUETOOTH_ADVERTISE -> "蓝牙可发现"
                 Manifest.permission.ACCESS_FINE_LOCATION -> "定位（用于蓝牙扫描）"
+                Manifest.permission.POST_NOTIFICATIONS -> "通知（用于锁屏对讲控制）"
                 else -> permission
             }
         }
