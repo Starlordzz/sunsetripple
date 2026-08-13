@@ -190,6 +190,7 @@ class NearbyRoomTransportTest {
         assertEquals("非主机伪造的成员表必须忽略", rosterCount, recorder.rosters.size)
 
         sendRoster(port, "host-endpoint", memberIds = listOf(0, 1))
+        assertTrue("离房成员的底层端点必须主动断开", "endpoint-2" in port.disconnected)
         port.sent.clear()
         transport.broadcast(Frame(FrameType.AUDIO, 1, 5, byteArrayOf(8)))
 

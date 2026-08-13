@@ -1,10 +1,17 @@
 package com.wt.intercom.ui
 
-enum class RoomKind { WIFI, BLUETOOTH }
+enum class RoomKind { WIFI, BLUETOOTH, NEARBY }
 
 enum class BluetoothRoomStart { Idle, AwaitingDiscoverable, Host, Scan }
 
-enum class RoomCleanup { NONE, WIFI, BLUETOOTH }
+enum class RoomCleanup { NONE, WIFI, BLUETOOTH, NEARBY }
+
+enum class NearbyRoomStart { Host, Scan }
+
+object NearbyRoomFlow {
+    fun hostStart(): NearbyRoomStart = NearbyRoomStart.Host
+    fun guestStart(): NearbyRoomStart = NearbyRoomStart.Scan
+}
 
 object BluetoothRoomFlow {
     fun hostStart(discoverableAccepted: Boolean?): BluetoothRoomStart = when (discoverableAccepted) {
@@ -18,6 +25,7 @@ object BluetoothRoomFlow {
     fun cleanupFor(kind: RoomKind?): RoomCleanup = when (kind) {
         RoomKind.WIFI -> RoomCleanup.WIFI
         RoomKind.BLUETOOTH -> RoomCleanup.BLUETOOTH
+        RoomKind.NEARBY -> RoomCleanup.NEARBY
         null -> RoomCleanup.NONE
     }
 }

@@ -79,34 +79,40 @@ class PlayServicesNearbyConnectionsPort(context: Context) : NearbyConnectionsPor
     }
 
     override fun startAdvertising(localName: String) {
+        val operationListener = listener
         client.startAdvertising(localName, SERVICE_ID, connectionCallback, ADVERTISING_OPTIONS)
-            .addOnFailureListener { listener?.onOperationFailed("Nearby 建房", it) }
+            .addOnFailureListener { operationListener?.onOperationFailed("Nearby 建房", it) }
     }
 
     override fun startDiscovery() {
+        val operationListener = listener
         client.startDiscovery(SERVICE_ID, discoveryCallback, DISCOVERY_OPTIONS)
-            .addOnFailureListener { listener?.onOperationFailed("Nearby 扫描", it) }
+            .addOnFailureListener { operationListener?.onOperationFailed("Nearby 扫描", it) }
     }
 
     override fun requestConnection(localName: String, endpointId: String) {
+        val operationListener = listener
         client.requestConnection(localName, endpointId, connectionCallback)
-            .addOnFailureListener { listener?.onOperationFailed("Nearby 连接", it) }
+            .addOnFailureListener { operationListener?.onOperationFailed("Nearby 连接", it) }
     }
 
     override fun acceptConnection(endpointId: String) {
+        val operationListener = listener
         client.acceptConnection(endpointId, payloadCallback)
-            .addOnFailureListener { listener?.onOperationFailed("Nearby 接受连接", it) }
+            .addOnFailureListener { operationListener?.onOperationFailed("Nearby 接受连接", it) }
     }
 
     override fun rejectConnection(endpointId: String) {
+        val operationListener = listener
         client.rejectConnection(endpointId)
-            .addOnFailureListener { listener?.onOperationFailed("Nearby 拒绝连接", it) }
+            .addOnFailureListener { operationListener?.onOperationFailed("Nearby 拒绝连接", it) }
     }
 
     override fun sendBytes(endpointIds: List<String>, bytes: ByteArray) {
         if (endpointIds.isEmpty()) return
+        val operationListener = listener
         client.sendPayload(endpointIds, Payload.fromBytes(bytes))
-            .addOnFailureListener { listener?.onOperationFailed("Nearby 发送", it) }
+            .addOnFailureListener { operationListener?.onOperationFailed("Nearby 发送", it) }
     }
 
     override fun disconnect(endpointId: String) = client.disconnectFromEndpoint(endpointId)

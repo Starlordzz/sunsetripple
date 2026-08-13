@@ -38,6 +38,20 @@ class NearbyRoomManagerTest {
     }
 
     @Test
+    fun `仅检查 GMS 可用性不会启动 SDK 操作`() {
+        val port = FakePort()
+        val manager = NearbyRoomManager(port, gmsAvailable = { true })
+
+        assertTrue(manager.ensureAvailable())
+
+        assertEquals(0, port.advertisingCount)
+        assertEquals(0, port.discoveryCount)
+        assertFalse(manager.advertising.value)
+        assertFalse(manager.discovering.value)
+        assertEquals(null, manager.lastError.value)
+    }
+
+    @Test
     fun `发现端点去重并跟踪连接状态与失败`() {
         val port = FakePort()
         val manager = NearbyRoomManager(port, gmsAvailable = { true })

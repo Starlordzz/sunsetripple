@@ -94,21 +94,23 @@ class NearbyRoomTransport private constructor(
             admit(endpointId, String(frame.payload, Charsets.UTF_8))
         } else if (!isHost && frame.type == FrameType.ROSTER && endpointId == hostEndpointId) {
             val roster = runCatching { RosterCodec.decode(frame.payload) }.getOrNull() ?: return
-            synchronized(lock) {
+            val removedEndpoints = synchronized(lock) {
                 selfId = roster.yourId
                 val aliveEndpoints = roster.members
                     .filter { it.id != roster.yourId }
                     .mapTo(linkedSetOf()) { member ->
                         if (member.id == HOST_ID) hostEndpointId!! else member.ip
                     }
-                val removedEndpoints = peers.keys - aliveEndpoints
+                val removed = peers.keys - aliveEndpoints
                 peers.keys.retainAll(aliveEndpoints)
-                connectedEndpoints.removeAll(removedEndpoints)
+                connectedEndpoints.removeAll(removed)
                 roster.members.filter { it.id != roster.yourId }.forEach { member ->
                     val endpointId = if (member.id == HOST_ID) hostEndpointId!! else member.ip
                     peers[endpointId] = Peer(endpointId, member)
                 }
+                removed
             }
+            removedEndpoints.forEach(port::disconnect)
             transportListener.onRoster(roster)
             connectMissingPeers()
         } else if (frame.type != FrameType.ROSTER && frame.type != FrameType.JOIN) {

@@ -42,23 +42,27 @@ class NearbyRoomManager internal constructor(
     }
 
     fun startAdvertising(localName: String) {
-        if (!checkAvailable()) return
-        _lastError.value = null
+        if (!ensureAvailable()) return
         _advertising.value = true
         port.startAdvertising(localName)
     }
 
     fun startDiscovery() {
-        if (!checkAvailable()) return
-        _lastError.value = null
+        if (!ensureAvailable()) return
         _discovering.value = true
         port.startDiscovery()
     }
 
     fun requestConnection(localName: String, endpointId: String) {
-        if (!checkAvailable()) return
+        if (!ensureAvailable()) return
         updateEndpoint(endpointId) { it.copy(state = NearbyEndpointState.CONNECTING) }
         port.requestConnection(localName, endpointId)
+    }
+
+    fun ensureAvailable(): Boolean {
+        if (!checkAvailable()) return false
+        _lastError.value = null
+        return true
     }
 
     override fun onEndpointFound(endpoint: NearbyEndpoint) {

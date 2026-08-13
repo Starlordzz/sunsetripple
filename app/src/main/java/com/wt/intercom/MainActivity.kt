@@ -34,6 +34,9 @@ import com.wt.intercom.transport.TransportLog
 import com.wt.intercom.transport.bluetooth.BluetoothClientTransport
 import com.wt.intercom.transport.bluetooth.BluetoothHostTransport
 import com.wt.intercom.transport.bluetooth.BluetoothRoomManager
+import com.wt.intercom.transport.nearby.NearbyEndpoint
+import com.wt.intercom.transport.nearby.NearbyRoomManager
+import com.wt.intercom.transport.nearby.NearbyRoomTransport
 import com.wt.intercom.transport.wifi.WifiClientTransport
 import com.wt.intercom.transport.wifi.WifiDirectManager
 import com.wt.intercom.transport.wifi.WifiHostTransport
@@ -43,6 +46,8 @@ import com.wt.intercom.ui.BluetoothRoomRole
 import com.wt.intercom.ui.BluetoothScanScreen
 import com.wt.intercom.ui.HomeScreen
 import com.wt.intercom.ui.LoopbackScreen
+import com.wt.intercom.ui.NearbyPermissions
+import com.wt.intercom.ui.NearbyScanScreen
 import com.wt.intercom.ui.RoomFlow
 import com.wt.intercom.ui.RoomPermissions
 import com.wt.intercom.ui.RoomKind
@@ -79,6 +84,7 @@ class MainActivity : ComponentActivity() {
     /** 会话得让 Compose 观察得到（建/散都要触发重组），所以用 StateFlow 而不是裸字段。 */
     private val sessionFlow = MutableStateFlow<RoomSession?>(null)
     private val bluetoothSessionFlow = MutableStateFlow<BluetoothRoomSession?>(null)
+    private val nearbyManagerFlow = MutableStateFlow<NearbyRoomManager?>(null)
     private val roomKindFlow = MutableStateFlow<RoomKind?>(null)
 
     /** 通知栏「离开」按钮的请求计数：自增一次＝要求离房一次。 */
@@ -186,6 +192,16 @@ class MainActivity : ComponentActivity() {
                 session?.let { runCatching { it.leave() }.onFailure { e -> TransportLog.w("蓝牙离房异常: ${e.message}", e) } }
                 bluetooth.close()
             }
+            RoomKind.NEARBY -> {
+                val session = sessionFlow.value
+                sessionFlow.value = null
+                session?.let {
+                    runCatching { it.leave() }
+                        .onFailure { error -> TransportLog.w("Nearby 离房异常: ${error.message}", error) }
+                }
+                nearbyManagerFlow.value?.close()
+                nearbyManagerFlow.value = null
+            }
             null -> Unit
         }
         roomKindFlow.value = null
@@ -225,6 +241,7 @@ class MainActivity : ComponentActivity() {
         var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
         var pendingBluetoothRole by remember { mutableStateOf<BluetoothRoomRole?>(null) }
         var pendingBluetoothAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+        var pendingNearbyAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
         val required = remember(sdkInt) { RoomPermissions.required(sdkInt) }
         val requested = remember(sdkInt) { RoomPermissions.requested(sdkInt).toTypedArray() }
@@ -239,6 +256,19 @@ class MainActivity : ComponentActivity() {
         val discoveredDevices by bluetooth.discoveredDevices.collectAsStateWithLifecycle()
         val bluetoothDiscovering by bluetooth.discovering.collectAsStateWithLifecycle()
         val bluetoothError by bluetooth.lastError.collectAsStateWithLifecycle()
+        val nearbyManager by nearbyManagerFlow.collectAsStateWithLifecycle()
+        val nearbyEndpointsFlow: StateFlow<List<NearbyEndpoint>> = remember(nearbyManager) {
+            nearbyManager?.endpoints ?: MutableStateFlow(emptyList())
+        }
+        val nearbyDiscoveringFlow: StateFlow<Boolean> = remember(nearbyManager) {
+            nearbyManager?.discovering ?: MutableStateFlow(false)
+        }
+        val nearbyErrorFlow: StateFlow<String?> = remember(nearbyManager) {
+            nearbyManager?.lastError ?: MutableStateFlow(null)
+        }
+        val nearbyEndpoints by nearbyEndpointsFlow.collectAsStateWithLifecycle()
+        val nearbyDiscovering by nearbyDiscoveringFlow.collectAsStateWithLifecycle()
+        val nearbyError by nearbyErrorFlow.collectAsStateWithLifecycle()
         val leaveRequest by leaveRequests.collectAsStateWithLifecycle()
         val roomState = rememberRoomState(session, bluetoothSession)
         val group = connection?.let {
@@ -302,6 +332,21 @@ class MainActivity : ComponentActivity() {
                 action?.invoke()
             } else {
                 val message = BluetoothPermissions.deniedMessage(denied)
+                status = message
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        val nearbyPermLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { result ->
+            val action = pendingNearbyAction
+            pendingNearbyAction = null
+            val denied = NearbyPermissions.blockingDenied(result, sdkInt)
+            if (denied.isEmpty()) {
+                action?.invoke()
+            } else {
+                val message = NearbyPermissions.deniedMessage(denied)
                 status = message
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             }
@@ -373,6 +418,88 @@ class MainActivity : ComponentActivity() {
                 bluetoothPermLauncher.launch(requiredPermissions.toTypedArray())
             } else {
                 action()
+            }
+        }
+
+        fun withNearbyPermissions(action: () -> Unit) {
+            val permissions = NearbyPermissions.required(sdkInt)
+            val missing = permissions.any {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing) {
+                pendingNearbyAction = action
+                nearbyPermLauncher.launch(permissions.toTypedArray())
+            } else {
+                action()
+            }
+        }
+
+        fun startNearbyHost() {
+            val manager = NearbyRoomManager(this)
+            nearbyManagerFlow.value = manager
+            if (!manager.ensureAvailable()) {
+                status = manager.lastError.value
+                manager.close()
+                nearbyManagerFlow.value = null
+                return
+            }
+            val port = manager.handoffPort()
+            nearbyManagerFlow.value = null
+            val newSession = RoomSession(nickname)
+            val transport = NearbyRoomTransport.host(nickname, newSession, port)
+            sessionFlow.value = newSession
+            roomKindFlow.value = RoomKind.NEARBY
+            isHost = true
+            beginCall(NEARBY_HOST_LABEL, speakerOn)
+            runCatching {
+                newSession.start(transport)
+                transport.start()
+            }.onSuccess {
+                status = null
+                screen = Screen.ROOM
+            }.onFailure { error ->
+                TransportLog.w("Nearby 建房失败: ${error.message}", error)
+                goHome("Nearby 建房失败：${error.message}")
+            }
+        }
+
+        fun startNearbyDiscovery() {
+            nearbyManagerFlow.value?.close()
+            val manager = NearbyRoomManager(this)
+            nearbyManagerFlow.value = manager
+            roomKindFlow.value = RoomKind.NEARBY
+            manager.startDiscovery()
+            if (manager.lastError.value == null) {
+                status = null
+                screen = Screen.NEARBY_SCAN
+            } else {
+                status = manager.lastError.value
+                releaseRoom()
+            }
+        }
+
+        fun startNearbyGuest(endpoint: NearbyEndpoint) {
+            val manager = nearbyManagerFlow.value ?: return
+            val port = runCatching { manager.handoffPort() }.getOrElse { error ->
+                status = "Nearby 连接准备失败：${error.message}"
+                return
+            }
+            nearbyManagerFlow.value = null
+            val newSession = RoomSession(nickname)
+            val transport = NearbyRoomTransport.guest(nickname, newSession, port, endpoint.id)
+            sessionFlow.value = newSession
+            roomKindFlow.value = RoomKind.NEARBY
+            isHost = false
+            beginCall(NEARBY_GUEST_LABEL, speakerOn)
+            runCatching {
+                newSession.start(transport)
+                transport.start()
+            }.onSuccess {
+                status = "正在连接 ${endpoint.name}……"
+                screen = Screen.ROOM
+            }.onFailure { error ->
+                TransportLog.w("Nearby 入房失败: ${error.message}", error)
+                goHome("Nearby 入房失败：${error.message}")
             }
         }
 
@@ -515,6 +642,9 @@ class MainActivity : ComponentActivity() {
                 Screen.BLUETOOTH_SCAN -> {
                     goHome(null)
                 }
+                Screen.NEARBY_SCAN -> {
+                    goHome(null)
+                }
                 Screen.HOME -> Unit
             }
         }
@@ -557,6 +687,12 @@ class MainActivity : ComponentActivity() {
                         screen = Screen.BLUETOOTH_SCAN
                     }
                 },
+                onCreateNearbyRoom = {
+                    withNearbyPermissions { startNearbyHost() }
+                },
+                onJoinNearbyRoom = {
+                    withNearbyPermissions { startNearbyDiscovery() }
+                },
                 onLoopbackTest = {
                     withMicPermission {
                         runCatching { loopback.start() }
@@ -570,7 +706,7 @@ class MainActivity : ComponentActivity() {
                             }
                     }
                 },
-                status = status ?: wifiError,
+                status = status ?: wifiError ?: nearbyError,
             )
 
             Screen.SCAN -> ScanScreen(
@@ -609,10 +745,22 @@ class MainActivity : ComponentActivity() {
                 },
             )
 
+            Screen.NEARBY_SCAN -> NearbyScanScreen(
+                endpoints = nearbyEndpoints,
+                discovering = nearbyDiscovering,
+                status = status ?: nearbyError,
+                onPick = ::startNearbyGuest,
+                onScanAgain = {
+                    nearbyManager?.startDiscovery()
+                },
+                onBack = { goHome(null) },
+            )
+
             Screen.ROOM -> RoomScreen(
                 state = roomState,
                 roomLabel = when (roomKind) {
                     RoomKind.BLUETOOTH -> if (isHost) BLUETOOTH_HOST_LABEL else BLUETOOTH_GUEST_LABEL
+                    RoomKind.NEARBY -> if (isHost) NEARBY_HOST_LABEL else NEARBY_GUEST_LABEL
                     else -> if (isHost) HOST_LABEL else GUEST_LABEL
                 },
                 speakerOn = speakerOn,
@@ -641,5 +789,7 @@ class MainActivity : ComponentActivity() {
         const val GUEST_LABEL = "WiFi 房"
         const val BLUETOOTH_HOST_LABEL = "蓝牙房（我是房主）"
         const val BLUETOOTH_GUEST_LABEL = "蓝牙房"
+        const val NEARBY_HOST_LABEL = "Nearby 房（我是房主）"
+        const val NEARBY_GUEST_LABEL = "Nearby 房"
     }
 }
