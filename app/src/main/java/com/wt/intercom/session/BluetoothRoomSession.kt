@@ -56,6 +56,7 @@ class BluetoothRoomSession(
     private val stopped = AtomicBoolean(false)
     @Volatile private var running = false
     @Volatile private var pttPressed = false
+    @Volatile private var audioFocusInterrupted = false
     @Volatile private var selfId = -1
     @Volatile private var transport: BluetoothRoomTransport? = null
     @Volatile private var audio: AudioIo? = null
@@ -88,6 +89,7 @@ class BluetoothRoomSession(
     }
 
     fun setPttPressed(pressed: Boolean) {
+        if (pressed && audioFocusInterrupted) return
         if (pttPressed == pressed) return
         pttPressed = pressed
         if (!pressed) pendingHostPcm.set(null)
@@ -97,6 +99,12 @@ class BluetoothRoomSession(
                 Frame(FrameType.PTT_STATE, id, nextSignalSeq(), PttStateCodec.encode(pressed)),
             )
         }
+        publishState()
+    }
+
+    fun setAudioFocusInterrupted(interrupted: Boolean) {
+        audioFocusInterrupted = interrupted
+        if (interrupted) setPttPressed(false)
         publishState()
     }
 
@@ -272,6 +280,7 @@ class BluetoothRoomSession(
         _state.value = RoomUiState(
             connected = running && selfId >= 0,
             members = members,
+            audioFocusInterrupted = audioFocusInterrupted,
             endedReason = _state.value.endedReason,
         )
     }

@@ -5,6 +5,7 @@ import com.wt.intercom.audio.AudioEngine
 import com.wt.intercom.audio.AudioIo
 import com.wt.intercom.audio.EngineAudioIo
 import com.wt.intercom.audio.JitterBuffer
+import com.wt.intercom.audio.MicGate
 import com.wt.intercom.audio.Mixer
 import com.wt.intercom.audio.OpusCodec
 import com.wt.intercom.protocol.Frame
@@ -23,6 +24,7 @@ data class RoomUiState(
     val connected: Boolean = false,
     val members: List<MemberUi> = emptyList(),
     val micMuted: Boolean = false,
+    val audioFocusInterrupted: Boolean = false,
     val endedReason: String? = null,
 )
 
@@ -46,6 +48,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     private val encoder = OpusCodec()
     private var seq = 0
     private val selfSpeaking = SpeakingDetector()
+    private val micGate = MicGate()
 
     private val started = AtomicBoolean(false)
     private val stopped = AtomicBoolean(false)
@@ -80,6 +83,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
         attachTransport(transport)
         running = true
         val eng = audioIoFactory(::onPcmCaptured)
+        eng.micMuted = micGate.effectiveMuted
         engine = eng
         try {
             eng.start()
@@ -141,7 +145,14 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     }
 
     fun setMicMuted(muted: Boolean) {
-        engine?.micMuted = muted
+        micGate.setUserMuted(muted)
+        engine?.micMuted = micGate.effectiveMuted
+        publishState()
+    }
+
+    fun setAudioFocusInterrupted(interrupted: Boolean) {
+        micGate.setFocusInterrupted(interrupted)
+        engine?.micMuted = micGate.effectiveMuted
         publishState()
     }
 
@@ -213,7 +224,8 @@ class RoomSession(private val selfNickname: String) : TransportListener {
         _state.value = RoomUiState(
             connected = selfId >= 0 && running,
             members = list,
-            micMuted = engine?.micMuted ?: false,
+            micMuted = micGate.userMuted,
+            audioFocusInterrupted = micGate.focusInterrupted,
             endedReason = _state.value.endedReason,
         )
     }

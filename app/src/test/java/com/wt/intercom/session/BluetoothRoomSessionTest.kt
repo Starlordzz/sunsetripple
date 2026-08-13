@@ -113,6 +113,22 @@ class BluetoothRoomSessionTest {
     }
 
     @Test
+    fun `焦点丢失立即释放 PTT 且恢复后不自动重新按下`() {
+        val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1))
+
+        h.session.setPttPressed(true)
+        h.session.setAudioFocusInterrupted(true)
+        val signalCountAfterLoss = h.transport.signals.size
+        h.session.setPttPressed(true)
+        h.session.setAudioFocusInterrupted(false)
+
+        assertFalse(h.session.state.value.members.single { it.isSelf }.speaking)
+        assertFalse(PttStateCodec.decode(h.transport.signals.last().payload))
+        assertEquals(signalCountAfterLoss, h.transport.signals.size)
+        h.session.leave()
+    }
+
+    @Test
     fun `客户端按住 PTT 时不播放主机下行`() {
         val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1))
         h.session.setPttPressed(true)

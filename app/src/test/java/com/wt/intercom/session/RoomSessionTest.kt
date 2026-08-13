@@ -122,6 +122,34 @@ class RoomSessionTest {
     }
 
     @Test
+    fun `焦点恢复保留用户静音且状态区分焦点中断`() {
+        val (s, io) = sessionWithFakeIo()
+        s.start(FakeTransport())
+        s.onRoster(roster(1, 1, 2))
+
+        s.setMicMuted(true)
+        s.setAudioFocusInterrupted(true)
+        s.setAudioFocusInterrupted(false)
+
+        assertTrue(io()!!.micMuted)
+        assertTrue(s.state.value.micMuted)
+        assertFalse(s.state.value.audioFocusInterrupted)
+        s.leave()
+    }
+
+    @Test
+    fun `启动前已失去焦点时新音频设备保持静音`() {
+        val (s, io) = sessionWithFakeIo()
+        s.setAudioFocusInterrupted(true)
+
+        s.start(FakeTransport())
+
+        assertTrue(io()!!.micMuted)
+        assertTrue(s.state.value.audioFocusInterrupted)
+        s.leave()
+    }
+
+    @Test
     fun `断开连接记录原因且置为未连接`() {
         val s = RoomSession("我")
         s.onRoster(roster(1, 1, 2))
