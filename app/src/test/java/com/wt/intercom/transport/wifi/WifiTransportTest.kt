@@ -6,6 +6,7 @@ import com.wt.intercom.session.Roster
 import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
+import com.wt.intercom.transport.ResumeJoinCodec
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketException
@@ -69,7 +70,7 @@ class WifiTransportTest {
         val s = trackSocket(Socket())
         s.connect(InetSocketAddress("127.0.0.1", host.signalPort), 2000)
         s.getOutputStream().apply {
-            write(Frame(FrameType.JOIN, 0, 0, nickname.toByteArray(Charsets.UTF_8)).encode())
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16) { nickname.hashCode().toByte() }, nickname)).encode())
             flush()
         }
         return s
@@ -141,6 +142,7 @@ class WifiTransportTest {
         first.start()
         await(what = "首位成员入房") { firstRec.rosters.isNotEmpty() }
         assertEquals(1, firstRec.rosters.last().yourId)
+        first.broadcast(Frame(FrameType.LEAVE, 1, 0, ByteArray(0)))
         first.close()
         await(what = "首位成员离房") { hostRec.rosters.lastOrNull()?.members?.size == 1 }
 
@@ -192,6 +194,7 @@ class WifiTransportTest {
         client.start()
         await(what = "主机成员表含 2 人") { hostRec.rosters.lastOrNull()?.members?.size == 2 }
 
+        client.broadcast(Frame(FrameType.LEAVE, 1, 0, ByteArray(0)))
         client.close()
 
         await(what = "主机产出 LEAVE") { hostRec.frames.any { it.type == FrameType.LEAVE } }
@@ -275,11 +278,16 @@ class WifiTransportTest {
     @Test
     fun `畸形帧只断开该对端且主机继续服务`() {
         val hostRec = Recorder()
-        val host = startHost(hostRec)
+        val host = track(
+            WifiHostTransport(
+                "主机", hostRec, hostIp = "127.0.0.1", signalPort = 0, audioBindPort = 0,
+                reconnectGraceMs = 20,
+            ),
+        ).also { it.start() }
         val raw = trackSocket(Socket())
         raw.connect(InetSocketAddress("127.0.0.1", host.signalPort), 2000)
         val out = raw.getOutputStream()
-        out.write(Frame(FrameType.JOIN, 0, 0, "捣乱".toByteArray()).encode())
+        out.write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16), "捣乱")).encode())
         out.flush()
         await(what = "捣乱者入房") { hostRec.rosters.lastOrNull()?.members?.size == 2 }
 

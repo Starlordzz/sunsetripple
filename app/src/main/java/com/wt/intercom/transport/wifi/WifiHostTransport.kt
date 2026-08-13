@@ -7,6 +7,7 @@ import com.wt.intercom.session.MemberInfo
 import com.wt.intercom.session.Roster
 import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.RosterFrames
+import com.wt.intercom.transport.ResumeJoinCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import com.wt.intercom.transport.TransportLog
@@ -18,6 +19,9 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -34,6 +38,7 @@ class WifiHostTransport(
     signalPort: Int = SIGNAL_PORT,
     audioBindPort: Int = AUDIO_PORT,
     private val peerAudioPort: Int = AUDIO_PORT,
+    private val reconnectGraceMs: Long = RECONNECT_GRACE_MS,
 ) : Transport {
 
     companion object {
@@ -50,14 +55,23 @@ class WifiHostTransport(
         /** 入房后的读超时：客户端每 3s 一个 PING，静默这么久即判定链路已死。 */
         private const val READ_TIMEOUT_MS = 10000
         private const val UDP_BUFFER = 2048
+        private const val RECONNECT_GRACE_MS = 7_000L
     }
 
     private class Client(
         val id: Int,
-        val nickname: String,
-        val ip: String,
+        var nickname: String,
+        var ip: String,
+        val resumeToken: String,
+        var link: ClientLink,
+        var reconnecting: Boolean = false,
+        var expiry: ScheduledFuture<*>? = null,
+    )
+
+    private data class ClientLink(
         val socket: Socket,
         val out: OutputStream,
+        val dropped: AtomicBoolean = AtomicBoolean(false),
     )
 
     private val lock = Any()
@@ -67,6 +81,9 @@ class WifiHostTransport(
     @Volatile private var running = true
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
+    private val scheduler = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "wifi-host-reconnect").apply { isDaemon = true }
+    }
     private val server = ServerSocket(signalPort)
     private val udp = try {
         DatagramSocket(audioBindPort)
@@ -139,9 +156,12 @@ class WifiHostTransport(
             return
         }
         // 昵称按 RosterCodec 同口径截断后再入表，免得主机 UI 显示的和下发出去的不一致。
-        val nick = RosterCodec.truncateNickname(String(join.payload, Charsets.UTF_8))
+        val resumeJoin = runCatching { ResumeJoinCodec.decode(join.payload) }.getOrNull() ?: run {
+            runCatching { socket.close() }
+            return
+        }
         val client = try {
-            admit(nick, ip, socket)
+            admit(resumeJoin.nickname, resumeJoin.token.toTokenKey(), ip, socket)
         } catch (e: IOException) {
             TransportLog.w("初始化入房连接失败: ${e.message}", e)
             runCatching { socket.close() }
@@ -152,13 +172,18 @@ class WifiHostTransport(
         }
         // 入房后放宽到心跳级超时，别清零：清零就退回"永久阻塞"，链路半开时这条线程再也回不来。
         runCatching { socket.soTimeout = READ_TIMEOUT_MS }
+        val link = client.link
+        val wasReconnecting = client.reconnecting
+        client.reconnecting = false
         pushRosterToAll()
+        if (wasReconnecting) listener.onMemberReconnected(client.id)
+        var activeLeave = false
         try {
             while (running) {
                 // 硬指标：接收循环一律走 readFrameSafely——返回 null＝断流或协议错误，断开该对端。
                 val f = reader.readFrameSafely() ?: break
                 when (f.type) {
-                    FrameType.LEAVE -> break
+                    FrameType.LEAVE -> { activeLeave = true; break }
                     FrameType.PING -> Unit
                     FrameType.JOIN, FrameType.ROSTER -> Unit   // 客户端不该发这两类，忽略
                     else -> listener.onFrame(f)
@@ -167,12 +192,7 @@ class WifiHostTransport(
         } catch (e: Exception) {
             TransportLog.w("客户端 ${client.id} 读取异常: ${e.message}", e)
         } finally {
-            val removed = synchronized(lock) { clients.remove(client.id) != null }
-            runCatching { socket.close() }
-            if (removed) {
-                listener.onFrame(Frame(FrameType.LEAVE, client.id, 0, ByteArray(0)))
-                pushRosterToAll()
-            }
+            dropClient(client, link, activeLeave, notify = running)
         }
     }
 
@@ -183,7 +203,16 @@ class WifiHostTransport(
      * 都会对所有人失败（载荷 > 512B），全房成员表当场冻结、新人麦克风哑、UI 永远不 connected。
      * 拒一个人只影响他自己。
      */
-    private fun admit(nickname: String, ip: String, socket: Socket): Client? = synchronized(lock) {
+    private fun admit(nickname: String, token: String, ip: String, socket: Socket): Client? = synchronized(lock) {
+        val resumed = clients.values.firstOrNull { it.resumeToken == token && it.reconnecting }
+        if (resumed != null) {
+            resumed.expiry?.cancel(false)
+            resumed.expiry = null
+            resumed.nickname = nickname
+            resumed.ip = ip
+            resumed.link = ClientLink(socket, socket.getOutputStream())
+            return resumed
+        }
         val memberId = (1..MAX_MEMBER_ID).firstOrNull { it !in clients }
         if (memberId == null) {
             TransportLog.w("成员 ID 已用尽，拒绝入房")
@@ -202,7 +231,7 @@ class WifiHostTransport(
             TransportLog.w("成员表将超载荷，拒绝「$nickname」入房: ${e.message}", e)
             return null
         }
-        Client(candidate.id, nickname, ip, socket, socket.getOutputStream())
+        Client(candidate.id, nickname, ip, token, ClientLink(socket, socket.getOutputStream()))
             .also { clients[it.id] = it }
     }
 
@@ -218,7 +247,7 @@ class WifiHostTransport(
         while (true) {
             val members = membersSnapshot()
             listener.onRoster(Roster(HOST_ID, members))
-            val targets = synchronized(lock) { clients.values.toList() }
+            val targets = synchronized(lock) { clients.values.filterNot { it.reconnecting }.toList() }
             val dead = ArrayList<Client>()
             for (c in targets) {
                 // 硬指标：ROSTER 一律经 RosterFrames.encode；null＝载荷超限（已告警），跳过本轮下发。
@@ -236,9 +265,9 @@ class WifiHostTransport(
         val bytes = frame.encode()
         return try {
             // 同一 socket 可能被 pushRoster（客户端线程）与 broadcast（采集线程）同时写，需串行化。
-            synchronized(c.out) {
-                c.out.write(bytes)
-                c.out.flush()
+            synchronized(c.link.out) {
+                c.link.out.write(bytes)
+                c.link.out.flush()
             }
             true
         } catch (e: Exception) {
@@ -248,11 +277,46 @@ class WifiHostTransport(
     }
 
     private fun dropClient(c: Client, reason: String) {
-        val removed = synchronized(lock) { clients.remove(c.id) != null }
-        runCatching { c.socket.close() }   // 关 socket 会唤醒该客户端的读线程，由它走 finally
+        dropClient(c, c.link, activeLeave = true, notify = running)
+        TransportLog.w("剔除成员 ${c.id}（$reason）")
+    }
+
+    private fun dropClient(c: Client, link: ClientLink, activeLeave: Boolean, notify: Boolean) {
+        if (!link.dropped.compareAndSet(false, true)) return
+        var reconnecting = false
+        var removed = false
+        synchronized(lock) {
+            if (c.link !== link) return
+            if (activeLeave || !notify) {
+                removed = clients.remove(c.id) === c
+            } else if (!c.reconnecting) {
+                c.reconnecting = true
+                reconnecting = true
+                c.expiry = scheduler.schedule({ expireClient(c) }, reconnectGraceMs, TimeUnit.MILLISECONDS)
+            }
+        }
+        runCatching { link.socket.close() }
+        when {
+            removed && notify -> {
+                listener.onFrame(Frame(FrameType.LEAVE, c.id, 0, ByteArray(0)))
+                pushRosterToAll()
+            }
+            reconnecting -> {
+                listener.onMemberReconnecting(c.id)
+                pushRosterToAll()
+            }
+        }
+    }
+
+    private fun expireClient(c: Client) {
+        if (closed.get()) return
+        val removed = synchronized(lock) {
+            if (!c.reconnecting || clients.remove(c.id) !== c) return
+            true
+        }
         if (removed) {
-            TransportLog.w("剔除成员 ${c.id}（$reason）")
-            listener.onFrame(Frame(FrameType.LEAVE, c.id, 0, ByteArray(0)))
+            listener.onMemberReconnectFailed(c.id)
+            pushRosterToAll()
         }
     }
 
@@ -283,14 +347,14 @@ class WifiHostTransport(
     override fun broadcast(frame: Frame) {
         if (frame.type == FrameType.AUDIO) {
             val data = frame.encode()
-            val targets = synchronized(lock) { clients.values.map { it.ip } }
+            val targets = synchronized(lock) { clients.values.filterNot { it.reconnecting }.map { it.ip } }
             for (ip in targets) {
                 runCatching {
                     udp.send(DatagramPacket(data, data.size, InetAddress.getByName(ip), peerAudioPort))
                 }.onFailure { TransportLog.w("音频发往 $ip 失败: ${it.message}", it) }
             }
         } else {
-            val targets = synchronized(lock) { clients.values.toList() }
+            val targets = synchronized(lock) { clients.values.filterNot { it.reconnecting }.toList() }
             val dead = targets.filterNot { sendTo(it, frame) }
             for (c in dead) dropClient(c, "信令发送失败")
             if (dead.isNotEmpty()) pushRosterToAll()
@@ -301,6 +365,7 @@ class WifiHostTransport(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         running = false
+        scheduler.shutdownNow()
         runCatching { server.close() }
             .onFailure { TransportLog.w("关闭信令端口失败: ${it.message}", it) }
         runCatching { udp.close() }
@@ -310,6 +375,13 @@ class WifiHostTransport(
             clients.clear()
             all
         }
-        for (c in targets) runCatching { c.socket.close() }
+        for (c in targets) {
+            runCatching {
+                sendTo(c, Frame(FrameType.LEAVE, HOST_ID, 0, ByteArray(0)))
+            }
+            runCatching { c.link.socket.close() }
+        }
     }
+
+    private fun ByteArray.toTokenKey(): String = joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 }
