@@ -23,6 +23,9 @@ interface BluetoothRoomTransport {
 interface BluetoothRoomTransportListener {
     fun onFrame(frame: Frame)
     fun onRoster(roster: Roster)
+    fun onMemberReconnecting(memberId: Int) = Unit
+    fun onMemberReconnected(memberId: Int) = Unit
+    fun onMemberReconnectFailed(memberId: Int) = Unit
     fun onDisconnected(reason: String)
 }
 

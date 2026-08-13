@@ -54,6 +54,7 @@ class BluetoothRoomSession(
     private val pttStates = linkedMapOf<Int, Boolean>()
     private val downlinkEncoders = linkedMapOf<Int, BluetoothAudioCodec>()
     private val downlinkSeq = linkedMapOf<Int, Int>()
+    private val presenceById = linkedMapOf<Int, MemberPresence>()
     private val started = AtomicBoolean(false)
     private val stopped = AtomicBoolean(false)
     @Volatile private var running = false
@@ -212,10 +213,7 @@ class BluetoothRoomSession(
             }
             FrameType.LEAVE -> {
                 synchronized(lock) {
-                    remotes.remove(frame.senderId)
-                    pttStates.remove(frame.senderId)
-                    downlinkEncoders.remove(frame.senderId)
-                    downlinkSeq.remove(frame.senderId)
+                    removeMember(frame.senderId)
                 }
                 publishState()
             }
@@ -227,10 +225,8 @@ class BluetoothRoomSession(
         selfId = roster.yourId
         synchronized(lock) {
             val alive = roster.members.mapTo(linkedSetOf()) { it.id }
-            remotes.keys.retainAll(alive)
-            pttStates.keys.retainAll(alive)
-            downlinkEncoders.keys.retainAll(alive)
-            downlinkSeq.keys.retainAll(alive)
+            remotes.keys.filter { it !in alive && presenceById[it] != MemberPresence.RECONNECTING }
+                .forEach(::removeMember)
             for (member in roster.members) {
                 if (member.id != roster.yourId && member.id !in remotes) {
                     remotes[member.id] = RemoteStream(
@@ -240,8 +236,31 @@ class BluetoothRoomSession(
                     )
                 }
                 pttStates.putIfAbsent(member.id, false)
+                if (member.id != roster.yourId) presenceById.putIfAbsent(member.id, MemberPresence.CONNECTED)
             }
         }
+        publishState()
+    }
+
+    override fun onMemberReconnecting(memberId: Int) {
+        synchronized(lock) {
+            if (memberId in remotes) {
+                presenceById[memberId] = MemberPresence.RECONNECTING
+                pttStates[memberId] = false
+            }
+        }
+        publishState()
+    }
+
+    override fun onMemberReconnected(memberId: Int) {
+        synchronized(lock) {
+            if (memberId in remotes) presenceById[memberId] = MemberPresence.CONNECTED
+        }
+        publishState()
+    }
+
+    override fun onMemberReconnectFailed(memberId: Int) {
+        synchronized(lock) { removeMember(memberId) }
         publishState()
     }
 
@@ -280,7 +299,14 @@ class BluetoothRoomSession(
             buildList {
                 if (selfId >= 0) add(MemberUi(selfId, selfNickname, pttPressed, true))
                 remotes.values.forEach { remote ->
-                    add(MemberUi(remote.member.id, remote.member.nickname, pttStates[remote.member.id] == true, false))
+                    val presence = presenceById[remote.member.id] ?: MemberPresence.CONNECTED
+                    add(MemberUi(
+                        remote.member.id,
+                        remote.member.nickname,
+                        pttStates[remote.member.id] == true && presence == MemberPresence.CONNECTED,
+                        false,
+                        presence,
+                    ))
                 }
             }
         }
@@ -302,6 +328,14 @@ class BluetoothRoomSession(
         val current = downlinkSeq[memberId] ?: 0
         downlinkSeq[memberId] = (current + 1) and 0xFFFF
         current
+    }
+
+    private fun removeMember(memberId: Int) {
+        remotes.remove(memberId)
+        pttStates.remove(memberId)
+        downlinkEncoders.remove(memberId)
+        downlinkSeq.remove(memberId)
+        presenceById.remove(memberId)
     }
 
     private companion object {

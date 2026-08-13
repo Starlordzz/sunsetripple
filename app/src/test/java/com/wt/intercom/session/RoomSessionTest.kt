@@ -86,6 +86,34 @@ class RoomSessionTest {
     }
 
     @Test
+    fun `成员临时断线时保留为重连中恢复后回到已连接`() {
+        val s = RoomSession("我")
+        s.onRoster(roster(1, 1, 2, 3))
+
+        s.onMemberReconnecting(3)
+        s.onRoster(roster(1, 1, 2))
+
+        assertEquals(MemberPresence.RECONNECTING, s.state.value.members.first { it.id == 3 }.presence)
+
+        s.onMemberReconnected(3)
+
+        assertEquals(MemberPresence.CONNECTED, s.state.value.members.first { it.id == 3 }.presence)
+    }
+
+    @Test
+    fun `成员重连最终失败才从列表移除`() {
+        val s = RoomSession("我")
+        s.onRoster(roster(1, 1, 2))
+
+        s.onMemberReconnecting(2)
+        assertTrue(s.state.value.members.any { it.id == 2 })
+
+        s.onMemberReconnectFailed(2)
+
+        assertFalse(s.state.value.members.any { it.id == 2 })
+    }
+
+    @Test
     fun `AUDIO 帧进入对应成员的抖动缓冲`() {
         val s = RoomSession("我")
         s.onRoster(roster(1, 1, 2))

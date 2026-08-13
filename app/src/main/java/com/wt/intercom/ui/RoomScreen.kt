@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.wt.intercom.session.RoomUiState
+import com.wt.intercom.session.MemberPresence
 
 @Composable
 fun RoomScreen(
@@ -88,22 +89,34 @@ fun RoomScreen(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 15.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RippleStatusMark(active = member.speaking, modifier = Modifier.size(42.dp))
+                    RippleStatusMark(
+                        active = member.speaking && member.presence == MemberPresence.CONNECTED,
+                        modifier = Modifier.size(42.dp),
+                    )
                     Column(Modifier.weight(1f).padding(start = 13.dp)) {
                         Text(
                             if (member.isSelf) "${member.nickname} · 我" else member.nickname,
                             fontWeight = FontWeight.SemiBold,
-                            color = SunsetColors.Ink,
+                            color = if (member.presence == MemberPresence.RECONNECTING) {
+                                SunsetColors.Muted
+                            } else {
+                                SunsetColors.Ink
+                            },
                         )
                         Text(
                             when {
+                                member.presence == MemberPresence.RECONNECTING -> "重连中"
                                 member.isSelf && state.audioFocusInterrupted -> "只听模式"
                                 member.isSelf && state.micMuted -> "麦克风已静音"
                                 member.speaking -> "正在说话"
                                 else -> "安静"
                             },
                             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                            color = if (member.speaking) SunsetColors.Coral else SunsetColors.Muted,
+                            color = if (member.speaking && member.presence == MemberPresence.CONNECTED) {
+                                SunsetColors.Coral
+                            } else {
+                                SunsetColors.Muted
+                            },
                         )
                     }
                 }

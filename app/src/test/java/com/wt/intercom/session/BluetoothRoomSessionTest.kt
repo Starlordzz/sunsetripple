@@ -215,6 +215,22 @@ class BluetoothRoomSessionTest {
     }
 
     @Test
+    fun `蓝牙成员临时断线保留到重连失败且恢复会清除重连态`() {
+        val h = harness(isHost = true, selfId = 0, memberIds = intArrayOf(0, 1, 2))
+
+        h.session.onMemberReconnecting(2)
+        h.session.onRoster(Roster(0, listOf(MemberInfo(0, "用户0", "addr0"), MemberInfo(1, "用户1", "addr1"))))
+        assertEquals(MemberPresence.RECONNECTING, h.session.state.value.members.first { it.id == 2 }.presence)
+
+        h.session.onMemberReconnected(2)
+        assertEquals(MemberPresence.CONNECTED, h.session.state.value.members.first { it.id == 2 }.presence)
+
+        h.session.onMemberReconnecting(2)
+        h.session.onMemberReconnectFailed(2)
+        assertFalse(h.session.state.value.members.any { it.id == 2 })
+    }
+
+    @Test
     fun `远端重新按下 PTT 不播放上次讲话的缓存`() {
         val h = harness(isHost = true, selfId = 0, memberIds = intArrayOf(0, 1, 2), holdPlayback = true)
         h.session.onFrame(Frame(FrameType.PTT_STATE, 1, 0, PttStateCodec.encode(true)))

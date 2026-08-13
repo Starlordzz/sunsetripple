@@ -18,7 +18,13 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-data class MemberUi(val id: Int, val nickname: String, val speaking: Boolean, val isSelf: Boolean)
+data class MemberUi(
+    val id: Int,
+    val nickname: String,
+    val speaking: Boolean,
+    val isSelf: Boolean,
+    val presence: MemberPresence = MemberPresence.CONNECTED,
+)
 
 data class RoomUiState(
     val connected: Boolean = false,
@@ -68,6 +74,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     }
 
     private val remotes = linkedMapOf<Int, RemoteStream>()   // memberId -> 流（synchronized(remotes) 保护）
+    private val presenceById = linkedMapOf<Int, MemberPresence>()
 
     /** 只接线传输、不启音频。传输层建立连接后即可绑定，音频由 [start] 拉起。 */
     fun attachTransport(transport: Transport) {
@@ -175,7 +182,10 @@ class RoomSession(private val selfNickname: String) : TransportListener {
                 remotes[frame.senderId]?.jitter?.put(frame.seq, frame.payload)
             }
             FrameType.LEAVE -> {
-                synchronized(remotes) { remotes.remove(frame.senderId) }
+                synchronized(remotes) {
+                    remotes.remove(frame.senderId)
+                    presenceById.remove(frame.senderId)
+                }
                 publishState()
             }
             else -> Unit   // JOIN/ROSTER/PING 由传输层消化
@@ -186,10 +196,36 @@ class RoomSession(private val selfNickname: String) : TransportListener {
         selfId = roster.yourId
         synchronized(remotes) {
             val alive = roster.members.map { it.id }.toSet()
-            remotes.keys.retainAll(alive)
+            remotes.keys.removeAll { it !in alive && presenceById[it] != MemberPresence.RECONNECTING }
+            presenceById.keys.removeAll { it !in remotes && it != roster.yourId }
             for (m in roster.members) {
-                if (m.id != roster.yourId && m.id !in remotes) remotes[m.id] = RemoteStream(m)
+                if (m.id != roster.yourId) {
+                    if (m.id !in remotes) remotes[m.id] = RemoteStream(m)
+                    presenceById.putIfAbsent(m.id, MemberPresence.CONNECTED)
+                }
             }
+        }
+        publishState()
+    }
+
+    override fun onMemberReconnecting(memberId: Int) {
+        synchronized(remotes) {
+            if (memberId in remotes) presenceById[memberId] = MemberPresence.RECONNECTING
+        }
+        publishState()
+    }
+
+    override fun onMemberReconnected(memberId: Int) {
+        synchronized(remotes) {
+            if (memberId in remotes) presenceById[memberId] = MemberPresence.CONNECTED
+        }
+        publishState()
+    }
+
+    override fun onMemberReconnectFailed(memberId: Int) {
+        synchronized(remotes) {
+            remotes.remove(memberId)
+            presenceById.remove(memberId)
         }
         publishState()
     }
@@ -225,7 +261,14 @@ class RoomSession(private val selfNickname: String) : TransportListener {
         if (selfId >= 0) list.add(MemberUi(selfId, selfNickname, selfSpeaking.isSpeaking(), true))
         synchronized(remotes) {
             for (r in remotes.values) {
-                list.add(MemberUi(r.member.id, r.member.nickname, r.speaking.isSpeaking(), false))
+                val presence = presenceById[r.member.id] ?: MemberPresence.CONNECTED
+                list.add(MemberUi(
+                    r.member.id,
+                    r.member.nickname,
+                    r.speaking.isSpeaking() && presence == MemberPresence.CONNECTED,
+                    false,
+                    presence,
+                ))
             }
         }
         _state.value = RoomUiState(
