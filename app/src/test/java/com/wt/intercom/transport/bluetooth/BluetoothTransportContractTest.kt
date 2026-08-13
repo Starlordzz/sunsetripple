@@ -3,6 +3,10 @@ package com.wt.intercom.transport.bluetooth
 import com.wt.intercom.protocol.Frame
 import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.session.Roster
+import com.wt.intercom.session.RosterCodec
+import com.wt.intercom.protocol.FrameStreamReader
+import com.wt.intercom.transport.ReconnectPolicy
+import com.wt.intercom.transport.ResumeJoinCodec
 import java.net.ServerSocket
 import java.net.Socket
 import java.io.ByteArrayOutputStream
@@ -23,9 +27,15 @@ class BluetoothTransportContractTest {
         val frames = CopyOnWriteArrayList<Frame>()
         val rosters = CopyOnWriteArrayList<Roster>()
         val disconnects = CopyOnWriteArrayList<String>()
+        val reconnecting = CopyOnWriteArrayList<Int>()
+        val reconnected = CopyOnWriteArrayList<Int>()
+        val reconnectFailed = CopyOnWriteArrayList<Int>()
         override fun onFrame(frame: Frame) { frames.add(frame) }
         override fun onRoster(roster: Roster) { rosters.add(roster) }
         override fun onDisconnected(reason: String) { disconnects.add(reason) }
+        override fun onMemberReconnecting(memberId: Int) { reconnecting.add(memberId) }
+        override fun onMemberReconnected(memberId: Int) { reconnected.add(memberId) }
+        override fun onMemberReconnectFailed(memberId: Int) { reconnectFailed.add(memberId) }
     }
 
     private class SocketConnection(private val socket: Socket) : BluetoothConnection {
@@ -53,6 +63,10 @@ class BluetoothTransportContractTest {
             closed.set(true)
             input.close()
             inputWriter.close()
+        }
+        fun send(frame: Frame) {
+            inputWriter.write(frame.encode())
+            inputWriter.flush()
         }
     }
 
@@ -109,12 +123,119 @@ class BluetoothTransportContractTest {
         room.client("成员二")
         await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
 
+        first.transport.broadcastSignal(Frame(FrameType.LEAVE, 1, 0, ByteArray(0)))
         first.transport.close()
         await("首位成员离开") { room.hostRecorder.rosters.lastOrNull()?.members?.map { it.id } == listOf(0, 2) }
         val replacement = room.client("替补")
         await("替补收到成员表") { replacement.recorder.rosters.isNotEmpty() }
 
         assertEquals(1, replacement.recorder.rosters.last().yourId)
+    }
+
+    @Test
+    fun `异常断线保留成员且同 token 新连接沿用原 ID`() {
+        val room = room(reconnectGraceMs = 2_000)
+        val token = ByteArray(16) { it.toByte() }
+        val first = room.server.connectSocket()
+        closeables += AutoCloseable { first.close() }
+        first.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, "成员一")).encode())
+            flush()
+        }
+        val firstRoster = nextRoster(first)
+        assertEquals(1, firstRoster.yourId)
+
+        first.close()
+        await("主机标记成员重连中") { room.hostRecorder.reconnecting == listOf(1) }
+        assertTrue(room.hostRecorder.rosters.last().members.any { it.id == 1 })
+
+        val resumed = room.server.connectSocket()
+        closeables += AutoCloseable { resumed.close() }
+        resumed.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, "成员一")).encode())
+            flush()
+        }
+
+        assertEquals(1, nextRoster(resumed).yourId)
+        await("主机确认成员恢复") { room.hostRecorder.reconnected == listOf(1) }
+    }
+
+    @Test
+    fun `错误 token 在宽限期内不得复用原成员 ID`() {
+        val room = room(reconnectGraceMs = 2_000)
+        val first = room.server.connectSocket()
+        closeables += AutoCloseable { first.close() }
+        first.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16) { 1 }, "成员一")).encode())
+            flush()
+        }
+        assertEquals(1, nextRoster(first).yourId)
+        first.close()
+        await("原成员进入重连中") { room.hostRecorder.reconnecting == listOf(1) }
+
+        val stranger = room.server.connectSocket()
+        closeables += AutoCloseable { stranger.close() }
+        stranger.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16) { 2 }, "陌生成员")).encode())
+            flush()
+        }
+
+        assertEquals(2, nextRoster(stranger).yourId)
+    }
+
+    @Test
+    fun `主机宽限期结束后最终移除成员并回调失败`() {
+        val room = room(reconnectGraceMs = 20)
+        val client = room.client("成员一")
+        await("成员完成入房") { client.recorder.rosters.isNotEmpty() }
+
+        client.transport.close()
+
+        await("成员重连最终失败") { room.hostRecorder.reconnectFailed == listOf(1) }
+        assertEquals(listOf(0), room.hostRecorder.rosters.last().members.map { it.id })
+    }
+
+    @Test
+    fun `客户端读断线后按三次退避创建全新连接并最终结束`() {
+        val first = RecordingConnection()
+        val attempts = CopyOnWriteArrayList<Int>()
+        val delays = CopyOnWriteArrayList<Long>()
+        val recorder = Recorder()
+        val client = BluetoothClientTransport(
+            nickname = "成员",
+            listener = recorder,
+            connectionFactory = {
+                val attempt = attempts.size
+                attempts += attempt
+                if (attempt == 0) first else throw java.io.IOException("连接失败")
+            },
+            nextReconnectDelayMs = { policy: ReconnectPolicy ->
+                policy.nextDelayMs()?.also(delays::add)?.let { 1L }
+            },
+        )
+        closeables += AutoCloseable { client.close() }
+        client.start()
+        first.send(
+            Frame(
+                FrameType.ROSTER,
+                0,
+                0,
+                RosterCodec.encode(
+                    1,
+                    listOf(
+                        com.wt.intercom.session.MemberInfo(0, "主机", "host"),
+                        com.wt.intercom.session.MemberInfo(1, "成员", "test"),
+                    ),
+                ),
+            ),
+        )
+        await("客户端完成首次入房") { recorder.rosters.isNotEmpty() }
+
+        first.close()
+
+        await("三轮重连失败后结束") { recorder.disconnects.isNotEmpty() }
+        assertEquals(listOf(0, 1, 2, 3), attempts.toList())
+        assertEquals(listOf(1_000L, 2_000L, 4_000L), delays.toList())
     }
 
     @Test
@@ -132,11 +253,11 @@ class BluetoothTransportContractTest {
 
     @Test
     fun `畸形帧只断开该连接`() {
-        val room = room()
+        val room = room(reconnectGraceMs = 20)
         val bad = room.server.connect()
         closeables += AutoCloseable { bad.close() }
         bad.output.apply {
-            write(Frame(FrameType.JOIN, 0, 0, "异常成员".toByteArray()).encode())
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16), "异常成员")).encode())
             flush()
         }
         await("异常成员先完成入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 2 }
@@ -265,13 +386,19 @@ class BluetoothTransportContractTest {
         }
     }
 
-    private fun room(): RoomHarness {
+    private fun room(reconnectGraceMs: Long = 7_000): RoomHarness {
         val server = LoopbackServer()
         val recorder = Recorder()
-        val host = BluetoothHostTransport("主机", recorder) { server }
+        val host = BluetoothHostTransport("主机", recorder, reconnectGraceMs) { server }
         closeables += AutoCloseable { host.close() }
         host.start()
         return RoomHarness(server, host, recorder)
+    }
+
+    private fun nextRoster(socket: Socket): Roster {
+        socket.soTimeout = 3_000
+        val frame = FrameStreamReader(socket.getInputStream()).readFrame()
+        return RosterCodec.decode(frame!!.payload)
     }
 
     private fun await(what: String, timeoutMs: Long = 3_000, condition: () -> Boolean) {
