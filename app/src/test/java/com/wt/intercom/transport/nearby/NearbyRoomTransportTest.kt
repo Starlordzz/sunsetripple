@@ -5,6 +5,8 @@ import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.session.Roster
 import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.TransportListener
+import com.wt.intercom.transport.ResumeJoinCodec
+import com.wt.intercom.transport.ReconnectPolicy
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -16,9 +18,15 @@ class NearbyRoomTransportTest {
         val frames = CopyOnWriteArrayList<Frame>()
         val rosters = CopyOnWriteArrayList<Roster>()
         val disconnects = CopyOnWriteArrayList<String>()
+        val reconnecting = CopyOnWriteArrayList<Int>()
+        val reconnected = CopyOnWriteArrayList<Int>()
+        val reconnectFailed = CopyOnWriteArrayList<Int>()
         override fun onFrame(frame: Frame) { frames += frame }
         override fun onRoster(roster: Roster) { rosters += roster }
         override fun onDisconnected(reason: String) { disconnects += reason }
+        override fun onMemberReconnecting(memberId: Int) { reconnecting += memberId }
+        override fun onMemberReconnected(memberId: Int) { reconnected += memberId }
+        override fun onMemberReconnectFailed(memberId: Int) { reconnectFailed += memberId }
     }
 
     private class FakePort : NearbyConnectionsPort {
@@ -54,7 +62,7 @@ class NearbyRoomTransportTest {
         port.callback!!.onConnectionResult("endpoint-1", true)
         port.callback!!.onBytesReceived(
             "endpoint-1",
-            Frame(FrameType.JOIN, 0, 0, "成员一".toByteArray()).encode(),
+            Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16), "成员一")).encode(),
         )
 
         assertEquals("主机", port.advertisingName)
@@ -64,6 +72,54 @@ class NearbyRoomTransportTest {
         assertEquals(listOf("endpoint-1"), port.sent.last().first)
         assertEquals(1, RosterCodec.decode(rosterFrame.payload).yourId)
         assertEquals("endpoint-1", RosterCodec.decode(rosterFrame.payload).members.last().ip)
+    }
+
+    @Test
+    fun `主机普通成员断线保留成员并在同 token 连接后恢复`() {
+        val port = FakePort()
+        val recorder = Recorder()
+        val transport = NearbyRoomTransport.host("主机", recorder, port)
+        transport.start()
+        val token = ByteArray(16) { it.toByte() }
+        joinHost(port, "endpoint-1", "成员一", token)
+        val sentBeforeDisconnect = port.sent.size
+
+        port.callback!!.onDisconnected("endpoint-1")
+
+        assertTrue(recorder.rosters.last().members.any { it.id == 1 })
+        assertEquals(listOf(1), recorder.reconnecting.toList())
+        assertEquals("不得向已断开的 endpoint 下发 roster", sentBeforeDisconnect, port.sent.size)
+
+        port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-2", "成员一"))
+        port.callback!!.onConnectionResult("endpoint-2", true)
+        port.callback!!.onBytesReceived(
+            "endpoint-2",
+            Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, "成员一")).encode(),
+        )
+
+        assertEquals(listOf(1), recorder.reconnected.toList())
+        assertEquals(1, recorder.rosters.last().members.first { it.nickname == "成员一" }.id)
+        transport.close()
+    }
+
+    @Test
+    fun `主动 LEAVE 立即移除成员且不进入重连状态`() {
+        val port = FakePort()
+        val recorder = Recorder()
+        val transport = NearbyRoomTransport.host("主机", recorder, port)
+        transport.start()
+        joinHost(port, "endpoint-1", "成员一")
+
+        port.callback!!.onBytesReceived(
+            "endpoint-1",
+            Frame(FrameType.LEAVE, 99, 0, ByteArray(0)).encode(),
+        )
+        port.callback!!.onDisconnected("endpoint-1")
+
+        assertEquals(listOf(0), recorder.rosters.last().members.map { it.id })
+        assertTrue(recorder.reconnecting.isEmpty())
+        assertEquals(1, recorder.frames.single { it.type == FrameType.LEAVE }.senderId)
+        transport.close()
     }
 
     @Test
@@ -78,7 +134,12 @@ class NearbyRoomTransportTest {
             port.callback!!.onConnectionResult(endpoint, true)
             port.callback!!.onBytesReceived(
                 endpoint,
-                Frame(FrameType.JOIN, 0, 0, "成员$id".toByteArray()).encode(),
+                Frame(
+                    FrameType.JOIN,
+                    0,
+                    0,
+                    ResumeJoinCodec.encode(ByteArray(16) { id.toByte() }, "成员$id"),
+                ).encode(),
             )
         }
         port.sent.clear()
@@ -217,7 +278,68 @@ class NearbyRoomTransportTest {
     }
 
     @Test
-    fun `人数上限含主机且成员离开后复用最小空闲 ID`() {
+    fun `客户端普通成员端点按三次退避重连且最终失败才移除`() {
+        val port = FakePort()
+        val recorder = Recorder()
+        val observedDelays = CopyOnWriteArrayList<Long>()
+        val transport = NearbyRoomTransport.guest(
+            nickname = "成员一",
+            listener = recorder,
+            port = port,
+            hostEndpointId = "host-endpoint",
+            nextReconnectDelayMs = { policy: ReconnectPolicy ->
+                policy.nextDelayMs()?.also(observedDelays::add)?.let { 1L }
+            },
+        )
+        transport.start()
+        port.callback!!.onConnectionInitiated(NearbyEndpoint("host-endpoint", "主机"))
+        port.callback!!.onConnectionResult("host-endpoint", true)
+        sendRoster(port, "host-endpoint", memberIds = listOf(0, 1, 2))
+        port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-2", "成员二"))
+        port.callback!!.onConnectionResult("endpoint-2", true)
+        port.requested.clear()
+
+        port.callback!!.onDisconnected("endpoint-2")
+        repeat(3) { attempt ->
+            await("第 ${attempt + 1} 次普通成员重连") { port.requested.size == attempt + 1 }
+            port.callback!!.onConnectionResult("endpoint-2", false)
+        }
+
+        assertEquals(listOf(1_000L, 2_000L, 4_000L), observedDelays.toList())
+        assertEquals(listOf(2), recorder.reconnectFailed.toList())
+        assertTrue(recorder.rosters.last().members.any { it.id == 2 })
+        transport.close()
+    }
+
+    @Test
+    fun `客户端普通成员重连成功会恢复成员状态并重置次数`() {
+        val port = FakePort()
+        val recorder = Recorder()
+        val transport = NearbyRoomTransport.guest(
+            "成员一",
+            recorder,
+            port,
+            "host-endpoint",
+            nextReconnectDelayMs = { policy -> policy.nextDelayMs()?.let { 1L } },
+        )
+        transport.start()
+        port.callback!!.onConnectionInitiated(NearbyEndpoint("host-endpoint", "主机"))
+        port.callback!!.onConnectionResult("host-endpoint", true)
+        sendRoster(port, "host-endpoint", memberIds = listOf(0, 1, 2))
+        port.callback!!.onConnectionInitiated(NearbyEndpoint("endpoint-2", "成员二"))
+        port.callback!!.onConnectionResult("endpoint-2", true)
+
+        port.callback!!.onDisconnected("endpoint-2")
+        await("普通成员重连请求") { port.requested.any { it.second == "endpoint-2" } }
+        port.callback!!.onConnectionResult("endpoint-2", true)
+
+        assertEquals(listOf(2), recorder.reconnecting.toList())
+        assertEquals(listOf(2), recorder.reconnected.toList())
+        transport.close()
+    }
+
+    @Test
+    fun `人数上限含主机且重连宽限期内不复用成员 ID`() {
         val port = FakePort()
         val recorder = Recorder()
         NearbyRoomTransport.host("主机", recorder, port).start()
@@ -232,7 +354,25 @@ class NearbyRoomTransportTest {
         port.callback!!.onDisconnected("endpoint-2")
         joinHost(port, "endpoint-new", "新成员")
 
-        assertEquals(2, recorder.rosters.last().members.first { it.ip == "endpoint-new" }.id)
+        assertTrue("错误 token 不得复用宽限期名额", "endpoint-new" in port.disconnected)
+        assertTrue(recorder.rosters.last().members.any { it.id == 2 && it.ip == "endpoint-2" })
+    }
+
+    @Test
+    fun `重连宽限期结束后最终移除成员并复用最小空闲 ID`() {
+        val port = FakePort()
+        val recorder = Recorder()
+        val transport = NearbyRoomTransport.host("主机", recorder, port, reconnectGraceMs = 20)
+        transport.start()
+        joinHost(port, "endpoint-1", "成员一")
+        joinHost(port, "endpoint-2", "成员二")
+
+        port.callback!!.onDisconnected("endpoint-1")
+        await("成员重连失败") { recorder.reconnectFailed == listOf(1) }
+        joinHost(port, "endpoint-new", "新成员")
+
+        assertEquals(1, recorder.rosters.last().members.first { it.ip == "endpoint-new" }.id)
+        transport.close()
     }
 
     @Test
@@ -257,12 +397,12 @@ class NearbyRoomTransportTest {
         assertEquals(8, recorder.frames.single().seq)
     }
 
-    private fun joinHost(port: FakePort, endpointId: String, nickname: String) {
+    private fun joinHost(port: FakePort, endpointId: String, nickname: String, token: ByteArray = ByteArray(16) { endpointId.hashCode().toByte() }) {
         port.callback!!.onConnectionInitiated(NearbyEndpoint(endpointId, nickname))
         port.callback!!.onConnectionResult(endpointId, true)
         port.callback!!.onBytesReceived(
             endpointId,
-            Frame(FrameType.JOIN, 0, 0, nickname.toByteArray()).encode(),
+            Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, nickname)).encode(),
         )
     }
 
@@ -282,5 +422,14 @@ class NearbyRoomTransportTest {
             fromEndpointId,
             Frame(FrameType.ROSTER, 0, 0, payload).encode(),
         )
+    }
+
+    private fun await(what: String, timeoutMs: Long = 1_000, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (System.nanoTime() < deadline) {
+            if (condition()) return
+            Thread.sleep(5)
+        }
+        throw AssertionError("等待超时：$what")
     }
 }

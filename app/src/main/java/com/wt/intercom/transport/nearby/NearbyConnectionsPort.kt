@@ -19,6 +19,7 @@ interface NearbyConnectionsListener {
     fun onEndpointLost(endpointId: String) = Unit
     fun onConnectionInitiated(endpoint: NearbyEndpoint) = Unit
     fun onConnectionResult(endpointId: String, accepted: Boolean) = Unit
+    fun onConnectionRequestFailed(endpointId: String, error: Throwable) = Unit
     fun onDisconnected(endpointId: String) = Unit
     fun onBytesReceived(endpointId: String, bytes: ByteArray) = Unit
     fun onOperationFailed(operation: String, error: Throwable) = Unit
@@ -93,7 +94,7 @@ class PlayServicesNearbyConnectionsPort(context: Context) : NearbyConnectionsPor
     override fun requestConnection(localName: String, endpointId: String) {
         val operationListener = listener
         client.requestConnection(localName, endpointId, connectionCallback)
-            .addOnFailureListener { operationListener?.onOperationFailed("Nearby 连接", it) }
+            .addOnFailureListener { operationListener?.onConnectionRequestFailed(endpointId, it) }
     }
 
     override fun acceptConnection(endpointId: String) {

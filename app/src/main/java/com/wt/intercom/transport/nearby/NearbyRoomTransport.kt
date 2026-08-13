@@ -6,8 +6,14 @@ import com.wt.intercom.session.MemberInfo
 import com.wt.intercom.session.Roster
 import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.RosterFrames
+import com.wt.intercom.transport.ReconnectPolicy
+import com.wt.intercom.transport.ResumeJoinCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
+import java.security.SecureRandom
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class NearbyRoomTransport private constructor(
@@ -16,18 +22,32 @@ class NearbyRoomTransport private constructor(
     private val port: NearbyConnectionsPort,
     private val isHost: Boolean,
     private val hostEndpointId: String? = null,
+    private val reconnectGraceMs: Long = RECONNECT_GRACE_MS,
+    private val nextReconnectDelayMs: (ReconnectPolicy) -> Long? = { it.nextDelayMs() },
 ) : Transport, NearbyConnectionsListener {
 
-    private data class Peer(val endpointId: String, val member: MemberInfo)
+    private data class Peer(
+        var endpointId: String,
+        var member: MemberInfo,
+        val resumeToken: String,
+        var reconnecting: Boolean = false,
+        var expiry: ScheduledFuture<*>? = null,
+    )
 
     private val lock = Any()
     private val peers = linkedMapOf<String, Peer>()
     private val connectedEndpoints = linkedSetOf<String>()
     private val discoveredEndpoints = linkedMapOf<String, NearbyEndpoint>()
     private val pendingConnections = linkedSetOf<String>()
+    private val reconnectPolicies = linkedMapOf<String, ReconnectPolicy>()
+    private val reconnectTasks = linkedMapOf<String, ScheduledFuture<*>>()
     private val started = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val hostDisconnected = AtomicBoolean(false)
+    private val resumeToken = ByteArray(16).also(SecureRandom()::nextBytes)
+    private val scheduler = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "nearby-reconnect").apply { isDaemon = true }
+    }
     @Volatile private var selfId = -1
 
     fun start() {
@@ -55,7 +75,9 @@ class NearbyRoomTransport private constructor(
 
     override fun onConnectionInitiated(endpoint: NearbyEndpoint) {
         if (closed.get()) return
-        if (isHost && synchronized(lock) { peers.size + 1 >= MAX_MEMBERS }) {
+        if (isHost && synchronized(lock) {
+            peers.size + 1 >= MAX_MEMBERS && peers.values.none { it.reconnecting }
+        }) {
             port.rejectConnection(endpoint.id)
             return
         }
@@ -71,10 +93,13 @@ class NearbyRoomTransport private constructor(
             pendingConnections -= endpointId
             if (accepted) connectedEndpoints += endpointId else connectedEndpoints -= endpointId
         }
+        if (!isHost && endpointId != hostEndpointId) {
+            if (accepted) finishPeerReconnect(endpointId) else schedulePeerReconnect(endpointId)
+        }
         if (accepted && !isHost && endpointId == hostEndpointId) {
             port.sendBytes(
                 listOf(endpointId),
-                Frame(FrameType.JOIN, 0, 0, nickname.toByteArray(Charsets.UTF_8)).encode(),
+                Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(resumeToken, nickname)).encode(),
             )
         }
     }
@@ -91,7 +116,11 @@ class NearbyRoomTransport private constructor(
             return
         }
         if (isHost && frame.type == FrameType.JOIN) {
-            admit(endpointId, String(frame.payload, Charsets.UTF_8))
+            val join = runCatching { ResumeJoinCodec.decode(frame.payload) }.getOrNull() ?: run {
+                port.disconnect(endpointId)
+                return
+            }
+            admit(endpointId, join.nickname, join.token.toTokenKey())
         } else if (!isHost && frame.type == FrameType.ROSTER && endpointId == hostEndpointId) {
             val roster = runCatching { RosterCodec.decode(frame.payload) }.getOrNull() ?: return
             val removedEndpoints = synchronized(lock) {
@@ -102,11 +131,15 @@ class NearbyRoomTransport private constructor(
                         if (member.id == HOST_ID) hostEndpointId!! else member.ip
                     }
                 val removed = peers.keys - aliveEndpoints
-                peers.keys.retainAll(aliveEndpoints)
-                connectedEndpoints.removeAll(removed)
+                removed.forEach(::removePeer)
                 roster.members.filter { it.id != roster.yourId }.forEach { member ->
                     val endpointId = if (member.id == HOST_ID) hostEndpointId!! else member.ip
-                    peers[endpointId] = Peer(endpointId, member)
+                    val existing = peers[endpointId]
+                    if (existing == null) {
+                        peers[endpointId] = Peer(endpointId, member, resumeToken = "")
+                    } else {
+                        existing.member = member
+                    }
                 }
                 removed
             }
@@ -115,7 +148,12 @@ class NearbyRoomTransport private constructor(
             connectMissingPeers()
         } else if (frame.type != FrameType.ROSTER && frame.type != FrameType.JOIN) {
             val peer = synchronized(lock) { peers[endpointId] } ?: return
-            transportListener.onFrame(Frame(frame.type, peer.member.id, frame.seq, frame.payload))
+            val boundFrame = Frame(frame.type, peer.member.id, frame.seq, frame.payload)
+            if (frame.type == FrameType.LEAVE) {
+                synchronized(lock) { removePeer(endpointId) }
+            }
+            transportListener.onFrame(boundFrame)
+            if (isHost && frame.type == FrameType.LEAVE) pushRosterToAll()
         }
     }
 
@@ -137,10 +175,28 @@ class NearbyRoomTransport private constructor(
         toConnect.forEach { port.requestConnection(nickname, it) }
     }
 
-    private fun admit(endpointId: String, requestedNickname: String) {
-        val peer = synchronized(lock) {
+    private fun admit(endpointId: String, requestedNickname: String, token: String) {
+        var reconnectedId: Int? = null
+        synchronized(lock) {
             if (endpointId !in connectedEndpoints) return
             peers[endpointId]?.let { return }
+            val resumed = peers.values.firstOrNull { it.resumeToken == token && it.reconnecting }
+            if (resumed != null) {
+                val oldEndpointId = resumed.endpointId
+                peers.remove(oldEndpointId)
+                connectedEndpoints.remove(oldEndpointId)
+                resumed.expiry?.cancel(false)
+                resumed.expiry = null
+                resumed.reconnecting = false
+                resumed.endpointId = endpointId
+                resumed.member = resumed.member.copy(
+                    nickname = RosterCodec.truncateNickname(requestedNickname),
+                    ip = endpointId,
+                )
+                peers[endpointId] = resumed
+                reconnectedId = resumed.member.id
+                return@synchronized
+            }
             if (peers.size + 1 >= MAX_MEMBERS) {
                 port.disconnect(endpointId)
                 connectedEndpoints -= endpointId
@@ -148,13 +204,16 @@ class NearbyRoomTransport private constructor(
             }
             val id = (1..255).first { candidate -> peers.values.none { it.member.id == candidate } }
             val member = MemberInfo(id, RosterCodec.truncateNickname(requestedNickname), endpointId)
-            Peer(endpointId, member).also { peers[endpointId] = it }
+            peers[endpointId] = Peer(endpointId, member, token)
         }
+        reconnectedId?.let(transportListener::onMemberReconnected)
         pushRosterToAll()
     }
 
     private fun pushRosterToAll() {
-        val peersSnapshot = synchronized(lock) { peers.values.toList() }
+        val peersSnapshot = synchronized(lock) {
+            peers.values.filter { it.endpointId in connectedEndpoints }
+        }
         val members = membersSnapshot()
         transportListener.onRoster(Roster(HOST_ID, members))
         peersSnapshot.forEach { peer ->
@@ -182,11 +241,28 @@ class NearbyRoomTransport private constructor(
             }
             return
         }
-        val removed = synchronized(lock) {
+        if (!isHost) {
+            val memberId = synchronized(lock) {
+                connectedEndpoints -= endpointId
+                peers[endpointId]?.member?.id
+            } ?: return
+            transportListener.onMemberReconnecting(memberId)
+            schedulePeerReconnect(endpointId, reset = true)
+            return
+        }
+        val reconnecting = synchronized(lock) {
             connectedEndpoints -= endpointId
-            peers.remove(endpointId)
+            val peer = peers[endpointId] ?: return
+            if (peer.reconnecting) return
+            peer.reconnecting = true
+            peer.expiry = scheduler.schedule(
+                { expirePeer(peer.member.id, endpointId) },
+                reconnectGraceMs,
+                TimeUnit.MILLISECONDS,
+            )
+            peer
         } ?: return
-        transportListener.onFrame(Frame(FrameType.LEAVE, removed.member.id, 0, ByteArray(0)))
+        transportListener.onMemberReconnecting(reconnecting.member.id)
         if (isHost) pushRosterToAll()
     }
 
@@ -194,14 +270,27 @@ class NearbyRoomTransport private constructor(
         if (!closed.get()) transportListener.onDisconnected("$operation 失败：${error.message ?: "未知错误"}")
     }
 
+    override fun onConnectionRequestFailed(endpointId: String, error: Throwable) {
+        if (closed.get()) return
+        synchronized(lock) { pendingConnections -= endpointId }
+        if (!isHost && endpointId != hostEndpointId && synchronized(lock) { endpointId in peers }) {
+            schedulePeerReconnect(endpointId)
+        } else {
+            onOperationFailed("Nearby 连接", error)
+        }
+    }
+
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         port.setListener(null)
         port.stopAll()
+        scheduler.shutdownNow()
         synchronized(lock) {
             connectedEndpoints.clear()
             discoveredEndpoints.clear()
             pendingConnections.clear()
+            reconnectPolicies.clear()
+            reconnectTasks.clear()
             peers.clear()
         }
     }
@@ -213,16 +302,96 @@ class NearbyRoomTransport private constructor(
         }
     }
 
+    private fun expirePeer(memberId: Int, endpointId: String) {
+        if (closed.get()) return
+        val removed = synchronized(lock) {
+            val peer = peers[endpointId]
+            if (peer?.member?.id != memberId || !peer.reconnecting) return
+            peers.remove(endpointId) ?: return
+        }
+        transportListener.onMemberReconnectFailed(removed.member.id)
+        if (isHost) pushRosterToAll()
+    }
+
+    private fun schedulePeerReconnect(endpointId: String, reset: Boolean = false) {
+        val scheduled = synchronized(lock) {
+            if (closed.get() || endpointId !in peers || endpointId in connectedEndpoints) return
+            if (reset) {
+                reconnectTasks.remove(endpointId)?.cancel(false)
+                reconnectPolicies[endpointId] = ReconnectPolicy()
+            }
+            if (endpointId in reconnectTasks) return
+            val policy = reconnectPolicies.getOrPut(endpointId) { ReconnectPolicy() }
+            val delay = nextReconnectDelayMs(policy)
+            if (delay == null) {
+                reconnectPolicies.remove(endpointId)
+                peers[endpointId]?.member?.id
+            } else {
+                reconnectTasks[endpointId] = scheduler.schedule(
+                    {
+                        val shouldRequest = synchronized(lock) {
+                            reconnectTasks.remove(endpointId)
+                            if (closed.get() || endpointId in connectedEndpoints || endpointId !in peers) {
+                                false
+                            } else {
+                                pendingConnections += endpointId
+                                true
+                            }
+                        }
+                        if (shouldRequest) port.requestConnection(nickname, endpointId)
+                    },
+                    delay,
+                    TimeUnit.MILLISECONDS,
+                )
+                null
+            }
+        }
+        scheduled?.let(transportListener::onMemberReconnectFailed)
+    }
+
+    private fun finishPeerReconnect(endpointId: String) {
+        val memberId = synchronized(lock) {
+            reconnectTasks.remove(endpointId)?.cancel(false)
+            val wasReconnecting = reconnectPolicies.remove(endpointId) != null
+            if (wasReconnecting) peers[endpointId]?.member?.id else null
+        }
+        memberId?.let(transportListener::onMemberReconnected)
+    }
+
+    private fun removePeer(endpointId: String): Peer? {
+        reconnectTasks.remove(endpointId)?.cancel(false)
+        reconnectPolicies.remove(endpointId)
+        connectedEndpoints.remove(endpointId)
+        pendingConnections.remove(endpointId)
+        return peers.remove(endpointId)?.also { it.expiry?.cancel(false) }
+    }
+
+    private fun ByteArray.toTokenKey(): String = joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+
     companion object {
         private const val HOST_ID = 0
         private const val HOST_ENDPOINT = "host"
         private const val MAX_MEMBERS = 6
+        private const val RECONNECT_GRACE_MS = 7_000L
 
         fun host(
             nickname: String,
             listener: TransportListener,
             port: NearbyConnectionsPort,
         ): NearbyRoomTransport = NearbyRoomTransport(nickname, listener, port, isHost = true)
+
+        internal fun host(
+            nickname: String,
+            listener: TransportListener,
+            port: NearbyConnectionsPort,
+            reconnectGraceMs: Long,
+        ): NearbyRoomTransport = NearbyRoomTransport(
+            nickname,
+            listener,
+            port,
+            isHost = true,
+            reconnectGraceMs = reconnectGraceMs,
+        )
 
         fun guest(
             nickname: String,
@@ -235,6 +404,21 @@ class NearbyRoomTransport private constructor(
             port,
             isHost = false,
             hostEndpointId = hostEndpointId,
+        )
+
+        internal fun guest(
+            nickname: String,
+            listener: TransportListener,
+            port: NearbyConnectionsPort,
+            hostEndpointId: String,
+            nextReconnectDelayMs: (ReconnectPolicy) -> Long?,
+        ): NearbyRoomTransport = NearbyRoomTransport(
+            nickname,
+            listener,
+            port,
+            isHost = false,
+            hostEndpointId = hostEndpointId,
+            nextReconnectDelayMs = nextReconnectDelayMs,
         )
     }
 }
