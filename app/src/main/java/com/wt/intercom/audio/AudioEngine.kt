@@ -32,7 +32,10 @@ internal class EngineAudioIo(private val engine: AudioEngine) : AudioIo {
  * AudioTrack 的阻塞特性天然提供 20ms 节拍。
  * 音源用 VOICE_COMMUNICATION 以启用系统级回声消除/降噪。
  */
-class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
+class AudioEngine(
+    private val onFatalError: (Throwable) -> Unit = {},
+    private val onPcmFrame: (ShortArray) -> Unit,
+) {
     @Volatile var micMuted = false
     @Volatile private var running = false
     private var record: AudioRecord? = null
@@ -90,7 +93,13 @@ class AudioEngine(private val onPcmFrame: (ShortArray) -> Unit) {
                 var dead = false
                 while (off < buf.size && running) {
                     val n = rec.read(buf, off, buf.size - off)
-                    if (n <= 0) { dead = true; break }
+                    if (n <= 0) {
+                        dead = true
+                        if (running) {
+                            onFatalError(IllegalStateException("音频采集失败: read=$n"))
+                        }
+                        break
+                    }
                     off += n
                 }
                 if (dead) break   // 持久性错误：退出线程，避免 100% CPU 空转

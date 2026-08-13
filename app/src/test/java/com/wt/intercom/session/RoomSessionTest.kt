@@ -33,6 +33,7 @@ class RoomSessionTest {
     /** 假音频引擎：不碰 Android 设备，暴露采集回调供测试手动触发。 */
     private class FakeAudioIo(
         val onPcm: (ShortArray) -> Unit,
+        val onFatalError: (Throwable) -> Unit,
         private val failOnStart: Boolean = false,
     ) : AudioIo {
         override var micMuted = false
@@ -53,7 +54,9 @@ class RoomSessionTest {
     private fun sessionWithFakeIo(failOnStart: Boolean = false): Pair<RoomSession, () -> FakeAudioIo?> {
         val s = RoomSession("我")
         var io: FakeAudioIo? = null
-        s.audioIoFactory = { cb -> FakeAudioIo(cb, failOnStart).also { io = it } }
+        s.audioIoFactory = { cb, onFatalError ->
+            FakeAudioIo(cb, onFatalError, failOnStart).also { io = it }
+        }
         return s to { io }
     }
 
@@ -147,6 +150,21 @@ class RoomSessionTest {
         assertTrue(io()!!.micMuted)
         assertTrue(s.state.value.audioFocusInterrupted)
         s.leave()
+    }
+
+    @Test
+    fun `音频采集持久性故障可靠结束会话且只释放一次`() {
+        val (s, io) = sessionWithFakeIo()
+        val t = FakeTransport()
+        s.start(t)
+        s.onRoster(roster(1, 1, 2))
+
+        io()!!.onFatalError(IllegalStateException("read=-6"))
+        s.leave()
+
+        assertEquals("音频采集失败", s.state.value.endedReason)
+        assertEquals(1, io()!!.stopCount)
+        assertEquals(1, t.closeCount)
     }
 
     @Test

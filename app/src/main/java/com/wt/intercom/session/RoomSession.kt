@@ -56,8 +56,10 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     private val sendFailures = AtomicInteger(0)
 
     /** 测试可替换的音频引擎工厂（入参为采集回调）。 */
-    internal var audioIoFactory: (((ShortArray) -> Unit) -> AudioIo) =
-        { cb -> EngineAudioIo(AudioEngine(cb)) }
+    internal var audioIoFactory: (((ShortArray) -> Unit), (Throwable) -> Unit) -> AudioIo =
+        { onPcm, onFatalError ->
+            EngineAudioIo(AudioEngine(onFatalError = onFatalError, onPcmFrame = onPcm))
+        }
 
     private class RemoteStream(val member: MemberInfo) {
         val jitter = JitterBuffer()
@@ -82,7 +84,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
         check(!stopped.get()) { "RoomSession 已结束，不可重用" }
         attachTransport(transport)
         running = true
-        val eng = audioIoFactory(::onPcmCaptured)
+        val eng = audioIoFactory(::onPcmCaptured, ::onAudioFatalError)
         eng.micMuted = micGate.effectiveMuted
         engine = eng
         try {
@@ -115,6 +117,11 @@ class RoomSession(private val selfNickname: String) : TransportListener {
             TransportLog.w("音频帧发送失败（连续 $n 次）: ${e.message}", e)
             if (n >= MAX_SEND_FAILURES) shutdown("发送失败")
         }
+    }
+
+    private fun onAudioFatalError(error: Throwable) {
+        TransportLog.w("音频采集失败: ${error.message}", error)
+        shutdown("音频采集失败")
     }
 
     private fun playbackLoop() {

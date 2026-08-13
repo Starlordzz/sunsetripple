@@ -35,8 +35,10 @@ class BluetoothRoomSession(
     private val _state = MutableStateFlow(RoomUiState())
     val state: StateFlow<RoomUiState> = _state
 
-    internal var audioIoFactory: (((ShortArray) -> Unit) -> AudioIo) =
-        { callback -> EngineAudioIo(AudioEngine(callback)) }
+    internal var audioIoFactory: (((ShortArray) -> Unit), (Throwable) -> Unit) -> AudioIo =
+        { onPcm, onFatalError ->
+            EngineAudioIo(AudioEngine(onFatalError = onFatalError, onPcmFrame = onPcm))
+        }
     internal var codecFactory: (Int) -> BluetoothAudioCodec = ::OpusBluetoothAudioCodec
     internal var jitterFactory: () -> JitterBuffer = { JitterBuffer() }
 
@@ -71,7 +73,7 @@ class BluetoothRoomSession(
         check(!stopped.get()) { "BluetoothRoomSession 已结束" }
         this.transport = transport
         uplinkEncoder = codecFactory(BLUETOOTH_BITRATE)
-        val device = audioIoFactory(::onPcmCaptured)
+        val device = audioIoFactory(::onPcmCaptured, ::onAudioFatalError)
         audio = device
         running = true
         try {
@@ -122,6 +124,11 @@ class BluetoothRoomSession(
                 )
             }.onFailure { shutdown("发送失败") }
         }
+    }
+
+    private fun onAudioFatalError(error: Throwable) {
+        TransportLog.w("蓝牙房音频采集失败: ${error.message}", error)
+        shutdown("音频采集失败")
     }
 
     private fun playbackLoop() {

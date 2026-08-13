@@ -30,6 +30,7 @@ class BluetoothRoomSessionTest {
 
     private class FakeAudioIo(
         val captureCallback: (ShortArray) -> Unit,
+        val fatalErrorCallback: (Throwable) -> Unit,
         holdPlayback: Boolean,
     ) : AudioIo {
         override var micMuted = false
@@ -126,6 +127,18 @@ class BluetoothRoomSessionTest {
         assertFalse(PttStateCodec.decode(h.transport.signals.last().payload))
         assertEquals(signalCountAfterLoss, h.transport.signals.size)
         h.session.leave()
+    }
+
+    @Test
+    fun `音频采集持久性故障可靠结束蓝牙会话且只释放一次`() {
+        val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1))
+
+        h.audio.fatalErrorCallback(IllegalStateException("read=-6"))
+        h.session.leave()
+
+        assertEquals("音频采集失败", h.session.state.value.endedReason)
+        assertEquals(1, h.audio.stopCount)
+        assertEquals(1, h.transport.closeCount)
     }
 
     @Test
@@ -282,7 +295,9 @@ class BluetoothRoomSessionTest {
             jitterFactory = { JitterBuffer(prebufferFrames = 1) }
         }
         lateinit var audio: FakeAudioIo
-        session.audioIoFactory = { callback -> FakeAudioIo(callback, false).also { audio = it } }
+        session.audioIoFactory = { callback, onFatalError ->
+            FakeAudioIo(callback, onFatalError, false).also { audio = it }
+        }
         val transport = FakeTransport(isHost = false).apply {
             onStart = { session.onDisconnected("连接失败") }
         }
@@ -307,7 +322,9 @@ class BluetoothRoomSessionTest {
             jitterFactory = { JitterBuffer(prebufferFrames = 1) }
         }
         lateinit var audio: FakeAudioIo
-        session.audioIoFactory = { callback -> FakeAudioIo(callback, holdPlayback).also { audio = it } }
+        session.audioIoFactory = { callback, onFatalError ->
+            FakeAudioIo(callback, onFatalError, holdPlayback).also { audio = it }
+        }
         val transport = FakeTransport(isHost)
         session.start(transport)
         session.onRoster(
