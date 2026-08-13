@@ -26,6 +26,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wt.intercom.audio.LoopbackController
+import com.wt.intercom.audio.AudioFocusController
+import com.wt.intercom.audio.AudioFocusRequestState
 import com.wt.intercom.service.CallForegroundService
 import com.wt.intercom.session.RoomSession
 import com.wt.intercom.session.RoomUiState
@@ -79,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var wifi: WifiDirectManager
     private lateinit var bluetooth: BluetoothRoomManager
+    private lateinit var audioFocus: AudioFocusController
     private val loopback = LoopbackController()
 
     /** 会话得让 Compose 观察得到（建/散都要触发重组），所以用 StateFlow 而不是裸字段。 */
@@ -101,6 +104,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         wifi = WifiDirectManager(this)
         bluetooth = BluetoothRoomManager(this)
+        audioFocus = AudioFocusController(this)
         wifi.register()
         watchRoomDeath()
         handleLeaveIntent(intent)
@@ -174,7 +178,14 @@ class MainActivity : ComponentActivity() {
     private fun beginCall(label: String, speakerOn: Boolean) {
         setCommunicationMode(true)
         setSpeaker(speakerOn)
+        val focusState = audioFocus.request(::setAudioFocusInterrupted)
+        setAudioFocusInterrupted(focusState != AudioFocusRequestState.GRANTED)
         CallForegroundService.start(this, label)
+    }
+
+    private fun setAudioFocusInterrupted(interrupted: Boolean) {
+        sessionFlow.value?.setAudioFocusInterrupted(interrupted)
+        bluetoothSessionFlow.value?.setAudioFocusInterrupted(interrupted)
     }
 
     /** 释放当前房型资源：会话 → manager → 前台服务 → 音频模式。幂等，主线程调用。 */
@@ -205,6 +216,7 @@ class MainActivity : ComponentActivity() {
             null -> Unit
         }
         roomKindFlow.value = null
+        audioFocus.abandon()
         CallForegroundService.stop(this)
         setCommunicationMode(false)
     }

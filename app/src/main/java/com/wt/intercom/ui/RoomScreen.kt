@@ -54,7 +54,11 @@ fun RoomScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (state.connected) "声音正在房间里流动" else "正在建立声音连接",
+                    when {
+                        state.audioFocusInterrupted -> "只听模式 · 暂时无法使用麦克风"
+                        state.connected -> "声音正在房间里流动"
+                        else -> "正在建立声音连接"
+                    },
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.82f),
                 )
@@ -93,6 +97,7 @@ fun RoomScreen(
                         )
                         Text(
                             when {
+                                member.isSelf && state.audioFocusInterrupted -> "只听模式"
                                 member.isSelf && state.micMuted -> "麦克风已静音"
                                 member.speaking -> "正在说话"
                                 else -> "安静"
@@ -116,27 +121,30 @@ fun RoomScreen(
                 }
                 Button(
                     onClick = {},
+                    enabled = !state.audioFocusInterrupted,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(68.dp)
-                        .pointerInput(onPttChanged) {
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
-                                pressed = true
-                                onPttChanged(true)
-                                try {
-                                    var heldInside: Boolean
-                                    do {
-                                        val event = awaitPointerEvent()
-                                        heldInside = event.changes.any { change ->
-                                            change.pressed &&
-                                                change.position.x in 0f..size.width.toFloat() &&
-                                                change.position.y in 0f..size.height.toFloat()
-                                        }
-                                    } while (heldInside)
-                                } finally {
-                                    pressed = false
-                                    onPttChanged(false)
+                        .pointerInput(onPttChanged, state.audioFocusInterrupted) {
+                            if (!state.audioFocusInterrupted) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    pressed = true
+                                    onPttChanged(true)
+                                    try {
+                                        var heldInside: Boolean
+                                        do {
+                                            val event = awaitPointerEvent()
+                                            heldInside = event.changes.any { change ->
+                                                change.pressed &&
+                                                    change.position.x in 0f..size.width.toFloat() &&
+                                                    change.position.y in 0f..size.height.toFloat()
+                                            }
+                                        } while (heldInside)
+                                    } finally {
+                                        pressed = false
+                                        onPttChanged(false)
+                                    }
                                 }
                             }
                         },
@@ -147,7 +155,13 @@ fun RoomScreen(
                 ) {
                     RippleStatusMark(active = pressed, modifier = Modifier.size(34.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text(if (pressed) "正在说话" else "按住说话")
+                    Text(
+                        when {
+                            state.audioFocusInterrupted -> "只听模式"
+                            pressed -> "正在说话"
+                            else -> "按住说话"
+                        },
+                    )
                 }
                 Spacer(Modifier.height(10.dp))
             }
