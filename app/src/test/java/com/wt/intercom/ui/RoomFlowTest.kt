@@ -56,6 +56,37 @@ class RoomFlowTest {
     }
 
     @Test
+    fun `组主地址等待未达到上限时不超时`() {
+        assertNull(
+            RoomFlow.addressTimeoutReason(
+                RoomStart.AwaitingAddress,
+                elapsedMillis = RoomFlow.ADDRESS_WAIT_TIMEOUT_MILLIS - 1,
+            ),
+        )
+    }
+
+    @Test
+    fun `组主地址等待达到上限时返回明确错误`() {
+        assertEquals(
+            RoomFlow.REASON_ADDRESS_TIMEOUT,
+            RoomFlow.addressTimeoutReason(
+                RoomStart.AwaitingAddress,
+                elapsedMillis = RoomFlow.ADDRESS_WAIT_TIMEOUT_MILLIS,
+            ),
+        )
+    }
+
+    @Test
+    fun `地址已经就绪时不会误触发等待超时`() {
+        assertNull(
+            RoomFlow.addressTimeoutReason(
+                RoomStart.Host("192.168.49.1"),
+                elapsedMillis = RoomFlow.ADDRESS_WAIT_TIMEOUT_MILLIS,
+            ),
+        )
+    }
+
+    @Test
     fun `主客身份以系统实际组主标志为准而非用户意图`() {
         // 点了"加入"，但协商结果是自己当组主
         assertEquals(RoomStart.Host("192.168.49.1"), RoomFlow.decide(asOwner, RoomRole.GUEST, sessionActive = false))

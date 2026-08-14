@@ -67,6 +67,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -673,7 +674,22 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(group, role, session) {
             when (val start = RoomFlow.decide(group, role, session != null)) {
                 RoomStart.Idle -> Unit
-                RoomStart.AwaitingAddress -> status = "组已建立，正在获取组主地址……"
+                RoomStart.AwaitingAddress -> {
+                    status = "组已建立，正在获取组主地址……"
+                    delay(RoomFlow.ADDRESS_WAIT_TIMEOUT_MILLIS)
+                    val reason =
+                        RoomFlow.addressTimeoutReason(
+                            start,
+                            elapsedMillis = RoomFlow.ADDRESS_WAIT_TIMEOUT_MILLIS,
+                        ) ?: return@LaunchedEffect
+                    TransportLog.w(reason)
+                    // 先清入房意图再断连，避免晚到的连接广播重新启动等待。
+                    role = RoomRole.NONE
+                    wifi.disconnect()
+                    status = reason
+                    screen = Screen.HOME
+                    Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
+                }
                 is RoomStart.Host -> startHost(start.hostIp)
                 is RoomStart.Guest -> startGuest(start.hostIp)
             }

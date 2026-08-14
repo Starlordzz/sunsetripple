@@ -39,6 +39,8 @@ sealed interface RoomStart {
  */
 object RoomFlow {
 
+    const val ADDRESS_WAIT_TIMEOUT_MILLIS = 10_000L
+    const val REASON_ADDRESS_TIMEOUT = "未能获取 WiFi 组主地址，请重新连接"
     const val REASON_GROUP_GONE = "房间已结束（WiFi 组已解散）"
     const val REASON_CHANNEL_LOST = "房间已结束（WiFi 直连已断开）"
 
@@ -54,6 +56,12 @@ object RoomFlow {
         val ip = group.ownerAddress?.trim()?.takeIf { it.isNotEmpty() } ?: return RoomStart.AwaitingAddress
         return if (group.isGroupOwner) RoomStart.Host(ip) else RoomStart.Guest(ip)
     }
+
+    /** 只有持续等待组主地址达到上限才返回错误；其他进房状态不参与超时。 */
+    fun addressTimeoutReason(start: RoomStart, elapsedMillis: Long): String? =
+        REASON_ADDRESS_TIMEOUT.takeIf {
+            start == RoomStart.AwaitingAddress && elapsedMillis >= ADDRESS_WAIT_TIMEOUT_MILLIS
+        }
 
     /**
      * 房间是否已死，返回给用户看的原因；活着返回 null。
