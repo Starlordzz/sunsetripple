@@ -1,9 +1,16 @@
 package com.wt.intercom.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,28 +19,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.wt.intercom.session.RoomUiState
 import com.wt.intercom.session.MemberPresence
+import com.wt.intercom.session.MemberUi
+import com.wt.intercom.session.RoomUiState
 
 @Composable
 fun RoomScreen(
@@ -45,167 +54,341 @@ fun RoomScreen(
     onLeave: () -> Unit,
     onPttChanged: ((Boolean) -> Unit)? = null,
 ) {
+    val roomSubtitle = when {
+        state.audioFocusInterrupted -> "只听模式 · 麦克风暂不可用"
+        state.connected -> "频道已连接"
+        else -> "正在建立频道"
+    }
+    val speaking = state.members.any {
+        it.speaking && it.presence == MemberPresence.CONNECTED
+    }
+
     Column(Modifier.fillMaxSize().background(SunsetColors.Canvas)) {
-        SunsetBrandHeader(height = 188.dp) {
-            Column(Modifier.align(Alignment.BottomStart).padding(20.dp, 22.dp)) {
-                Text(
-                    roomLabel,
-                    style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-                    color = Color.White,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    when {
-                        state.audioFocusInterrupted -> "只听模式 · 暂时无法使用麦克风"
-                        state.connected -> "声音正在房间里流动"
-                        else -> "正在建立声音连接"
-                    },
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.82f),
-                )
+        SunsetBrandHeader(height = 166.dp) {
+            SunsetReveal(
+                delayMillis = 30,
+                modifier = Modifier.align(Alignment.BottomStart).padding(20.dp, 22.dp),
+            ) {
+                Column {
+                    Text(
+                        roomLabel,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Crossfade(
+                        targetState = roomSubtitle,
+                        animationSpec = tween(240),
+                        label = "room-subtitle",
+                    ) { subtitle ->
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.82f),
+                        )
+                    }
+                }
+            }
+        }
+
+        SunsetReveal(delayMillis = 90, modifier = Modifier.fillMaxWidth()) {
+            MemberChannelStrip(state)
+        }
+        HorizontalDivider(color = SunsetColors.Line.copy(alpha = 0.72f))
+
+        Box(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            SunsetReveal(delayMillis = 150) {
+                if (onPttChanged != null) {
+                    PushToTalkCore(
+                        audioFocusInterrupted = state.audioFocusInterrupted,
+                        onPttChanged = onPttChanged,
+                    )
+                } else {
+                    FullDuplexCore(
+                        connected = state.connected,
+                        micMuted = state.micMuted,
+                        audioFocusInterrupted = state.audioFocusInterrupted,
+                        speaking = speaking,
+                    )
+                }
             }
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 22.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onPttChanged == null) {
+                RoomRoundControl(
+                    label = if (state.micMuted) "静音" else "开麦",
+                    active = !state.micMuted,
+                    onClick = onToggleMute,
+                )
+            }
+            RoomRoundControl(
+                label = if (speakerOn) "扬声" else "听筒",
+                active = speakerOn,
+                onClick = onToggleSpeaker,
+            )
+            RoomRoundControl(
+                label = "离开",
+                active = true,
+                destructive = true,
+                onClick = onLeave,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemberChannelStrip(state: RoomUiState) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "成员",
-                style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+                "频道成员",
+                style = MaterialTheme.typography.titleMedium,
                 color = SunsetColors.Ink,
             )
             Spacer(Modifier.weight(1f))
             Text(
-                "${state.members.size} 人",
-                style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
+                "${state.members.size} 人在线",
+                style = MaterialTheme.typography.labelLarge,
                 color = SunsetColors.Coral,
             )
         }
-
-        LazyColumn(Modifier.weight(1f).padding(horizontal = 20.dp)) {
-            items(state.members, key = { it.id }) { member ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 15.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RippleStatusMark(
-                        active = member.speaking && member.presence == MemberPresence.CONNECTED,
-                        modifier = Modifier.size(42.dp),
-                    )
-                    Column(Modifier.weight(1f).padding(start = 13.dp)) {
-                        Text(
-                            if (member.isSelf) "${member.nickname} · 我" else member.nickname,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (member.presence == MemberPresence.RECONNECTING) {
-                                SunsetColors.Muted
-                            } else {
-                                SunsetColors.Ink
-                            },
-                        )
-                        Text(
-                            when {
-                                member.presence == MemberPresence.RECONNECTING -> "重连中"
-                                member.isSelf && state.audioFocusInterrupted -> "只听模式"
-                                member.isSelf && state.micMuted -> "麦克风已静音"
-                                member.speaking -> "正在说话"
-                                else -> "安静"
-                            },
-                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                            color = if (member.speaking && member.presence == MemberPresence.CONNECTED) {
-                                SunsetColors.Coral
-                            } else {
-                                SunsetColors.Muted
-                            },
-                        )
-                    }
+        Spacer(Modifier.height(10.dp))
+        if (state.members.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(76.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "等待频道信号",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = SunsetColors.Muted,
+                )
+            }
+        } else {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().height(82.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.members, key = { it.id }) { member ->
+                    MemberSignal(member, state)
                 }
-                HorizontalDivider(color = SunsetColors.Line.copy(alpha = 0.65f))
             }
         }
+    }
+}
 
-        Column(
-            modifier = Modifier.fillMaxWidth().background(SunsetColors.Surface).padding(20.dp, 16.dp, 20.dp, 20.dp)
-        ) {
-            if (onPttChanged != null) {
-                var pressed by remember { mutableStateOf(false) }
-                DisposableEffect(onPttChanged) {
-                    onDispose { onPttChanged(false) }
-                }
-                Button(
-                    onClick = {},
-                    enabled = !state.audioFocusInterrupted,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(68.dp)
-                        .pointerInput(onPttChanged, state.audioFocusInterrupted) {
-                            if (!state.audioFocusInterrupted) {
-                                awaitEachGesture {
-                                    awaitFirstDown(requireUnconsumed = false)
-                                    pressed = true
-                                    onPttChanged(true)
-                                    try {
-                                        var heldInside: Boolean
-                                        do {
-                                            val event = awaitPointerEvent()
-                                            heldInside = event.changes.any { change ->
-                                                change.pressed &&
-                                                    change.position.x in 0f..size.width.toFloat() &&
-                                                    change.position.y in 0f..size.height.toFloat()
-                                            }
-                                        } while (heldInside)
-                                    } finally {
-                                        pressed = false
-                                        onPttChanged(false)
-                                    }
+@Composable
+private fun MemberSignal(member: MemberUi, state: RoomUiState) {
+    val active = member.speaking && member.presence == MemberPresence.CONNECTED
+    val status = when {
+        member.presence == MemberPresence.RECONNECTING -> "重连中"
+        member.isSelf && state.audioFocusInterrupted -> "只听"
+        member.isSelf && state.micMuted -> "静音"
+        active -> "说话中"
+        member.isSelf -> "我"
+        else -> "在线"
+    }
+    val statusColor by animateColorAsState(
+        targetValue = if (active) SunsetColors.Coral else SunsetColors.Muted,
+        animationSpec = tween(220),
+        label = "member-signal-color",
+    )
+
+    Column(
+        modifier = Modifier.width(78.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        RippleStatusMark(active = active, modifier = Modifier.size(42.dp))
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = member.nickname,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = if (member.presence == MemberPresence.RECONNECTING) SunsetColors.Muted else SunsetColors.Ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = status,
+            style = MaterialTheme.typography.bodyMedium,
+            color = statusColor,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun FullDuplexCore(
+    connected: Boolean,
+    micMuted: Boolean,
+    audioFocusInterrupted: Boolean,
+    speaking: Boolean,
+) {
+    val coreColor by animateColorAsState(
+        targetValue = when {
+            audioFocusInterrupted -> SunsetColors.Line
+            micMuted -> SunsetColors.SoftCoral
+            else -> SunsetColors.Coral
+        },
+        animationSpec = tween(240),
+        label = "full-duplex-core-color",
+    )
+    val foreground = if (audioFocusInterrupted || micMuted) SunsetColors.Ink else Color.White
+
+    Box(
+        modifier = Modifier
+            .size(178.dp)
+            .background(coreColor, CircleShape)
+            .border(2.dp, SunsetColors.Gold.copy(alpha = 0.72f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            RippleStatusMark(
+                active = speaking && !audioFocusInterrupted,
+                modifier = Modifier.size(66.dp),
+                inactiveColor = foreground.copy(alpha = 0.52f),
+                activeColor = SunsetColors.Gold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = when {
+                    audioFocusInterrupted -> "只听"
+                    micMuted -> "已静音"
+                    connected -> "全双工"
+                    else -> "连接中"
+                },
+                style = MaterialTheme.typography.titleLarge,
+                color = foreground,
+            )
+            Text(
+                text = if (speaking) "频道有声音" else "频道保持在线",
+                style = MaterialTheme.typography.bodyMedium,
+                color = foreground.copy(alpha = 0.74f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PushToTalkCore(
+    audioFocusInterrupted: Boolean,
+    onPttChanged: (Boolean) -> Unit,
+) {
+    var pressed by remember { mutableStateOf(false) }
+    DisposableEffect(onPttChanged) {
+        onDispose { onPttChanged(false) }
+    }
+    LaunchedEffect(audioFocusInterrupted) {
+        if (audioFocusInterrupted && pressed) {
+            pressed = false
+            onPttChanged(false)
+        }
+    }
+    val pttColor by animateColorAsState(
+        targetValue = when {
+            audioFocusInterrupted -> SunsetColors.Line
+            pressed -> SunsetColors.CoralDark
+            else -> SunsetColors.Coral
+        },
+        animationSpec = tween(160),
+        label = "ptt-core-color",
+    )
+
+    SunsetButton(
+        onClick = {},
+        enabled = !audioFocusInterrupted,
+        modifier = Modifier
+            .size(178.dp)
+            .pointerInput(onPttChanged, audioFocusInterrupted) {
+                if (!audioFocusInterrupted) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        pressed = true
+                        onPttChanged(true)
+                        try {
+                            var heldInside: Boolean
+                            do {
+                                val event = awaitPointerEvent()
+                                heldInside = event.changes.any { change ->
+                                    change.pressed &&
+                                        change.position.x in 0f..size.width.toFloat() &&
+                                        change.position.y in 0f..size.height.toFloat()
                                 }
-                            }
-                        },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (pressed) SunsetColors.CoralDark else SunsetColors.Coral,
-                    ),
-                ) {
-                    RippleStatusMark(active = pressed, modifier = Modifier.size(34.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        when {
-                            state.audioFocusInterrupted -> "只听模式"
-                            pressed -> "正在说话"
-                            else -> "按住说话"
-                        },
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-            Row(Modifier.fillMaxWidth()) {
-                if (onPttChanged == null) {
-                    OutlinedButton(
-                        onClick = onToggleMute,
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        Text(if (state.micMuted) "打开麦克风" else "静音")
+                            } while (heldInside)
+                        } finally {
+                            pressed = false
+                            onPttChanged(false)
+                        }
                     }
-                    Spacer(Modifier.width(10.dp))
                 }
-                OutlinedButton(
-                    onClick = onToggleSpeaker,
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(if (speakerOn) "切到听筒" else "打开扬声器")
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            Button(
-                onClick = onLeave,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.CoralDark),
-            ) {
-                Text("离开房间")
-            }
+            },
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(containerColor = pttColor),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            RippleStatusMark(
+                active = pressed,
+                modifier = Modifier.size(66.dp),
+                inactiveColor = Color.White.copy(alpha = 0.52f),
+                activeColor = SunsetColors.Gold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = when {
+                    audioFocusInterrupted -> "只听"
+                    pressed -> "正在发射"
+                    else -> "按住说话"
+                },
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = if (pressed) "松开结束" else "PTT",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.74f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RoomRoundControl(
+    label: String,
+    active: Boolean,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    if (destructive) {
+        SunsetButton(
+            onClick = onClick,
+            modifier = Modifier.size(68.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.CoralDark),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
+    } else {
+        SunsetOutlinedButton(
+            onClick = onClick,
+            modifier = Modifier.size(68.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = if (active) SunsetColors.SoftCoral else SunsetColors.Surface,
+                contentColor = SunsetColors.CoralDark,
+            ),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

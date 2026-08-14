@@ -1,7 +1,18 @@
 package com.wt.intercom.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,22 +20,32 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import kotlin.math.hypot
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
@@ -39,168 +60,296 @@ fun HomeScreen(
     onLoopbackTest: () -> Unit,
     status: String?,
 ) {
-    Column(
+    val transition = remember { EntryTransitionGate() }
+    val transitionProgress = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var transitionOrigin by remember { mutableStateOf(Offset.Zero) }
+
+    fun enterFrom(origin: Offset, action: () -> Unit) {
+        if (!transition.tryBegin()) return
+        transitionOrigin = origin
+        scope.launch {
+            try {
+                transitionProgress.snapTo(0f)
+                transitionProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(520, easing = FastOutSlowInEasing),
+                )
+                action()
+            } finally {
+                transition.finish()
+                transitionProgress.snapTo(0f)
+            }
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(SunsetColors.Canvas)
-            .verticalScroll(rememberScrollState()),
     ) {
-        SunsetBrandHeader {
-            Column(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            SunsetBrandHeader {
+            SunsetReveal(
+                delayMillis = 40,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(start = 24.dp, end = 24.dp, bottom = 28.dp),
             ) {
+                Column {
+                    Text(
+                        text = "落日后残波",
+                        style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        text = "近场语音房",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.82f),
+                    )
+                }
+            }
+            }
+
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 32.dp)) {
+            SunsetReveal(delayMillis = 100) {
+                Column {
+                    Text(
+                        text = "你的称呼",
+                        style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
+                        color = SunsetColors.Muted,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = nickname,
+                        onValueChange = onNicknameChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("输入昵称") },
+                        singleLine = true,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(26.dp))
+            SunsetReveal(delayMillis = 170) {
+                Column {
+                    RoomModeHeading(
+                        title = "WiFi 直连",
+                        description = "无需路由器，适合多人同时通话",
+                        accent = SunsetColors.Coral,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    RoomActionRow(
+                        createSupportingText = "发起波纹",
+                        joinSupportingText = "寻找信号",
+                        createColor = SunsetColors.Coral,
+                        onCreate = onCreateWifiRoom,
+                        onJoin = onJoinWifiRoom,
+                        onEntry = ::enterFrom,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
+            SunsetReveal(delayMillis = 240) {
+                Column {
+                    RoomModeHeading(
+                        title = "蓝牙房",
+                        description = "按住说话，适合无网络的近距离协作",
+                        accent = SunsetColors.Gold,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    RoomActionRow(
+                        createSupportingText = "打开频道",
+                        joinSupportingText = "搜索电台",
+                        createColor = SunsetColors.CoralDark,
+                        onCreate = onCreateBluetoothRoom,
+                        onJoin = onJoinBluetoothRoom,
+                        onEntry = ::enterFrom,
+                    )
+                }
+            }
+
+            if (HomeRoomAvailability.isVisible(RoomKind.NEARBY)) {
+                Spacer(Modifier.height(28.dp))
                 Text(
-                    text = "落日后残波",
-                    style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
-                    color = Color.White,
+                    text = "Nearby 房",
+                    style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
+                    color = SunsetColors.Ink,
                 )
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "近场语音房",
+                    text = "全双工语音，需要 Google Play 服务",
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.82f),
+                    color = SunsetColors.Muted,
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SunsetButton(
+                        onClick = onCreateNearbyRoom,
+                        modifier = Modifier.weight(1f).height(54.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.Orange),
+                    ) {
+                        Text("创建 Nearby 房")
+                    }
+                    SunsetOutlinedButton(
+                        onClick = onJoinNearbyRoom,
+                        modifier = Modifier.weight(1f).height(54.dp),
+                    ) {
+                        Text("加入 Nearby 房")
+                    }
+                }
+            }
+
+            SunsetReveal(delayMillis = 310) {
+                Column {
+                    Spacer(Modifier.height(26.dp))
+                    HorizontalDivider(color = SunsetColors.Line)
+                    Spacer(Modifier.height(18.dp))
+                    SunsetOutlinedButton(
+                        onClick = onLoopbackTest,
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SunsetColors.CoralDark),
+                    ) {
+                        RippleStatusMark(active = true, modifier = Modifier.width(28.dp).height(28.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("检查麦克风与耳机")
+                    }
+
+                    AnimatedVisibility(
+                        visible = status != null,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        status?.let { message ->
+                            Column {
+                                Spacer(Modifier.height(18.dp))
+                                Text(
+                                    text = message,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            SunsetColors.SoftCoral,
+                                            androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                                        )
+                                        .padding(14.dp),
+                                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Medium,
+                                    ),
+                                    color = SunsetColors.CoralDark,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+
+        val progress = transitionProgress.value
+        if (progress > 0f) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(10f)
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent().changes.forEach { it.consume() }
+                            }
+                        }
+                    },
+            ) {
+                val frame = SunsetMotion.entryRippleFrame(progress)
+                val radius = maxOf(
+                    hypot(transitionOrigin.x, transitionOrigin.y),
+                    hypot(size.width - transitionOrigin.x, transitionOrigin.y),
+                    hypot(transitionOrigin.x, size.height - transitionOrigin.y),
+                    hypot(size.width - transitionOrigin.x, size.height - transitionOrigin.y),
+                ) * frame.scale
+                drawCircle(
+                    color = SunsetColors.SoftCoral.copy(alpha = 0.20f * (1f - progress)),
+                    radius = radius,
+                    center = transitionOrigin,
+                )
+                drawCircle(
+                    color = SunsetColors.Coral.copy(alpha = frame.alpha),
+                    radius = radius,
+                    center = transitionOrigin,
+                    style = Stroke(width = 6.dp.toPx()),
+                )
+                drawCircle(
+                    color = SunsetColors.Gold.copy(alpha = frame.alpha * 0.62f),
+                    radius = radius * 0.82f,
+                    center = transitionOrigin,
+                    style = Stroke(width = 2.dp.toPx()),
                 )
             }
         }
+    }
+}
 
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 32.dp)) {
-            Text(
-                text = "你的称呼",
-                style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
-                color = SunsetColors.Muted,
+@Composable
+private fun RoomActionRow(
+    createSupportingText: String,
+    joinSupportingText: String,
+    createColor: Color,
+    onCreate: () -> Unit,
+    onJoin: () -> Unit,
+    onEntry: (Offset, () -> Unit) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val gap = 18.dp
+        val orbSize = minOf(128.dp, (maxWidth - gap) / 2)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
+        ) {
+            SunsetActionOrb(
+                label = "创建",
+                supportingText = createSupportingText,
+                onClick = { origin -> onEntry(origin, onCreate) },
+                modifier = Modifier.size(orbSize),
+                containerColor = createColor,
             )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = nickname,
-                onValueChange = onNicknameChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("输入昵称") },
-                singleLine = true,
+            SunsetActionOrb(
+                label = "加入",
+                supportingText = joinSupportingText,
+                onClick = { origin -> onEntry(origin, onJoin) },
+                modifier = Modifier.size(orbSize),
+                outlined = true,
             )
+        }
+    }
+}
 
-            Spacer(Modifier.height(26.dp))
+@Composable
+private fun RoomModeHeading(title: String, description: String, accent: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .width(4.dp)
+                .height(46.dp)
+                .background(accent, RoundedCornerShape(2.dp)),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column {
             Text(
-                text = "WiFi 直连",
+                text = title,
                 style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
                 color = SunsetColors.Ink,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
-                text = "无需路由器，适合多人同时通话",
+                text = description,
                 style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                 color = SunsetColors.Muted,
             )
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onCreateWifiRoom,
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.Coral),
-                ) {
-                    Text("创建房间")
-                }
-                OutlinedButton(
-                    onClick = onJoinWifiRoom,
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text("加入房间")
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
-            Text(
-                text = "蓝牙房",
-                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-                color = SunsetColors.Ink,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "按住说话，适合无网络的近距离协作",
-                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                color = SunsetColors.Muted,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onCreateBluetoothRoom,
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.CoralDark),
-                ) {
-                    Text("创建蓝牙房")
-                }
-                OutlinedButton(
-                    onClick = onJoinBluetoothRoom,
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text("加入蓝牙房")
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
-            Text(
-                text = "Nearby 房",
-                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-                color = SunsetColors.Ink,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "全双工语音，需要 Google Play 服务",
-                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                color = SunsetColors.Muted,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onCreateNearbyRoom,
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.Orange),
-                ) {
-                    Text("创建 Nearby 房")
-                }
-                OutlinedButton(
-                    onClick = onJoinNearbyRoom,
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text("加入 Nearby 房")
-                }
-            }
-
-            Spacer(Modifier.height(26.dp))
-            HorizontalDivider(color = SunsetColors.Line)
-            Spacer(Modifier.height(18.dp))
-            OutlinedButton(
-                onClick = onLoopbackTest,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = SunsetColors.CoralDark),
-            ) {
-                RippleStatusMark(active = true, modifier = Modifier.width(28.dp).height(28.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("检查麦克风与耳机")
-            }
-
-            if (status != null) {
-                Spacer(Modifier.height(18.dp))
-                Text(
-                    text = status,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SunsetColors.SoftCoral, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                        .padding(14.dp),
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.Medium
-                    ),
-                    color = SunsetColors.CoralDark,
-                )
-            }
         }
     }
 }

@@ -1,5 +1,12 @@
 package com.wt.intercom.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -8,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -16,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -26,6 +35,16 @@ fun SunsetBrandHeader(
     height: Dp = 214.dp,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val motion = rememberInfiniteTransition(label = "sunset-header-motion")
+    val phase by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(6_400, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "sunset-header-phase",
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -38,7 +57,10 @@ fun SunsetBrandHeader(
             )
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val center = Offset(size.width * 0.72f, size.height * 0.53f)
+            val center = Offset(
+                size.width * (0.72f + SunsetMotion.headerSunOffset(phase)),
+                size.height * (0.53f + (phase - 0.5f) * 0.012f),
+            )
             val radius = size.minDimension * 0.28f
             drawCircle(
                 brush = Brush.verticalGradient(listOf(Color(0xFFFFE59A), Color(0xFFFFD06B))),
@@ -71,19 +93,50 @@ fun SunsetBrandHeader(
 }
 
 @Composable
-fun RippleStatusMark(active: Boolean, modifier: Modifier = Modifier) {
+fun RippleStatusMark(
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    inactiveColor: Color = SunsetColors.Line,
+    activeColor: Color = SunsetColors.Speaking,
+) {
+    val motion = rememberInfiniteTransition(label = "ripple-status-motion")
+    val phase by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1_350, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "ripple-status-phase",
+    )
+    val activation by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(220),
+        label = "ripple-status-activation",
+    )
     Canvas(modifier) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        val color = if (active) SunsetColors.Speaking else SunsetColors.Line
-        drawCircle(color = color, radius = size.minDimension * 0.16f, center = center)
+        val pulse = SunsetMotion.rippleFrame(active = true, phase = phase)
+        val pulseScale = 1f + (pulse.scale - 1f) * activation
+        val pulseAlpha = 0.55f + (pulse.alpha - 0.55f) * activation
+        val color = lerp(inactiveColor, activeColor, activation)
+        drawCircle(
+            color = color,
+            radius = size.minDimension * (0.16f + 0.025f * activation),
+            center = center,
+        )
         repeat(2) { index ->
+            val baseWidth = size.width * (0.68f + index * 0.20f)
+            val baseHeight = size.height * (0.68f + index * 0.20f)
+            val waveWidth = baseWidth * pulseScale
+            val waveHeight = baseHeight * pulseScale
             drawArc(
-                color = color.copy(alpha = if (active) 0.72f else 0.55f),
+                color = color.copy(alpha = pulseAlpha * (1f - index * 0.14f)),
                 startAngle = 205f,
                 sweepAngle = 130f,
                 useCenter = false,
-                topLeft = Offset(size.width * (0.16f - index * 0.10f), size.height * (0.16f - index * 0.10f)),
-                size = Size(size.width * (0.68f + index * 0.20f), size.height * (0.68f + index * 0.20f)),
+                topLeft = Offset((size.width - waveWidth) / 2f, (size.height - waveHeight) / 2f),
+                size = Size(waveWidth, waveHeight),
                 style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round),
             )
         }
