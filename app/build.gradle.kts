@@ -67,7 +67,7 @@ val verifyReleaseSigning by tasks.registering {
     description = "Fails release packaging when signing credentials are incomplete."
     doLast {
         check(releaseSigningFile.isFile) {
-            "缺少发布签名配置：${releaseSigningFile.absolutePath}。请运行 scripts/setup-release-signing.sh。"
+            "缺少本地发布签名配置：${releaseSigningFile.absolutePath}。"
         }
         check(missingReleaseSigningKeys.isEmpty()) {
             "发布签名配置缺少字段：${missingReleaseSigningKeys.joinToString()}"

@@ -30,13 +30,7 @@ $env:JAVA_HOME='D:\LEARNING\tools\jdk-17'
 
 ## 发布签名
 
-首次发布前，在 Git Bash 中运行签名向导：
-
-```bash
-bash scripts/setup-release-signing.sh
-```
-
-向导会在本地生成 `release/sunset-ripple-release.p12` 与 `keystore.properties`。两者均被 Git 忽略，不得提交或丢失；后续版本必须持续使用同一密钥。
+发布签名配置与密钥仅保存在本地，不进入版本库。`keystore.properties` 与密钥文件均被 Git 忽略；后续版本必须持续使用同一密钥。
 
 生成签名后构建 APK 与 Android App Bundle：
 
