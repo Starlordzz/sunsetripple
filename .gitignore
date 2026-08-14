@@ -5,3 +5,9 @@ local.properties
 *.iml
 .kotlin/
 captures/
+.claude/
+.gradle-user/
+keystore.properties
+*.jks
+*.keystore
+*.p12

@@ -1,8 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val releaseSigningPropertiesPath =
+    providers.gradleProperty("sunsetRipple.signingProperties").orNull ?: "keystore.properties"
+val releaseSigningFile = rootProject.file(releaseSigningPropertiesPath)
+val releaseSigningProperties = Properties().apply {
+    if (releaseSigningFile.isFile) {
+        releaseSigningFile.inputStream().use { load(it) }
+    }
+}
+val releaseSigningKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+val missingReleaseSigningKeys = releaseSigningKeys.filter {
+    releaseSigningProperties.getProperty(it).isNullOrBlank()
+}
+val releaseSigningReady = releaseSigningFile.isFile && missingReleaseSigningKeys.isEmpty()
+
+fun releaseSigningValue(key: String): String = releaseSigningProperties.getProperty(key).trim()
 
 android {
     namespace = "com.wt.intercom"
@@ -12,8 +30,25 @@ android {
         applicationId = "com.wt.intercom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.0-alpha.1"
+    }
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = rootProject.file(releaseSigningValue("storeFile"))
+                storePassword = releaseSigningValue("storePassword")
+                keyAlias = releaseSigningValue("keyAlias")
+                keyPassword = releaseSigningValue("keyPassword")
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            isDebuggable = false
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -25,6 +60,27 @@ android {
     buildFeatures {
         compose = true
     }
+}
+
+val verifyReleaseSigning by tasks.registering {
+    group = "verification"
+    description = "Fails release packaging when signing credentials are incomplete."
+    doLast {
+        check(releaseSigningFile.isFile) {
+            "缺少发布签名配置：${releaseSigningFile.absolutePath}。请运行 scripts/setup-release-signing.sh。"
+        }
+        check(missingReleaseSigningKeys.isEmpty()) {
+            "发布签名配置缺少字段：${missingReleaseSigningKeys.joinToString()}"
+        }
+        val storePath = rootProject.file(releaseSigningValue("storeFile"))
+        check(storePath.isFile) {
+            "发布密钥文件不存在：${storePath.absolutePath}"
+        }
+    }
+}
+
+tasks.matching { it.name == "packageRelease" || it.name == "bundleRelease" }.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
 
 dependencies {
