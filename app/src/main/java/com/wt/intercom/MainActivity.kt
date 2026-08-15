@@ -9,6 +9,7 @@ import android.location.LocationManager
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -109,6 +110,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (AppWindowPolicy.keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         wifi = WifiDirectManager(this)
         bluetooth = BluetoothRoomManager(this)
         audioFocus = AudioFocusController(this)
