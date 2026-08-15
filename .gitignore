@@ -13,3 +13,4 @@ keystore.properties.example
 *.keystore
 *.p12
 scripts/setup-release-signing.sh
+.superpowers/sdd/
