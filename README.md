@@ -1,6 +1,6 @@
 # 落日后残波（SunsetRipple）
 
-Android 近场语音对讲应用。当前 `0.1.0-alpha.1` 提供 WiFi Direct 全双工房间与蓝牙按住说话房间，面向小范围、无互联网场景。
+Android 近场语音对讲应用。当前 `0.1.0-alpha.2` 提供 WiFi Direct 全双工房间与蓝牙按住说话房间，面向小范围、无互联网场景。
 
 ## 当前能力
 
@@ -9,7 +9,7 @@ Android 近场语音对讲应用。当前 `0.1.0-alpha.1` 提供 WiFi Direct 全
 - 普通成员短暂断线后自动重连并保留成员身份。
 - 房主主动离房，或房主进程崩溃、被系统终止、主链路断开且普通重连耗尽时，自动把房主转给仍在线且最早入房的成员。
 - 通信音频模式、音频焦点、只听模式、前台服务、WakeLock 与 WifiLock。
-- 固定竖屏，以及与应用图标一致的夕照波纹界面。
+- 固定竖屏、应用前台期间保持屏幕常亮，以及与应用图标一致的夕照波纹界面。
 
 Nearby 房与锁屏通知交互不属于当前 alpha 范围。
 
@@ -33,17 +33,16 @@ $env:JAVA_HOME='D:\LEARNING\tools\jdk-17'
 
 发布签名配置与密钥仅保存在本地，不进入版本库。`keystore.properties` 与密钥文件均被 Git 忽略；后续版本必须持续使用同一密钥。
 
-生成签名后构建 APK 与 Android App Bundle：
+生成签名 APK：
 
 ```powershell
 $env:JAVA_HOME='D:\LEARNING\tools\jdk-17'
-.\gradlew.bat :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:bundleRelease
+.\gradlew.bat :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
 ```
 
 产物位于：
 
 - `app/build/outputs/apk/release/app-release.apk`
-- `app/build/outputs/bundle/release/app-release.aab`
 
 可通过 `-PsunsetRipple.signingProperties=<绝对路径>` 使用 CI 或临时签名配置。
 

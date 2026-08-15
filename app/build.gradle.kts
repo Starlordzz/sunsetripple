@@ -23,15 +23,15 @@ val releaseSigningReady = releaseSigningFile.isFile && missingReleaseSigningKeys
 fun releaseSigningValue(key: String): String = releaseSigningProperties.getProperty(key).trim()
 
 android {
-    namespace = "com.wt.intercom"
+    namespace = "host.msknet.sunsetripple"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.wt.intercom"
+        applicationId = "host.msknet.sunsetripple"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.0-alpha.1"
+        versionCode = 3
+        versionName = "0.1.0-alpha.2"
     }
     signingConfigs {
         if (releaseSigningReady) {

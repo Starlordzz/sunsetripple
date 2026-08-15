@@ -1,0 +1,211 @@
+package host.msknet.sunsetripple.transport.bluetooth
+
+import android.Manifest
+import android.bluetooth.BluetoothDevice
+import androidx.annotation.RequiresPermission
+import host.msknet.sunsetripple.protocol.Frame
+import host.msknet.sunsetripple.protocol.FrameStreamReader
+import host.msknet.sunsetripple.protocol.FrameType
+import host.msknet.sunsetripple.session.RosterCodec
+import host.msknet.sunsetripple.transport.TransportLog
+import host.msknet.sunsetripple.transport.ReconnectPolicy
+import host.msknet.sunsetripple.transport.ResumeJoinCodec
+import host.msknet.sunsetripple.transport.HostTransferCodec
+import host.msknet.sunsetripple.transport.HostTransferPlan
+import host.msknet.sunsetripple.transport.readFrameSafely
+import java.security.SecureRandom
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
+class BluetoothClientTransport internal constructor(
+    private val nickname: String,
+    private val listener: BluetoothRoomTransportListener,
+    private val nextReconnectDelayMs: (ReconnectPolicy) -> Long? = { it.nextDelayMs() },
+    private val connectionFactory: () -> BluetoothConnection,
+) : BluetoothRoomTransport {
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    constructor(
+        nickname: String,
+        listener: BluetoothRoomTransportListener,
+        device: BluetoothDevice,
+        secure: Boolean = true,
+    ) : this(nickname, listener, connectionFactory = { BluetoothRoomRfcomm.client(device, secure) })
+
+    override val isHost = false
+    private data class Link(
+        val connection: BluetoothConnection,
+        val queue: BluetoothSendQueue = BluetoothSendQueue(),
+        val failed: AtomicBoolean = AtomicBoolean(false),
+        val writeLock: Any = Any(),
+    )
+
+    private val started = AtomicBoolean(false)
+    private val closed = AtomicBoolean(false)
+    private val scheduler = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "bluetooth-client-reconnect").apply { isDaemon = true }
+    }
+    private val reconnectPolicy = ReconnectPolicy()
+    private val resumeToken = ByteArray(16).also(SecureRandom()::nextBytes)
+    private val joined = AtomicBoolean(false)
+    @Volatile private var recoverySnapshot: HostTransferPlan? = null
+    @Volatile private var link: Link? = null
+
+    override fun start() {
+        check(started.compareAndSet(false, true)) { "BluetoothClientTransport 已启动" }
+        try {
+            openLink()
+        } catch (e: Exception) {
+            close()
+            throw e
+        }
+    }
+
+    private fun openLink() {
+        val opened = connectionFactory()
+        val newLink = Link(opened)
+        if (closed.get()) {
+            runCatching { opened.close() }
+            return
+        }
+        try {
+            opened.output.apply {
+                write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(resumeToken, nickname)).encode())
+                flush()
+            }
+        } catch (e: Exception) {
+            runCatching { opened.close() }
+            throw e
+        }
+        link = newLink
+        reconnectPolicy.reset()
+        Thread({ writerLoop(newLink) }, "bluetooth-client-writer").start()
+        Thread({ readerLoop(newLink) }, "bluetooth-client-reader").start()
+    }
+
+    private fun writerLoop(current: Link) {
+        try {
+            while (true) {
+                val frame = current.queue.take() ?: break
+                synchronized(current.writeLock) {
+                    current.connection.output.apply {
+                        write(frame.encode())
+                        flush()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (!closed.get()) TransportLog.w("蓝牙主机写入失败: ${e.message}", e)
+        } finally {
+            handleLinkFailure(current)
+        }
+    }
+
+    private fun readerLoop(current: Link) {
+        val reader = try {
+            FrameStreamReader(current.connection.input)
+        } catch (e: Exception) {
+            handleLinkFailure(current)
+            return
+        }
+        try {
+            while (!closed.get() && link === current) {
+                val frame = reader.readFrameSafely() ?: break
+                if (frame.type == FrameType.ROSTER) {
+                    val roster = try {
+                        RosterCodec.decode(frame.payload)
+                    } catch (e: IllegalArgumentException) {
+                        continue
+                    }
+                    listener.onRoster(roster)
+                    joined.set(true)
+                } else if (frame.type == FrameType.HOST_TRANSFER && frame.senderId == HOST_ID) {
+                    val plan = runCatching { HostTransferCodec.decode(frame.payload) }.getOrNull() ?: continue
+                    listener.onHostTransfer(plan)
+                    close()
+                    return
+                } else if (frame.type == FrameType.HOST_SNAPSHOT && frame.senderId == HOST_ID) {
+                    runCatching { HostTransferCodec.decode(frame.payload) }
+                        .onSuccess {
+                            recoverySnapshot = it
+                            listener.onHostTransferSnapshot(it)
+                        }
+                } else if (frame.type == FrameType.LEAVE && frame.senderId == HOST_ID) {
+                    recoverOrDisconnect("房间已结束")
+                    return
+                } else if (frame.type != FrameType.JOIN) {
+                    listener.onFrame(frame)
+                }
+            }
+        } catch (e: Exception) {
+            if (!closed.get()) TransportLog.w("蓝牙主机读取失败: ${e.message}", e)
+        } finally {
+            handleLinkFailure(current)
+        }
+    }
+
+    override fun sendTo(memberId: Int, frame: Frame) {
+        require(memberId == HOST_ID) { "客户端只能向主机发送" }
+        link?.queue?.offer(frame)
+    }
+
+    override fun broadcastSignal(frame: Frame) {
+        require(frame.type != FrameType.AUDIO) { "AUDIO 必须使用 sendTo 发送" }
+        require(frame.type != FrameType.HOST_TRANSFER) { "客户端不能发送 HOST_TRANSFER" }
+        require(frame.type != FrameType.HOST_SNAPSHOT) { "客户端不能发送 HOST_SNAPSHOT" }
+        val current = link ?: return
+        if (frame.type == FrameType.LEAVE) {
+            runCatching {
+                synchronized(current.writeLock) {
+                    current.connection.output.apply {
+                        write(frame.encode())
+                        flush()
+                    }
+                }
+            }
+        } else {
+            current.queue.offer(frame)
+        }
+    }
+
+    private fun handleLinkFailure(current: Link) {
+        if (!current.failed.compareAndSet(false, true)) return
+        current.queue.close()
+        runCatching { current.connection.close() }
+        if (link !== current || closed.get()) return
+        link = null
+        if (joined.get()) scheduleReconnect() else listener.onDisconnected("房间已结束")
+    }
+
+    private fun scheduleReconnect() {
+        val delay = nextReconnectDelayMs(reconnectPolicy)
+        if (delay == null) {
+            recoverOrDisconnect("房间已结束")
+            return
+        }
+        scheduler.schedule({
+            if (closed.get()) return@schedule
+            runCatching { openLink() }.onFailure { scheduleReconnect() }
+        }, delay, TimeUnit.MILLISECONDS)
+    }
+
+    private fun recoverOrDisconnect(reason: String) {
+        recoverySnapshot?.let(listener::onHostTransfer) ?: listener.onDisconnected(reason)
+        close()
+    }
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        scheduler.shutdownNow()
+        link?.let {
+            it.queue.close()
+            runCatching { it.connection.close() }
+        }
+        link = null
+    }
+
+    private companion object {
+        const val HOST_ID = 0
+    }
+}

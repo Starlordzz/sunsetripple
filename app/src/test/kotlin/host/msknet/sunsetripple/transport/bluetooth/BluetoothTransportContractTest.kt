@@ -1,0 +1,521 @@
+package host.msknet.sunsetripple.transport.bluetooth
+
+import host.msknet.sunsetripple.protocol.Frame
+import host.msknet.sunsetripple.protocol.FrameType
+import host.msknet.sunsetripple.session.Roster
+import host.msknet.sunsetripple.session.RosterCodec
+import host.msknet.sunsetripple.session.MemberInfo
+import host.msknet.sunsetripple.protocol.FrameStreamReader
+import host.msknet.sunsetripple.transport.ReconnectPolicy
+import host.msknet.sunsetripple.transport.ResumeJoinCodec
+import host.msknet.sunsetripple.transport.HostTransferMember
+import host.msknet.sunsetripple.transport.HostTransferPlan
+import host.msknet.sunsetripple.transport.HostTransferSeed
+import java.net.ServerSocket
+import java.net.Socket
+import java.io.ByteArrayOutputStream
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class BluetoothTransportContractTest {
+
+    private class Recorder : BluetoothRoomTransportListener {
+        val frames = CopyOnWriteArrayList<Frame>()
+        val rosters = CopyOnWriteArrayList<Roster>()
+        val disconnects = CopyOnWriteArrayList<String>()
+        val reconnecting = CopyOnWriteArrayList<Int>()
+        val reconnected = CopyOnWriteArrayList<Int>()
+        val reconnectFailed = CopyOnWriteArrayList<Int>()
+        val hostTransfers = CopyOnWriteArrayList<HostTransferPlan>()
+        val hostSnapshots = CopyOnWriteArrayList<HostTransferPlan>()
+        override fun onFrame(frame: Frame) { frames.add(frame) }
+        override fun onRoster(roster: Roster) { rosters.add(roster) }
+        override fun onDisconnected(reason: String) { disconnects.add(reason) }
+        override fun onMemberReconnecting(memberId: Int) { reconnecting.add(memberId) }
+        override fun onMemberReconnected(memberId: Int) { reconnected.add(memberId) }
+        override fun onMemberReconnectFailed(memberId: Int) { reconnectFailed.add(memberId) }
+        override fun onHostTransfer(plan: HostTransferPlan) { hostTransfers.add(plan) }
+        override fun onHostTransferSnapshot(plan: HostTransferPlan) { hostSnapshots.add(plan) }
+    }
+
+    private class SocketConnection(private val socket: Socket) : BluetoothConnection {
+        override val remoteAddress: String = socket.remoteSocketAddress.toString()
+        override val input get() = socket.getInputStream()
+        override val output get() = socket.getOutputStream()
+        override fun close() = socket.close()
+    }
+
+    private class LoopbackServer : BluetoothConnectionServer {
+        private val socket = ServerSocket(0)
+        override fun accept(): BluetoothConnection = SocketConnection(socket.accept())
+        override fun close() = socket.close()
+        fun connectSocket(): Socket = Socket("127.0.0.1", socket.localPort)
+        fun connect(): BluetoothConnection = SocketConnection(connectSocket())
+    }
+
+    private class RecordingConnection : BluetoothConnection {
+        override val remoteAddress = "test"
+        private val inputWriter = PipedOutputStream()
+        override val input = PipedInputStream(inputWriter)
+        override val output = ByteArrayOutputStream()
+        val closed = AtomicBoolean(false)
+        override fun close() {
+            closed.set(true)
+            input.close()
+            inputWriter.close()
+        }
+        fun send(frame: Frame) {
+            inputWriter.write(frame.encode())
+            inputWriter.flush()
+        }
+    }
+
+    private class ClosingRaceServer(
+        private val connection: BluetoothConnection,
+    ) : BluetoothConnectionServer {
+        val acceptEntered = CountDownLatch(1)
+        val releaseAccept = CountDownLatch(1)
+        override fun accept(): BluetoothConnection {
+            acceptEntered.countDown()
+            releaseAccept.await()
+            return connection
+        }
+        override fun close() = Unit
+    }
+
+    private val closeables = mutableListOf<AutoCloseable>()
+
+    @After
+    fun tearDown() {
+        closeables.reversed().forEach { runCatching { it.close() } }
+    }
+
+    @Test
+    fun `客户端 JOIN 后双方成员表为 0 和 1`() {
+        val room = room()
+        val client = room.client("成员一")
+
+        await("双方收到两人成员表") {
+            room.hostRecorder.rosters.lastOrNull()?.members?.size == 2 &&
+                client.recorder.rosters.lastOrNull()?.members?.size == 2
+        }
+
+        assertEquals(listOf(0, 1), room.hostRecorder.rosters.last().members.map { it.id })
+        assertEquals(1, client.recorder.rosters.last().yourId)
+    }
+
+    @Test
+    fun `第二位成员获得 ID 2`() {
+        val room = room()
+        room.client("成员一")
+        val second = room.client("成员二")
+
+        await("第二位成员收到三人成员表") { second.recorder.rosters.lastOrNull()?.members?.size == 3 }
+
+        assertEquals(2, second.recorder.rosters.last().yourId)
+        assertEquals(listOf(0, 1, 2), second.recorder.rosters.last().members.map { it.id })
+    }
+
+    @Test
+    fun `成员离开后复用最小空闲 ID`() {
+        val room = room()
+        val first = room.client("成员一")
+        room.client("成员二")
+        await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
+
+        first.transport.broadcastSignal(Frame(FrameType.LEAVE, 1, 0, ByteArray(0)))
+        first.transport.close()
+        await("首位成员离开") { room.hostRecorder.rosters.lastOrNull()?.members?.map { it.id } == listOf(0, 2) }
+        val replacement = room.client("替补")
+        await("替补收到成员表") { replacement.recorder.rosters.isNotEmpty() }
+
+        assertEquals(1, replacement.recorder.rosters.last().yourId)
+    }
+
+    @Test
+    fun `异常断线保留成员且同 token 新连接沿用原 ID`() {
+        val room = room(reconnectGraceMs = 2_000)
+        val token = ByteArray(16) { it.toByte() }
+        val first = room.server.connectSocket()
+        closeables += AutoCloseable { first.close() }
+        first.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, "成员一")).encode())
+            flush()
+        }
+        val firstRoster = nextRoster(first)
+        assertEquals(1, firstRoster.yourId)
+
+        first.close()
+        await("主机标记成员重连中") { room.hostRecorder.reconnecting == listOf(1) }
+        assertTrue(room.hostRecorder.rosters.last().members.any { it.id == 1 })
+
+        val resumed = room.server.connectSocket()
+        closeables += AutoCloseable { resumed.close() }
+        resumed.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(token, "成员一")).encode())
+            flush()
+        }
+
+        assertEquals(1, nextRoster(resumed).yourId)
+        await("主机确认成员恢复") { room.hostRecorder.reconnected == listOf(1) }
+    }
+
+    @Test
+    fun `错误 token 在宽限期内不得复用原成员 ID`() {
+        val room = room(reconnectGraceMs = 2_000)
+        val first = room.server.connectSocket()
+        closeables += AutoCloseable { first.close() }
+        first.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16) { 1 }, "成员一")).encode())
+            flush()
+        }
+        assertEquals(1, nextRoster(first).yourId)
+        first.close()
+        await("原成员进入重连中") { room.hostRecorder.reconnecting == listOf(1) }
+
+        val stranger = room.server.connectSocket()
+        closeables += AutoCloseable { stranger.close() }
+        stranger.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16) { 2 }, "陌生成员")).encode())
+            flush()
+        }
+
+        assertEquals(2, nextRoster(stranger).yourId)
+    }
+
+    @Test
+    fun `主机宽限期结束后最终移除成员并回调失败`() {
+        val room = room(reconnectGraceMs = 20)
+        val client = room.client("成员一")
+        await("成员完成入房") { client.recorder.rosters.isNotEmpty() }
+
+        client.transport.close()
+
+        await("成员重连最终失败且成员表已更新") {
+            room.hostRecorder.reconnectFailed == listOf(1) &&
+                room.hostRecorder.rosters.lastOrNull()?.members?.map { it.id } == listOf(0)
+        }
+        assertEquals(listOf(0), room.hostRecorder.rosters.last().members.map { it.id })
+    }
+
+    @Test
+    fun `客户端读断线后按三次退避创建全新连接并最终结束`() {
+        val first = RecordingConnection()
+        val attempts = CopyOnWriteArrayList<Int>()
+        val delays = CopyOnWriteArrayList<Long>()
+        val recorder = Recorder()
+        val client = BluetoothClientTransport(
+            nickname = "成员",
+            listener = recorder,
+            connectionFactory = {
+                val attempt = attempts.size
+                attempts += attempt
+                if (attempt == 0) first else throw java.io.IOException("连接失败")
+            },
+            nextReconnectDelayMs = { policy: ReconnectPolicy ->
+                policy.nextDelayMs()?.also(delays::add)?.let { 1L }
+            },
+        )
+        closeables += AutoCloseable { client.close() }
+        client.start()
+        first.send(
+            Frame(
+                FrameType.ROSTER,
+                0,
+                0,
+                RosterCodec.encode(
+                    1,
+                    listOf(
+                        MemberInfo(0, "主机", "host"),
+                        MemberInfo(1, "成员", "test"),
+                    ),
+                ),
+            ),
+        )
+        await("客户端完成首次入房") { recorder.rosters.isNotEmpty() }
+
+        first.close()
+
+        await("三轮重连失败后结束") { recorder.disconnects.isNotEmpty() }
+        assertEquals(listOf(0, 1, 2, 3), attempts.toList())
+        assertEquals(listOf(1_000L, 2_000L, 4_000L), delays.toList())
+    }
+
+    @Test
+    fun `第 7 人被拒且既有成员不受影响`() {
+        val room = room()
+        val admitted = List(5) { room.client("成员${it + 1}") }
+        await("房间达到六人上限") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 6 }
+
+        val seventh = room.client("第七人")
+        await("第七人收到断线") { seventh.recorder.disconnects.isNotEmpty() }
+
+        assertEquals(listOf(0, 1, 2, 3, 4, 5), room.hostRecorder.rosters.last().members.map { it.id })
+        assertTrue(admitted.all { it.recorder.disconnects.isEmpty() })
+    }
+
+    @Test
+    fun `畸形帧只断开该连接`() {
+        val room = room(reconnectGraceMs = 20)
+        val bad = room.server.connect()
+        closeables += AutoCloseable { bad.close() }
+        bad.output.apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16), "异常成员")).encode())
+            flush()
+        }
+        await("异常成员先完成入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 2 }
+
+        bad.output.apply {
+            write(byteArrayOf(99, 1, 0, 0, 0, 0))
+            flush()
+        }
+        await("异常成员被移除") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 1 }
+        val healthy = room.client("正常成员")
+        await("主机继续接受新成员") { healthy.recorder.rosters.isNotEmpty() }
+
+        assertEquals(1, healthy.recorder.rosters.last().yourId)
+    }
+
+    @Test
+    fun `首帧不是 JOIN 的连接被拒绝`() {
+        val room = room()
+        val bad = room.server.connectSocket()
+        closeables += AutoCloseable { bad.close() }
+
+        bad.getOutputStream().apply {
+            write(Frame(FrameType.AUDIO, 9, 0, byteArrayOf(1)).encode())
+            flush()
+        }
+
+        bad.soTimeout = 3_000
+        assertEquals(-1, bad.getInputStream().read())
+        assertEquals(1, room.hostRecorder.rosters.last().members.size)
+    }
+
+    @Test
+    fun `close 与 accept 返回竞态时仍关闭新连接`() {
+        val connection = RecordingConnection()
+        val server = ClosingRaceServer(connection)
+        val host = BluetoothHostTransport("主机", Recorder()) { server }
+        closeables += AutoCloseable { host.close() }
+        host.start()
+        assertTrue(server.acceptEntered.await(1, TimeUnit.SECONDS))
+
+        host.close()
+        server.releaseAccept.countDown()
+
+        try {
+            await("accept 返回的连接被关闭") { connection.closed.get() }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun `客户端连接中 close 后工厂返回的连接仍被关闭`() {
+        val connection = RecordingConnection()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val client = BluetoothClientTransport("成员", Recorder()) {
+            entered.countDown()
+            release.await()
+            connection
+        }
+        val startThread = Thread { runCatching { client.start() } }
+        startThread.start()
+        assertTrue(entered.await(1, TimeUnit.SECONDS))
+
+        client.close()
+        release.countDown()
+        startThread.join(1_000)
+
+        assertTrue(connection.closed.get())
+        assertTrue(!startThread.isAlive)
+    }
+
+    @Test
+    fun `sendTo 只把帧发给目标成员`() {
+        val room = room()
+        val first = room.client("成员一")
+        val second = room.client("成员二")
+        await("三人入房") { second.recorder.rosters.lastOrNull()?.members?.size == 3 }
+        first.recorder.frames.clear()
+        second.recorder.frames.clear()
+
+        room.host.sendTo(2, Frame(FrameType.AUDIO, 0, 7, byteArrayOf(1)))
+        await("目标成员收到定向帧") { second.recorder.frames.any { it.seq == 7 } }
+
+        assertTrue(first.recorder.frames.none { it.seq == 7 })
+    }
+
+    @Test
+    fun `主机使用连接分配的成员 ID 而不信任客户端帧头`() {
+        val room = room()
+        val client = room.client("成员一")
+        await("成员完成入房") { client.recorder.rosters.isNotEmpty() }
+
+        client.transport.sendTo(0, Frame(FrameType.PTT_STATE, 99, 8, byteArrayOf(1)))
+        await("主机收到 PTT 状态") { room.hostRecorder.frames.any { it.seq == 8 } }
+
+        assertEquals(1, room.hostRecorder.frames.first { it.seq == 8 }.senderId)
+    }
+
+    @Test
+    fun `主机异常关闭后所有客户端使用最后快照触发接管`() {
+        val room = room()
+        val clients = List(3) { room.client("成员$it") }
+        await("四人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 4 }
+        await("所有客户端已缓存故障接管快照") {
+            clients.all { it.recorder.hostSnapshots.isNotEmpty() }
+        }
+
+        room.host.close()
+        await("所有客户端触发故障接管") { clients.all { it.recorder.hostTransfers.isNotEmpty() } }
+        assertTrue(clients.all { it.recorder.disconnects.isEmpty() })
+        assertTrue(clients.all { it.recorder.hostTransfers.last().successorId == 1 })
+    }
+
+    @Test
+    fun `主机主动交接给仍在线且最早入房的成员`() {
+        val room = room()
+        val first = room.client("成员一")
+        val second = room.client("成员二")
+        await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
+
+        val plan = room.host.prepareHostTransfer()
+
+        assertEquals(1, plan?.successorId)
+        assertEquals(listOf(1, 2), plan?.members?.map { it.memberId })
+        await("所有在线成员收到交接") {
+            first.recorder.hostTransfers.size == 1 && second.recorder.hostTransfers.size == 1
+        }
+        assertTrue(first.recorder.disconnects.isEmpty())
+        assertTrue(second.recorder.disconnects.isEmpty())
+    }
+
+    @Test
+    fun `成员表更新后所有蓝牙成员收到故障接管快照`() {
+        val room = room()
+        val first = room.client("成员一")
+        val second = room.client("成员二")
+        await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
+        await("所有成员收到故障快照") {
+            first.recorder.hostSnapshots.isNotEmpty() && second.recorder.hostSnapshots.isNotEmpty()
+        }
+
+        assertEquals(1, first.recorder.hostSnapshots.last().successorId)
+        assertEquals(listOf(1, 2), first.recorder.hostSnapshots.last().members.map { it.memberId })
+        assertTrue(first.recorder.disconnects.isEmpty())
+        assertTrue(second.recorder.disconnects.isEmpty())
+    }
+
+    @Test
+    fun `交接跳过正在重连的最早成员`() {
+        val room = room(reconnectGraceMs = 2_000)
+        val first = room.client("成员一")
+        val second = room.client("成员二")
+        await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
+        first.transport.close()
+        await("首位成员进入重连中") { room.hostRecorder.reconnecting == listOf(1) }
+
+        val plan = room.host.prepareHostTransfer()
+
+        assertEquals(2, plan?.successorId)
+        assertEquals(listOf(2), plan?.members?.map { it.memberId })
+        await("第二位成员收到交接") { second.recorder.hostTransfers.size == 1 }
+    }
+
+    @Test
+    fun `继任主机在宽限期后释放未重连成员的预留`() {
+        val server = LoopbackServer()
+        val recorder = Recorder()
+        val host = BluetoothHostTransport(
+            nickname = "继任主机",
+            listener = recorder,
+            transferSeed = fullTransferSeed(),
+            transferReservationGraceMs = 50,
+            serverFactory = { server },
+        )
+        closeables += AutoCloseable { host.close() }
+        host.start()
+
+        val blocked = server.connectSocket()
+        closeables += AutoCloseable { blocked.close() }
+        blocked.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16) { 7 }, "抢位成员")).encode())
+            flush()
+        }
+        blocked.soTimeout = 1_000
+        assertEquals(-1, blocked.getInputStream().read())
+
+        Thread.sleep(80)
+        val accepted = server.connectSocket()
+        closeables += AutoCloseable { accepted.close() }
+        accepted.getOutputStream().apply {
+            write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(ByteArray(16) { 8 }, "稍后成员")).encode())
+            flush()
+        }
+
+        assertEquals(1, nextRoster(accepted).yourId)
+    }
+
+    private data class ClientHandle(
+        val transport: BluetoothClientTransport,
+        val recorder: Recorder,
+    )
+
+    private inner class RoomHarness(
+        val server: LoopbackServer,
+        val host: BluetoothHostTransport,
+        val hostRecorder: Recorder,
+    ) {
+        fun client(nickname: String): ClientHandle {
+            val recorder = Recorder()
+            val transport = BluetoothClientTransport(nickname, recorder) { server.connect() }
+            closeables += AutoCloseable { transport.close() }
+            transport.start()
+            return ClientHandle(transport, recorder)
+        }
+    }
+
+    private fun room(reconnectGraceMs: Long = 7_000): RoomHarness {
+        val server = LoopbackServer()
+        val recorder = Recorder()
+        val host = BluetoothHostTransport("主机", recorder, reconnectGraceMs) { server }
+        closeables += AutoCloseable { host.close() }
+        host.start()
+        return RoomHarness(server, host, recorder)
+    }
+
+    private fun fullTransferSeed(): HostTransferSeed = HostTransferSeed.from(
+        HostTransferPlan(
+            successorId = 1,
+            members = (1..6).map { id ->
+                HostTransferMember(id, id.toLong(), "成员$id", "reserved-$id")
+            },
+        ),
+    )
+
+    private fun nextRoster(socket: Socket): Roster {
+        socket.soTimeout = 3_000
+        val frame = FrameStreamReader(socket.getInputStream()).readFrame()
+        return RosterCodec.decode(frame!!.payload)
+    }
+
+    private fun await(what: String, timeoutMs: Long = 3_000, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (System.nanoTime() < deadline) {
+            if (condition()) return
+            Thread.sleep(10)
+        }
+        throw AssertionError("等待超时：$what")
+    }
+}

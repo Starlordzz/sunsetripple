@@ -1,0 +1,79 @@
+package host.msknet.sunsetripple.transport.bluetooth
+
+import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothServerSocket
+import android.bluetooth.BluetoothSocket
+import androidx.annotation.RequiresPermission
+import host.msknet.sunsetripple.protocol.Frame
+import host.msknet.sunsetripple.session.Roster
+import host.msknet.sunsetripple.transport.HostTransferPlan
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.UUID
+
+interface BluetoothRoomTransport {
+    val isHost: Boolean
+    fun start()
+    fun sendTo(memberId: Int, frame: Frame)
+    fun broadcastSignal(frame: Frame)
+    fun prepareHostTransfer(): HostTransferPlan? = null
+    fun close()
+}
+
+interface BluetoothRoomTransportListener {
+    fun onFrame(frame: Frame)
+    fun onRoster(roster: Roster)
+    fun onMemberReconnecting(memberId: Int) = Unit
+    fun onMemberReconnected(memberId: Int) = Unit
+    fun onMemberReconnectFailed(memberId: Int) = Unit
+    fun onHostTransfer(plan: HostTransferPlan) = Unit
+    fun onHostTransferSnapshot(plan: HostTransferPlan) = Unit
+    fun onDisconnected(reason: String)
+}
+
+internal interface BluetoothConnection {
+    val remoteAddress: String
+    val input: InputStream
+    val output: OutputStream
+    fun close()
+}
+
+internal interface BluetoothConnectionServer {
+    fun accept(): BluetoothConnection
+    fun close()
+}
+
+internal class AndroidBluetoothConnection(
+    private val socket: BluetoothSocket,
+) : BluetoothConnection {
+    override val remoteAddress: String get() = socket.remoteDevice.address
+    override val input: InputStream get() = socket.inputStream
+    override val output: OutputStream get() = socket.outputStream
+    override fun close() = socket.close()
+}
+
+internal class AndroidBluetoothConnectionServer(
+    private val server: BluetoothServerSocket,
+) : BluetoothConnectionServer {
+    override fun accept(): BluetoothConnection = AndroidBluetoothConnection(server.accept())
+    override fun close() = server.close()
+}
+
+internal object BluetoothRoomRfcomm {
+    val UUID: UUID = java.util.UUID.fromString("7f75d4e0-7a46-4d74-9f8d-1e4bc5e4b003")
+    const val SERVICE_NAME = "SunsetRipple Bluetooth Room"
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    fun server(adapter: BluetoothAdapter, secure: Boolean = true): BluetoothConnectionServer = AndroidBluetoothConnectionServer(
+        if (secure) adapter.listenUsingRfcommWithServiceRecord(SERVICE_NAME, UUID)
+        else adapter.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, UUID),
+    )
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    fun client(device: BluetoothDevice, secure: Boolean = true): BluetoothConnection = AndroidBluetoothConnection(
+        (if (secure) device.createRfcommSocketToServiceRecord(UUID)
+        else device.createInsecureRfcommSocketToServiceRecord(UUID)).apply { connect() },
+    )
+}
