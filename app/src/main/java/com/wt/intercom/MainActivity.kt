@@ -36,6 +36,7 @@ import com.wt.intercom.session.RoomSession
 import com.wt.intercom.session.RoomUiState
 import com.wt.intercom.session.BluetoothRoomSession
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.HostTransferSeed
 import com.wt.intercom.transport.bluetooth.BluetoothClientTransport
 import com.wt.intercom.transport.bluetooth.BluetoothHostTransport
 import com.wt.intercom.transport.bluetooth.BluetoothRoomManager
@@ -50,6 +51,8 @@ import com.wt.intercom.ui.BluetoothPermissions
 import com.wt.intercom.ui.BluetoothRoomRole
 import com.wt.intercom.ui.BluetoothScanScreen
 import com.wt.intercom.ui.HomeScreen
+import com.wt.intercom.ui.HostTransferAction
+import com.wt.intercom.ui.HostTransferFlow
 import com.wt.intercom.ui.LoopbackScreen
 import com.wt.intercom.ui.NearbyPermissions
 import com.wt.intercom.ui.NearbyScanScreen
@@ -237,13 +240,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /** 释放当前房型资源：会话 → manager → 前台服务 → 音频模式。幂等，主线程调用。 */
-    private fun releaseRoom() {
+    private fun releaseRoom(keepWifiGroup: Boolean = false) {
         when (roomKindFlow.value) {
             RoomKind.WIFI -> {
                 val session = sessionFlow.value
                 sessionFlow.value = null
                 session?.let { runCatching { it.leave() }.onFailure { e -> TransportLog.w("WiFi 离房异常: ${e.message}", e) } }
-                wifi.disconnect()
+                if (!keepWifiGroup) wifi.disconnect()
             }
             RoomKind.BLUETOOTH -> {
                 val session = bluetoothSessionFlow.value
@@ -303,6 +306,8 @@ class MainActivity : ComponentActivity() {
         var pendingBluetoothRole by remember { mutableStateOf<BluetoothRoomRole?>(null) }
         var pendingBluetoothAction by remember { mutableStateOf<(() -> Unit)?>(null) }
         var pendingNearbyAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+        var pendingWifiTransferSeed by remember { mutableStateOf<HostTransferSeed?>(null) }
+        var wifiTransferTarget by remember { mutableStateOf<String?>(null) }
 
         val required = remember(sdkInt) { RoomPermissions.required(sdkInt) }
         val requested = remember(sdkInt) { RoomPermissions.requested(sdkInt).toTypedArray() }
@@ -337,6 +342,8 @@ class MainActivity : ComponentActivity() {
         }
 
         fun goHome(message: String?) {
+            pendingWifiTransferSeed = null
+            wifiTransferTarget = null
             releaseRoom()
             role = RoomRole.NONE
             status = message
@@ -413,10 +420,19 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        fun startBluetoothHost() {
+        fun startBluetoothHost(
+            transferSeed: HostTransferSeed? = null,
+            secure: Boolean = true,
+        ) {
             val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
             val newSession = BluetoothRoomSession(nickname)
-            val transport = BluetoothHostTransport(nickname, newSession, adapter)
+            val transport = BluetoothHostTransport(
+                nickname,
+                newSession,
+                adapter,
+                transferSeed = transferSeed,
+                secure = secure,
+            )
             bluetoothSessionFlow.value = newSession
             roomKindFlow.value = RoomKind.BLUETOOTH
             isHost = true
@@ -570,7 +586,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        fun startBluetoothGuest(device: BluetoothDevice) {
+        fun startBluetoothGuest(device: BluetoothDevice, secure: Boolean = true) {
             val newSession = BluetoothRoomSession(nickname)
             bluetoothSessionFlow.value = newSession
             roomKindFlow.value = RoomKind.BLUETOOTH
@@ -580,7 +596,7 @@ class MainActivity : ComponentActivity() {
             val speaker = speakerOn
             beginCall(BLUETOOTH_GUEST_LABEL, speaker)
             thread(name = "bluetooth-join") {
-                val transport = BluetoothClientTransport(nick, newSession, device)
+                val transport = BluetoothClientTransport(nick, newSession, device, secure = secure)
                 try {
                     newSession.start(transport)
                 } catch (error: Exception) {
@@ -599,11 +615,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        fun startHost(hostIp: String) {
+        fun startHost(hostIp: String, transferSeed: HostTransferSeed? = null) {
             val newSession = RoomSession(nickname)
             // 构造即绑端口，失败要让用户看见（8988/8989 被占）。
             val transport = try {
-                WifiHostTransport(nickname, newSession, hostIp)
+                WifiHostTransport(nickname, newSession, hostIp, transferSeed = transferSeed)
             } catch (e: Exception) {
                 TransportLog.w("建房失败: ${e.message}", e)
                 Toast.makeText(context, "建房失败：${e.message}", Toast.LENGTH_LONG).show()
@@ -625,6 +641,7 @@ class MainActivity : ComponentActivity() {
                 return
             }
             status = null
+            pendingWifiTransferSeed = null
             screen = Screen.ROOM
         }
 
@@ -639,7 +656,13 @@ class MainActivity : ComponentActivity() {
             // TCP 连接是阻塞的（5s 超时），不能占主线程。
             thread(name = "wifi-join") {
                 val transport = try {
-                    WifiClientTransport(nick, hostIp, newSession).also { it.start() }
+                    WifiClientTransport(
+                        nick,
+                        hostIp,
+                        newSession,
+                        localEndpoint = wifi.thisDevice.value?.deviceAddress
+                            ?.takeUnless { it.isBlank() || it == UNKNOWN_P2P_ADDRESS },
+                    ).also { it.start() }
                 } catch (e: Exception) {
                     TransportLog.w("入房失败: ${e.message}", e)
                     runOnUiThread {
@@ -665,6 +688,7 @@ class MainActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     status = null
+                    wifiTransferTarget = null
                     screen = Screen.ROOM
                 }
             }
@@ -690,8 +714,79 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.HOME
                     Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
                 }
-                is RoomStart.Host -> startHost(start.hostIp)
+                is RoomStart.Host -> startHost(start.hostIp, pendingWifiTransferSeed)
                 is RoomStart.Guest -> startGuest(start.hostIp)
+            }
+        }
+
+        LaunchedEffect(wifiTransferTarget) {
+            val target = wifiTransferTarget ?: return@LaunchedEffect
+            repeat(HOST_TRANSFER_DISCOVERY_ATTEMPTS) { attempt ->
+                if (wifiTransferTarget != target || sessionFlow.value != null) return@LaunchedEffect
+                if (wifi.connection.value?.groupFormed == true) return@LaunchedEffect
+                val peer = wifi.peers.value.firstOrNull {
+                    it.deviceAddress.equals(target, ignoreCase = true)
+                }
+                if (peer == null) {
+                    status = "房主交接中，正在发现新房主……"
+                    wifi.discoverPeers()
+                } else {
+                    status = "房主交接中，正在连接新房主……"
+                    wifi.connect(peer)
+                }
+                delay(HOST_TRANSFER_DISCOVERY_INTERVAL_MS)
+                if (attempt == HOST_TRANSFER_DISCOVERY_ATTEMPTS - 1 &&
+                    wifiTransferTarget == target &&
+                    wifi.connection.value?.groupFormed != true
+                ) {
+                    goHome("房主交接失败，请重新加入房间")
+                }
+            }
+        }
+
+        LaunchedEffect(roomState.hostTransfer) {
+            val plan = roomState.hostTransfer ?: return@LaunchedEffect
+            val selfId = roomState.members.firstOrNull { it.isSelf }?.id ?: return@LaunchedEffect
+            val action = HostTransferFlow.decide(plan, selfId)
+            val previousKind = roomKind
+            status = "房主交接中……"
+            releaseRoom(keepWifiGroup = previousKind == RoomKind.WIFI)
+            when (previousKind) {
+                RoomKind.BLUETOOTH -> when (action) {
+                    is HostTransferAction.BecomeHost ->
+                        startBluetoothHost(action.seed, secure = false)
+                    is HostTransferAction.JoinHost -> {
+                        val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+                        val device = runCatching { adapter.getRemoteDevice(action.endpoint) }.getOrElse { error ->
+                            goHome("房主交接失败：${error.message}")
+                            return@LaunchedEffect
+                        }
+                        startBluetoothGuest(device, secure = false)
+                    }
+                    HostTransferAction.Ignore -> goHome("房主交接信息已失效")
+                }
+                RoomKind.WIFI -> when (action) {
+                    is HostTransferAction.BecomeHost -> {
+                        pendingWifiTransferSeed = action.seed
+                        wifiTransferTarget = null
+                        role = RoomRole.HOST
+                        isHost = true
+                        roomKindFlow.value = null
+                        wifi.createGroup()
+                        screen = Screen.ROOM
+                    }
+                    is HostTransferAction.JoinHost -> {
+                        pendingWifiTransferSeed = null
+                        wifiTransferTarget = action.endpoint
+                        role = RoomRole.GUEST
+                        isHost = false
+                        roomKindFlow.value = null
+                        wifi.disconnectAndDiscoverPeers()
+                        screen = Screen.ROOM
+                    }
+                    HostTransferAction.Ignore -> goHome("房主交接信息已失效")
+                }
+                RoomKind.NEARBY, null -> goHome("当前房型不支持房主交接")
             }
         }
 
@@ -879,5 +974,8 @@ class MainActivity : ComponentActivity() {
         const val BLUETOOTH_GUEST_LABEL = "蓝牙房"
         const val NEARBY_HOST_LABEL = "Nearby 房（我是房主）"
         const val NEARBY_GUEST_LABEL = "Nearby 房"
+        const val UNKNOWN_P2P_ADDRESS = "02:00:00:00:00:00"
+        const val HOST_TRANSFER_DISCOVERY_ATTEMPTS = 10
+        const val HOST_TRANSFER_DISCOVERY_INTERVAL_MS = 3_000L
     }
 }

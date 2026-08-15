@@ -21,7 +21,7 @@ class NearbyRoomTransport private constructor(
     private val nickname: String,
     private val transportListener: TransportListener,
     private val port: NearbyConnectionsPort,
-    private val isHost: Boolean,
+    override val isHost: Boolean,
     private val hostEndpointId: String? = null,
     private val discoveryAlreadyActive: Boolean = false,
     private val reconnectGraceMs: Long = RECONNECT_GRACE_MS,

@@ -26,6 +26,7 @@ class WifiDirectManager(context: Context) {
 
     val peers = MutableStateFlow<List<WifiP2pDevice>>(emptyList())
     val connection = MutableStateFlow<WifiP2pInfo?>(null)
+    val thisDevice = MutableStateFlow<WifiP2pDevice?>(null)
     val lastError = MutableStateFlow<String?>(null)
 
     /**
@@ -71,6 +72,17 @@ class WifiDirectManager(context: Context) {
                     manager.requestPeers(channel) { list -> peers.value = list.deviceList.toList() }
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION ->
                     manager.requestConnectionInfo(channel) { info -> connection.value = info }
+                WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION -> {
+                    thisDevice.value = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(
+                            WifiP2pManager.EXTRA_WIFI_P2P_DEVICE,
+                            WifiP2pDevice::class.java,
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE)
+                    }
+                }
             }
         }
     }
@@ -80,6 +92,7 @@ class WifiDirectManager(context: Context) {
         val filter = IntentFilter().apply {
             addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
             addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+            addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
         }
         // P2P 广播是系统发出的受保护广播；Android 13+ 要求显式声明导出属性，否则注册被拒。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -110,10 +123,7 @@ class WifiDirectManager(context: Context) {
     @SuppressLint("MissingPermission")
     fun createGroup() {
         ensureChannel()
-        manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() = manager.createGroup(channel, actionListener("建房"))
-            override fun onFailure(reason: Int) = manager.createGroup(channel, actionListener("建房"))
-        })
+        removeGroupThen { manager.createGroup(channel, actionListener("建房")) }
     }
 
     @SuppressLint("MissingPermission")
@@ -125,8 +135,13 @@ class WifiDirectManager(context: Context) {
 
     @SuppressLint("MissingPermission")
     fun connect(device: WifiP2pDevice) {
+        connect(device.deviceAddress)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun connect(deviceAddress: String) {
         ensureChannel()
-        val config = WifiP2pConfig().apply { deviceAddress = device.deviceAddress }
+        val config = WifiP2pConfig().apply { this.deviceAddress = deviceAddress }
         manager.connect(channel, config, actionListener("连接"))
     }
 
@@ -135,22 +150,34 @@ class WifiDirectManager(context: Context) {
      * 把它当错误显示的话，每次正常离房首页都会挂一条红字。顺手清掉上一轮的错误提示。
      */
     fun disconnect() {
+        removeGroupThen()
+    }
+
+    /** 房主交接的普通成员：旧组真正移除后才开始扫描，避免并发 P2P 操作返回 BUSY。 */
+    fun disconnectAndDiscoverPeers() {
+        removeGroupThen(::discoverPeers)
+    }
+
+    private fun removeGroupThen(after: () -> Unit = {}) {
+        connection.value = null
+        peers.value = emptyList()
+        lastError.value = null
         runCatching {
             manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     TransportLog.w("WiFi Direct 组已解散")
+                    after()
                 }
 
                 override fun onFailure(reason: Int) {
                     TransportLog.w("WiFi Direct 解散组失败（code=$reason，无组时属正常）")
+                    after()
                 }
             })
         }.onFailure {
             // ChannelListener 可能刚把旧 channel 标成失效；状态清理仍须完成，不能让离房崩溃。
             TransportLog.w("WiFi Direct 解散组调用失败（可能是 channel 已断开）: ${it.message}", it)
+            after()
         }
-        connection.value = null
-        peers.value = emptyList()
-        lastError.value = null
     }
 }

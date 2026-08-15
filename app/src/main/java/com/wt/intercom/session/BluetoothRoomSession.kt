@@ -9,6 +9,7 @@ import com.wt.intercom.audio.OpusCodec
 import com.wt.intercom.protocol.Frame
 import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.HostTransferPlan
 import com.wt.intercom.transport.bluetooth.BluetoothRoomTransport
 import com.wt.intercom.transport.bluetooth.BluetoothRoomTransportListener
 import java.util.concurrent.atomic.AtomicBoolean
@@ -62,6 +63,7 @@ class BluetoothRoomSession(
     @Volatile private var audioFocusInterrupted = false
     @Volatile private var selfId = -1
     @Volatile private var transport: BluetoothRoomTransport? = null
+    @Volatile private var recoverySnapshot: HostTransferPlan? = null
     @Volatile private var audio: AudioIo? = null
     @Volatile private var playbackThread: Thread? = null
     private val pendingHostPcm = AtomicReference<ShortArray?>()
@@ -264,11 +266,30 @@ class BluetoothRoomSession(
         publishState()
     }
 
-    override fun onDisconnected(reason: String) = shutdown(reason)
+    override fun onDisconnected(reason: String) {
+        val snapshot = recoverySnapshot
+        if (transport?.isHost == false && snapshot != null) {
+            onHostTransfer(snapshot)
+        } else {
+            shutdown(reason)
+        }
+    }
+
+    override fun onHostTransferSnapshot(plan: HostTransferPlan) {
+        if (plan.members.any { it.memberId == selfId }) recoverySnapshot = plan
+    }
+
+    override fun onHostTransfer(plan: HostTransferPlan) {
+        shutdown(null)
+        _state.value = _state.value.copy(hostTransfer = plan)
+    }
 
     fun leave() {
         val id = selfId
-        if (id >= 0) {
+        val handoff = if (transport?.isHost == true) {
+            runCatching { transport?.prepareHostTransfer() }.getOrNull()
+        } else null
+        if (id >= 0 && handoff == null) {
             runCatching {
                 transport?.broadcastSignal(Frame(FrameType.LEAVE, id, nextSignalSeq(), ByteArray(0)))
             }
@@ -316,6 +337,7 @@ class BluetoothRoomSession(
             audioFocusInterrupted = audioFocusInterrupted,
             pttPressed = pttPressed,
             endedReason = _state.value.endedReason,
+            hostTransfer = _state.value.hostTransfer,
         )
     }
 

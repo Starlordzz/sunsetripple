@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothSocket
 import androidx.annotation.RequiresPermission
 import com.wt.intercom.protocol.Frame
 import com.wt.intercom.session.Roster
+import com.wt.intercom.transport.HostTransferPlan
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
@@ -17,6 +18,7 @@ interface BluetoothRoomTransport {
     fun start()
     fun sendTo(memberId: Int, frame: Frame)
     fun broadcastSignal(frame: Frame)
+    fun prepareHostTransfer(): HostTransferPlan? = null
     fun close()
 }
 
@@ -26,6 +28,8 @@ interface BluetoothRoomTransportListener {
     fun onMemberReconnecting(memberId: Int) = Unit
     fun onMemberReconnected(memberId: Int) = Unit
     fun onMemberReconnectFailed(memberId: Int) = Unit
+    fun onHostTransfer(plan: HostTransferPlan) = Unit
+    fun onHostTransferSnapshot(plan: HostTransferPlan) = Unit
     fun onDisconnected(reason: String)
 }
 
@@ -62,12 +66,14 @@ internal object BluetoothRoomRfcomm {
     const val SERVICE_NAME = "SunsetRipple Bluetooth Room"
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    fun server(adapter: BluetoothAdapter): BluetoothConnectionServer = AndroidBluetoothConnectionServer(
-        adapter.listenUsingRfcommWithServiceRecord(SERVICE_NAME, UUID),
+    fun server(adapter: BluetoothAdapter, secure: Boolean = true): BluetoothConnectionServer = AndroidBluetoothConnectionServer(
+        if (secure) adapter.listenUsingRfcommWithServiceRecord(SERVICE_NAME, UUID)
+        else adapter.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, UUID),
     )
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    fun client(device: BluetoothDevice): BluetoothConnection = AndroidBluetoothConnection(
-        device.createRfcommSocketToServiceRecord(UUID).apply { connect() },
+    fun client(device: BluetoothDevice, secure: Boolean = true): BluetoothConnection = AndroidBluetoothConnection(
+        (if (secure) device.createRfcommSocketToServiceRecord(UUID)
+        else device.createInsecureRfcommSocketToServiceRecord(UUID)).apply { connect() },
     )
 }

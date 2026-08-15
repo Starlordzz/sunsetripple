@@ -5,6 +5,8 @@ import com.wt.intercom.protocol.Frame
 import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.HostTransferMember
+import com.wt.intercom.transport.HostTransferPlan
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
@@ -18,16 +20,22 @@ import org.junit.Test
 
 class RoomSessionTest {
 
-    private class FakeTransport : Transport {
+    private class FakeTransport(override val isHost: Boolean = false) : Transport {
         val sent = ArrayList<Frame>()
         var closed = false
         @Volatile var failSend = false
         var closeCount = 0
+        var prepareCount = 0
+        var transferPlan: HostTransferPlan? = null
         override fun broadcast(frame: Frame) {
             if (failSend) throw IOException("socket 已半关闭")
             sent.add(frame)
         }
         override fun close() { closed = true; closeCount++ }
+        override fun prepareHostTransfer(): HostTransferPlan? {
+            prepareCount++
+            return transferPlan
+        }
     }
 
     /** 假音频引擎：不碰 Android 设备，暴露采集回调供测试手动触发。 */
@@ -204,9 +212,78 @@ class RoomSessionTest {
         assertFalse(s.state.value.connected)
     }
 
+    @Test
+    fun `客户端有房主快照时断线升级为交接而不是散会`() {
+        val (s, io) = sessionWithFakeIo()
+        val t = FakeTransport(isHost = false)
+        val plan = transferPlan()
+        s.start(t)
+        s.onRoster(roster(1, 0, 1, 2))
+
+        s.onHostTransferSnapshot(plan)
+        s.onDisconnected("旧房主失联")
+
+        assertEquals(plan, s.state.value.hostTransfer)
+        assertNull(s.state.value.endedReason)
+        assertFalse(s.state.value.connected)
+        assertEquals(1, io()!!.stopCount)
+        assertEquals(1, t.closeCount)
+    }
+
+    @Test
+    fun `不含本机的房主快照不会触发异常交接`() {
+        val (s, _) = sessionWithFakeIo()
+        val t = FakeTransport(isHost = false)
+        s.start(t)
+        s.onRoster(roster(3, 0, 3))
+
+        s.onHostTransferSnapshot(transferPlan())
+        s.onDisconnected("旧房主失联")
+
+        assertNull(s.state.value.hostTransfer)
+        assertEquals("旧房主失联", s.state.value.endedReason)
+    }
+
+    @Test
+    fun `收到房主交接时关闭旧链路但不记录散会原因`() {
+        val (s, io) = sessionWithFakeIo()
+        val t = FakeTransport()
+        s.start(t)
+        s.onRoster(roster(1, 0, 1, 2))
+        val plan = transferPlan()
+
+        s.onHostTransfer(plan)
+
+        assertEquals(plan, s.state.value.hostTransfer)
+        assertEquals(null, s.state.value.endedReason)
+        assertEquals(1, io()!!.stopCount)
+        assertEquals(1, t.closeCount)
+    }
+
+    @Test
+    fun `房主离开准备成功后不广播普通 LEAVE`() {
+        val (s, _) = sessionWithFakeIo()
+        val t = FakeTransport(isHost = true).apply { transferPlan = transferPlan() }
+        s.start(t)
+        s.onRoster(roster(0, 0, 1, 2))
+
+        s.leave()
+
+        assertEquals(1, t.prepareCount)
+        assertTrue(t.sent.none { it.type == FrameType.LEAVE })
+    }
+
     // ---- 审查修复：采集回调异常保护 / shutdown 幂等 / start 一次性与失败回滚 ----
 
     private fun pcm() = ShortArray(com.wt.intercom.audio.AudioConfig.FRAME_SAMPLES)
+
+    private fun transferPlan() = HostTransferPlan(
+        1,
+        listOf(
+            HostTransferMember(1, 1, "用户1", "endpoint-1"),
+            HostTransferMember(2, 2, "用户2", "endpoint-2"),
+        ),
+    )
 
     @Test
     fun `发送异常不穿透采集回调且被告警`() {

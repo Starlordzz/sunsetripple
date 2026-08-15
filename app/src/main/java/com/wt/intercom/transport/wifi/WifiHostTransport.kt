@@ -11,6 +11,11 @@ import com.wt.intercom.transport.ResumeJoinCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.HostElection
+import com.wt.intercom.transport.HostTransferCodec
+import com.wt.intercom.transport.HostTransferPlan
+import com.wt.intercom.transport.HostTransferSeed
+import com.wt.intercom.transport.TransferCandidate
 import com.wt.intercom.transport.readFrameSafely
 import java.io.IOException
 import java.io.OutputStream
@@ -39,7 +44,11 @@ class WifiHostTransport(
     audioBindPort: Int = AUDIO_PORT,
     private val peerAudioPort: Int = AUDIO_PORT,
     private val reconnectGraceMs: Long = RECONNECT_GRACE_MS,
+    private val transferSeed: HostTransferSeed? = null,
+    private val transferReservationGraceMs: Long = TRANSFER_RESERVATION_GRACE_MS,
 ) : Transport {
+
+    override val isHost = true
 
     companion object {
         const val SIGNAL_PORT = 8988
@@ -56,13 +65,16 @@ class WifiHostTransport(
         private const val READ_TIMEOUT_MS = 10000
         private const val UDP_BUFFER = 2048
         private const val RECONNECT_GRACE_MS = 7_000L
+        private const val TRANSFER_RESERVATION_GRACE_MS = 7_000L
     }
 
     private class Client(
         val id: Int,
         var nickname: String,
         var ip: String,
+        var endpoint: String,
         val resumeToken: String,
+        val joinOrder: Long,
         var link: ClientLink,
         var reconnecting: Boolean = false,
         var expiry: ScheduledFuture<*>? = null,
@@ -77,10 +89,14 @@ class WifiHostTransport(
     private val lock = Any()
     /** 成员表下发的串行锁：见 [pushRosterToAll]。 */
     private val pushLock = Any()
+    private val transferLock = Any()
     private val clients = linkedMapOf<Int, Client>()
+    private val expectedByEndpoint = transferSeed?.expectedByEndpoint()?.toMutableMap() ?: linkedMapOf()
+    private var nextJoinOrder = transferSeed?.nextJoinOrder ?: 1L
     @Volatile private var running = true
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
+    @Volatile private var preparedTransfer: HostTransferPlan? = null
     private val scheduler = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "wifi-host-reconnect").apply { isDaemon = true }
     }
@@ -101,8 +117,18 @@ class WifiHostTransport(
     fun start() {
         check(started.compareAndSet(false, true)) { "WifiHostTransport 已启动" }
         listener.onRoster(Roster(HOST_ID, membersSnapshot()))
+        scheduleTransferReservationExpiry()
         Thread(::acceptLoop, "wifi-host-accept").start()
         Thread(::udpReceiveLoop, "wifi-host-udp").start()
+    }
+
+    private fun scheduleTransferReservationExpiry() {
+        if (expectedByEndpoint.isEmpty()) return
+        scheduler.schedule(
+            { synchronized(lock) { expectedByEndpoint.clear() } },
+            transferReservationGraceMs,
+            TimeUnit.MILLISECONDS,
+        )
     }
 
     private fun membersSnapshot(): List<MemberInfo> = synchronized(lock) {
@@ -161,7 +187,7 @@ class WifiHostTransport(
             return
         }
         val client = try {
-            admit(resumeJoin.nickname, resumeJoin.token.toTokenKey(), ip, socket)
+            admit(resumeJoin.nickname, resumeJoin.token.toTokenKey(), ip, resumeJoin.endpoint.orEmpty(), socket)
         } catch (e: IOException) {
             TransportLog.w("初始化入房连接失败: ${e.message}", e)
             runCatching { socket.close() }
@@ -185,7 +211,11 @@ class WifiHostTransport(
                 when (f.type) {
                     FrameType.LEAVE -> { activeLeave = true; break }
                     FrameType.PING -> Unit
-                    FrameType.JOIN, FrameType.ROSTER -> Unit   // 客户端不该发这两类，忽略
+                    FrameType.JOIN,
+                    FrameType.ROSTER,
+                    FrameType.HOST_TRANSFER,
+                    FrameType.HOST_SNAPSHOT,
+                    -> Unit
                     else -> listener.onFrame(f)
                 }
             }
@@ -203,23 +233,33 @@ class WifiHostTransport(
      * 都会对所有人失败（载荷 > 512B），全房成员表当场冻结、新人麦克风哑、UI 永远不 connected。
      * 拒一个人只影响他自己。
      */
-    private fun admit(nickname: String, token: String, ip: String, socket: Socket): Client? = synchronized(lock) {
+    private fun admit(
+        nickname: String,
+        token: String,
+        ip: String,
+        endpoint: String,
+        socket: Socket,
+    ): Client? = synchronized(lock) {
         val resumed = clients.values.firstOrNull { it.resumeToken == token && it.reconnecting }
         if (resumed != null) {
             resumed.expiry?.cancel(false)
             resumed.expiry = null
             resumed.nickname = nickname
             resumed.ip = ip
+            if (endpoint.isNotBlank()) resumed.endpoint = endpoint
             resumed.link = ClientLink(socket, socket.getOutputStream())
             return resumed
         }
-        val memberId = (1..MAX_MEMBER_ID).firstOrNull { it !in clients }
+        val expected = expectedByEndpoint[endpoint]
+        val reservedIds = expectedByEndpoint.values.mapTo(hashSetOf()) { it.newId }
+        val memberId = expected?.newId
+            ?: (1..MAX_MEMBER_ID).firstOrNull { it !in clients && it !in reservedIds }
         if (memberId == null) {
             TransportLog.w("成员 ID 已用尽，拒绝入房")
             return null
         }
         // +1 是主机自己；已经坐满就不再放人进来。
-        if (clients.size + 1 >= MAX_MEMBERS) {
+        if (expected == null && clients.size + expectedByEndpoint.size + 1 >= MAX_MEMBERS) {
             TransportLog.w("房间已满（上限 $MAX_MEMBERS 人含主机），拒绝「$nickname」入房")
             return null
         }
@@ -231,8 +271,12 @@ class WifiHostTransport(
             TransportLog.w("成员表将超载荷，拒绝「$nickname」入房: ${e.message}", e)
             return null
         }
-        Client(candidate.id, nickname, ip, token, ClientLink(socket, socket.getOutputStream()))
-            .also { clients[it.id] = it }
+        val joinOrder = expected?.joinOrder ?: nextJoinOrder.also { nextJoinOrder++ }
+        Client(candidate.id, nickname, ip, endpoint, token, joinOrder, ClientLink(socket, socket.getOutputStream()))
+            .also {
+                clients[it.id] = it
+                if (expected != null) expectedByEndpoint.remove(endpoint)
+            }
     }
 
     /**
@@ -248,12 +292,17 @@ class WifiHostTransport(
             val members = membersSnapshot()
             listener.onRoster(Roster(HOST_ID, members))
             val targets = synchronized(lock) { clients.values.filterNot { it.reconnecting }.toList() }
+            val snapshot = HostElection.plan(targets.map { client ->
+                TransferCandidate(client.id, client.joinOrder, client.nickname, client.endpoint, connected = true)
+            })?.let { plan ->
+                Frame(FrameType.HOST_SNAPSHOT, HOST_ID, 0, HostTransferCodec.encode(plan))
+            }
             val dead = ArrayList<Client>()
             for (c in targets) {
                 // 硬指标：ROSTER 一律经 RosterFrames.encode；null＝载荷超限（已告警），跳过本轮下发。
                 // 有 admit() 的准入控制兜底，正常路径不该走到这里。
                 val frame = RosterFrames.encode(HOST_ID, c.id, members) ?: continue
-                if (!sendTo(c, frame)) dead.add(c)
+                if (!sendTo(c, frame) || (snapshot != null && !sendTo(c, snapshot))) dead.add(c)
             }
             if (dead.isEmpty()) return@synchronized
             for (c in dead) dropClient(c, "成员表下发失败")
@@ -285,9 +334,11 @@ class WifiHostTransport(
         if (!link.dropped.compareAndSet(false, true)) return
         var reconnecting = false
         var removed = false
+        var shouldNotify = notify
         synchronized(lock) {
             if (c.link !== link) return
-            if (activeLeave || !notify) {
+            shouldNotify = notify && running && !closed.get() && !scheduler.isShutdown
+            if (activeLeave || !shouldNotify) {
                 removed = clients.remove(c.id) === c
             } else if (!c.reconnecting) {
                 c.reconnecting = true
@@ -297,7 +348,7 @@ class WifiHostTransport(
         }
         runCatching { link.socket.close() }
         when {
-            removed && notify -> {
+            removed && shouldNotify -> {
                 listener.onFrame(Frame(FrameType.LEAVE, c.id, 0, ByteArray(0)))
                 pushRosterToAll()
             }
@@ -345,6 +396,8 @@ class WifiHostTransport(
     }
 
     override fun broadcast(frame: Frame) {
+        require(frame.type != FrameType.HOST_TRANSFER) { "HOST_TRANSFER 只能由 prepareHostTransfer 发送" }
+        require(frame.type != FrameType.HOST_SNAPSHOT) { "HOST_SNAPSHOT 只能由成员表更新发送" }
         if (frame.type == FrameType.AUDIO) {
             val data = frame.encode()
             val targets = synchronized(lock) { clients.values.filterNot { it.reconnecting }.map { it.ip } }
@@ -361,6 +414,35 @@ class WifiHostTransport(
         }
     }
 
+    override fun prepareHostTransfer(): HostTransferPlan? = synchronized(transferLock) {
+        preparedTransfer?.let { return@synchronized it }
+        while (running && !closed.get()) {
+            val snapshot = synchronized(lock) { clients.values.toList() }
+            val plan = HostElection.plan(snapshot.map { client ->
+                TransferCandidate(
+                    memberId = client.id,
+                    joinOrder = client.joinOrder,
+                    nickname = client.nickname,
+                    endpoint = client.endpoint,
+                    connected = !client.reconnecting,
+                )
+            }) ?: return@synchronized null
+            val successor = snapshot.firstOrNull { it.id == plan.successorId && !it.reconnecting }
+                ?: continue
+            val frame = Frame(FrameType.HOST_TRANSFER, HOST_ID, 0, HostTransferCodec.encode(plan))
+            if (!sendTo(successor, frame)) {
+                dropClient(successor, "房主交接发送失败")
+                continue
+            }
+            preparedTransfer = plan
+            snapshot.filter { it !== successor && !it.reconnecting }.forEach { client ->
+                if (!sendTo(client, frame)) dropClient(client, "房主交接发送失败")
+            }
+            return@synchronized plan
+        }
+        null
+    }
+
     /** 幂等停机：先落 running 再关 socket，唤醒所有阻塞在 accept/read/receive 的线程。 */
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
@@ -375,10 +457,14 @@ class WifiHostTransport(
             clients.clear()
             all
         }
-        for (c in targets) {
-            runCatching {
-                sendTo(c, Frame(FrameType.LEAVE, HOST_ID, 0, ByteArray(0)))
+        if (preparedTransfer == null) {
+            for (c in targets) {
+                runCatching {
+                    sendTo(c, Frame(FrameType.LEAVE, HOST_ID, 0, ByteArray(0)))
+                }
             }
+        }
+        for (c in targets) {
             runCatching { c.link.socket.close() }
         }
     }

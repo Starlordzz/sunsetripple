@@ -12,6 +12,11 @@ import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.RosterFrames
 import com.wt.intercom.transport.ResumeJoinCodec
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.HostElection
+import com.wt.intercom.transport.HostTransferCodec
+import com.wt.intercom.transport.HostTransferPlan
+import com.wt.intercom.transport.HostTransferSeed
+import com.wt.intercom.transport.TransferCandidate
 import com.wt.intercom.transport.readFrameSafely
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -22,6 +27,8 @@ class BluetoothHostTransport internal constructor(
     private val nickname: String,
     private val listener: BluetoothRoomTransportListener,
     private val reconnectGraceMs: Long = RECONNECT_GRACE_MS,
+    private val transferSeed: HostTransferSeed? = null,
+    private val transferReservationGraceMs: Long = TRANSFER_RESERVATION_GRACE_MS,
     private val serverFactory: () -> BluetoothConnectionServer,
 ) : BluetoothRoomTransport {
 
@@ -30,7 +37,16 @@ class BluetoothHostTransport internal constructor(
         nickname: String,
         listener: BluetoothRoomTransportListener,
         adapter: BluetoothAdapter,
-    ) : this(nickname, listener, serverFactory = { BluetoothRoomRfcomm.server(adapter) })
+        transferSeed: HostTransferSeed? = null,
+        secure: Boolean = true,
+        transferReservationGraceMs: Long = TRANSFER_RESERVATION_GRACE_MS,
+    ) : this(
+        nickname,
+        listener,
+        transferSeed = transferSeed,
+        transferReservationGraceMs = transferReservationGraceMs,
+        serverFactory = { BluetoothRoomRfcomm.server(adapter, secure) },
+    )
 
     override val isHost = true
 
@@ -39,6 +55,7 @@ class BluetoothHostTransport internal constructor(
         var nickname: String,
         var address: String,
         val resumeToken: String,
+        val joinOrder: Long,
         var link: ClientLink,
         var reconnecting: Boolean = false,
         var expiry: ScheduledFuture<*>? = null,
@@ -53,10 +70,14 @@ class BluetoothHostTransport internal constructor(
 
     private val lock = Any()
     private val pushLock = Any()
+    private val transferLock = Any()
     private val clients = linkedMapOf<Int, Client>()
+    private val expectedByEndpoint = transferSeed?.expectedByEndpoint()?.toMutableMap() ?: linkedMapOf()
+    private var nextJoinOrder = transferSeed?.nextJoinOrder ?: 1L
     private val pending = linkedSetOf<BluetoothConnection>()
     private val started = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
+    @Volatile private var preparedTransfer: HostTransferPlan? = null
     private val scheduler = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "bluetooth-host-reconnect").apply { isDaemon = true }
     }
@@ -69,7 +90,17 @@ class BluetoothHostTransport internal constructor(
         server = opened
         running = true
         listener.onRoster(Roster(HOST_ID, membersSnapshot()))
+        scheduleTransferReservationExpiry()
         Thread({ acceptLoop(opened) }, "bluetooth-host-accept").start()
+    }
+
+    private fun scheduleTransferReservationExpiry() {
+        if (expectedByEndpoint.isEmpty()) return
+        scheduler.schedule(
+            { synchronized(lock) { expectedByEndpoint.clear() } },
+            transferReservationGraceMs,
+            TimeUnit.MILLISECONDS,
+        )
     }
 
     private fun acceptLoop(opened: BluetoothConnectionServer) {
@@ -77,7 +108,10 @@ class BluetoothHostTransport internal constructor(
             val connection = try {
                 opened.accept()
             } catch (e: Exception) {
-                if (running) TransportLog.w("蓝牙房停止监听: ${e.message}", e)
+                if (running) {
+                    TransportLog.w("蓝牙房停止监听: ${e.message}", e)
+                    listener.onDisconnected("蓝牙监听已断开")
+                }
                 break
             }
             val accepted = synchronized(lock) {
@@ -129,7 +163,11 @@ class BluetoothHostTransport internal constructor(
                 val frame = reader.readFrameSafely() ?: break
                 when (frame.type) {
                     FrameType.LEAVE -> { activeLeave = true; break }
-                    FrameType.JOIN, FrameType.ROSTER -> Unit
+                    FrameType.JOIN,
+                    FrameType.ROSTER,
+                    FrameType.HOST_TRANSFER,
+                    FrameType.HOST_SNAPSHOT,
+                    -> Unit
                     else -> listener.onFrame(
                         Frame(frame.type, client.id, frame.seq, frame.payload),
                     )
@@ -172,17 +210,21 @@ class BluetoothHostTransport internal constructor(
             pending.remove(connection)
             return resumed
         }
-        if (clients.size + 1 >= MAX_MEMBERS) return null
-        val id = (1..255).firstOrNull { it !in clients } ?: return null
+        val expected = expectedByEndpoint[connection.remoteAddress]
+        if (expected == null && clients.size + expectedByEndpoint.size + 1 >= MAX_MEMBERS) return null
+        val reservedIds = expectedByEndpoint.values.mapTo(hashSetOf()) { it.newId }
+        val id = expected?.newId ?: (1..255).firstOrNull { it !in clients && it !in reservedIds } ?: return null
         val candidate = MemberInfo(id, nickname, connection.remoteAddress)
         try {
             RosterCodec.encode(id, membersSnapshotLocked() + candidate)
         } catch (e: IllegalArgumentException) {
             return null
         }
-        Client(id, nickname, connection.remoteAddress, token, ClientLink(connection)).also {
+        val joinOrder = expected?.joinOrder ?: nextJoinOrder.also { nextJoinOrder++ }
+        Client(id, nickname, connection.remoteAddress, token, joinOrder, ClientLink(connection)).also {
             pending.remove(connection)
             clients[id] = it
+            if (expected != null) expectedByEndpoint.remove(connection.remoteAddress)
         }
     }
 
@@ -196,10 +238,15 @@ class BluetoothHostTransport internal constructor(
     private fun pushRosterToAll() = synchronized(pushLock) {
         val members = membersSnapshot()
         listener.onRoster(Roster(HOST_ID, members))
-        synchronized(lock) { clients.values.toList() }.forEach { client ->
-            if (!client.reconnecting) {
-                RosterFrames.encode(HOST_ID, client.id, members)?.let(client.link.queue::offer)
-            }
+        val activeClients = synchronized(lock) { clients.values.filterNot { it.reconnecting }.toList() }
+        val snapshot = HostElection.plan(activeClients.map { client ->
+            TransferCandidate(client.id, client.joinOrder, client.nickname, client.address, connected = true)
+        })?.let { plan ->
+            Frame(FrameType.HOST_SNAPSHOT, HOST_ID, 0, HostTransferCodec.encode(plan))
+        }
+        activeClients.forEach { client ->
+            RosterFrames.encode(HOST_ID, client.id, members)?.let(client.link.queue::offer)
+            snapshot?.let(client.link.queue::offer)
         }
     }
 
@@ -209,8 +256,53 @@ class BluetoothHostTransport internal constructor(
 
     override fun broadcastSignal(frame: Frame) {
         require(frame.type != FrameType.AUDIO) { "AUDIO 必须使用 sendTo 定向发送" }
+        require(frame.type != FrameType.HOST_TRANSFER) { "HOST_TRANSFER 只能由 prepareHostTransfer 发送" }
+        require(frame.type != FrameType.HOST_SNAPSHOT) { "HOST_SNAPSHOT 只能由成员表更新发送" }
         synchronized(lock) { clients.values.filterNot { it.reconnecting } }.forEach { it.link.queue.offer(frame) }
     }
+
+    override fun prepareHostTransfer(): HostTransferPlan? = synchronized(transferLock) {
+        preparedTransfer?.let { return@synchronized it }
+        while (running && !closed.get()) {
+            val snapshot = synchronized(lock) { clients.values.toList() }
+            val plan = HostElection.plan(snapshot.map { client ->
+                TransferCandidate(
+                    memberId = client.id,
+                    joinOrder = client.joinOrder,
+                    nickname = client.nickname,
+                    endpoint = client.address,
+                    connected = !client.reconnecting,
+                )
+            }) ?: return@synchronized null
+            val successor = snapshot.firstOrNull { it.id == plan.successorId && !it.reconnecting }
+                ?: continue
+            val frame = Frame(FrameType.HOST_TRANSFER, HOST_ID, 0, HostTransferCodec.encode(plan))
+            if (!writeTransfer(successor, frame)) {
+                dropClient(successor, successor.link, activeLeave = true, notify = true)
+                continue
+            }
+            preparedTransfer = plan
+            snapshot.filter { it !== successor && !it.reconnecting }.forEach { client ->
+                if (!writeTransfer(client, frame)) {
+                    dropClient(client, client.link, activeLeave = true, notify = false)
+                }
+            }
+            return@synchronized plan
+        }
+        null
+    }
+
+    private fun writeTransfer(client: Client, frame: Frame): Boolean = runCatching {
+        val link = client.link
+        synchronized(link.writeLock) {
+            link.connection.output.apply {
+                write(frame.encode())
+                flush()
+            }
+        }
+    }.onFailure { error ->
+        TransportLog.w("向成员 ${client.id} 发送房主交接失败: ${error.message}", error)
+    }.isSuccess
 
     private fun dropPending(connection: BluetoothConnection) {
         synchronized(lock) { pending.remove(connection) }
@@ -226,10 +318,12 @@ class BluetoothHostTransport internal constructor(
         if (!link.dropped.compareAndSet(false, true)) return
         var reconnecting = false
         var removed = false
+        var shouldNotify = notify
         synchronized(lock) {
             if (client.link !== link) return
             link.queue.close()
-            if (activeLeave || !notify) {
+            shouldNotify = notify && running && !closed.get() && !scheduler.isShutdown
+            if (activeLeave || !shouldNotify) {
                 removed = clients.remove(client.id) === client
             } else if (!client.reconnecting) {
                 client.reconnecting = true
@@ -242,7 +336,7 @@ class BluetoothHostTransport internal constructor(
             }
         }
         runCatching { link.connection.close() }
-        if (removed && notify) {
+        if (removed && shouldNotify) {
             listener.onFrame(Frame(FrameType.LEAVE, client.id, 0, ByteArray(0)))
             pushRosterToAll()
         } else if (reconnecting) {
@@ -275,12 +369,14 @@ class BluetoothHostTransport internal constructor(
             pending.clear()
             active to handshaking
         }
-        active.forEach { client ->
-            runCatching {
-                synchronized(client.link.writeLock) {
-                    client.link.connection.output.apply {
-                        write(Frame(FrameType.LEAVE, HOST_ID, 0, ByteArray(0)).encode())
-                        flush()
+        if (preparedTransfer == null) {
+            active.forEach { client ->
+                runCatching {
+                    synchronized(client.link.writeLock) {
+                        client.link.connection.output.apply {
+                            write(Frame(FrameType.LEAVE, HOST_ID, 0, ByteArray(0)).encode())
+                            flush()
+                        }
                     }
                 }
             }
@@ -296,6 +392,7 @@ class BluetoothHostTransport internal constructor(
         const val HOST_ID = 0
         const val MAX_MEMBERS = 6
         const val RECONNECT_GRACE_MS = 7_000L
+        const val TRANSFER_RESERVATION_GRACE_MS = 7_000L
     }
 
     private fun ByteArray.toTokenKey(): String = joinToString("") { "%02x".format(it.toInt() and 0xFF) }

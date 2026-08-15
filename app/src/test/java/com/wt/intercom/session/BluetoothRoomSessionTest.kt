@@ -6,6 +6,8 @@ import com.wt.intercom.audio.JitterBuffer
 import com.wt.intercom.protocol.Frame
 import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.transport.bluetooth.BluetoothRoomTransport
+import com.wt.intercom.transport.HostTransferMember
+import com.wt.intercom.transport.HostTransferPlan
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -22,9 +24,15 @@ class BluetoothRoomSessionTest {
         var onStart: () -> Unit = {}
         var startCount = 0
         var closeCount = 0
+        var prepareCount = 0
+        var transferPlan: HostTransferPlan? = null
         override fun start() { startCount++; onStart() }
         override fun sendTo(memberId: Int, frame: Frame) { directed += memberId to frame }
         override fun broadcastSignal(frame: Frame) { signals += frame }
+        override fun prepareHostTransfer(): HostTransferPlan? {
+            prepareCount++
+            return transferPlan
+        }
         override fun close() { closeCount++ }
     }
 
@@ -338,6 +346,47 @@ class BluetoothRoomSessionTest {
         assertEquals("连接失败", session.state.value.endedReason)
     }
 
+    @Test
+    fun `客户端收到房主交接时关闭旧资源但不标记散会`() {
+        val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1, 2))
+        val plan = transferPlan(successorId = 1)
+
+        h.session.onHostTransfer(plan)
+
+        assertEquals(plan, h.session.state.value.hostTransfer)
+        assertEquals(null, h.session.state.value.endedReason)
+        assertFalse(h.session.state.value.connected)
+        assertEquals(1, h.audio.stopCount)
+        assertEquals(1, h.transport.closeCount)
+    }
+
+    @Test
+    fun `蓝牙客户端有房主快照时断线升级为交接`() {
+        val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1, 2))
+        val plan = transferPlan(successorId = 1)
+
+        h.session.onHostTransferSnapshot(plan)
+        h.session.onDisconnected("旧房主失联")
+
+        assertEquals(plan, h.session.state.value.hostTransfer)
+        assertEquals(null, h.session.state.value.endedReason)
+        assertFalse(h.session.state.value.connected)
+        assertEquals(1, h.audio.stopCount)
+        assertEquals(1, h.transport.closeCount)
+    }
+
+    @Test
+    fun `主机主动离开时先准备交接且不再广播普通 LEAVE`() {
+        val h = harness(isHost = true, selfId = 0, memberIds = intArrayOf(0, 1, 2))
+        h.transport.transferPlan = transferPlan(successorId = 1)
+
+        h.session.leave()
+
+        assertEquals(1, h.transport.prepareCount)
+        assertTrue(h.transport.signals.none { it.type == FrameType.LEAVE })
+        assertEquals(1, h.transport.closeCount)
+    }
+
     private fun harness(
         isHost: Boolean,
         selfId: Int,
@@ -362,6 +411,14 @@ class BluetoothRoomSessionTest {
     }
 
     private fun pcm(value: Int) = ShortArray(AudioConfig.FRAME_SAMPLES) { value.toShort() }
+
+    private fun transferPlan(successorId: Int) = HostTransferPlan(
+        successorId,
+        listOf(
+            HostTransferMember(1, 1, "用户1", "addr1"),
+            HostTransferMember(2, 2, "用户2", "addr2"),
+        ),
+    )
 
     private fun decodeMarker(payload: ByteArray): Int =
         ((((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)).toShort()).toInt()

@@ -7,6 +7,9 @@ import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import com.wt.intercom.transport.ResumeJoinCodec
+import com.wt.intercom.transport.HostTransferMember
+import com.wt.intercom.transport.HostTransferPlan
+import com.wt.intercom.transport.HostTransferSeed
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketException
@@ -28,9 +31,13 @@ class WifiTransportTest {
         val frames = CopyOnWriteArrayList<Frame>()
         val rosters = CopyOnWriteArrayList<Roster>()
         val disconnects = CopyOnWriteArrayList<String>()
+        val hostTransfers = CopyOnWriteArrayList<HostTransferPlan>()
+        val hostSnapshots = CopyOnWriteArrayList<HostTransferPlan>()
         override fun onFrame(frame: Frame) { frames.add(frame) }
         override fun onRoster(roster: Roster) { rosters.add(roster) }
         override fun onDisconnected(reason: String) { disconnects.add(reason) }
+        override fun onHostTransfer(plan: HostTransferPlan) { hostTransfers.add(plan) }
+        override fun onHostTransferSnapshot(plan: HostTransferPlan) { hostSnapshots.add(plan) }
     }
 
     private val closeables = mutableListOf<() -> Unit>()
@@ -323,4 +330,111 @@ class WifiTransportTest {
 
         await(what = "客户端感知断开") { cliRec.disconnects.isNotEmpty() }
     }
+
+    @Test
+    fun `房主交接使用 JOIN 上报的 P2P 端点并保持入房顺序`() {
+        val hostRec = Recorder()
+        val host = startHost(hostRec)
+        val firstRec = Recorder()
+        val first = track(
+            WifiClientTransport(
+                "成员一", "127.0.0.1", firstRec,
+                localEndpoint = "02:00:00:00:00:01",
+                signalPort = host.signalPort,
+                audioBindPort = 0,
+            ),
+        ).also { it.start() }
+        val secondRec = Recorder()
+        track(
+            WifiClientTransport(
+                "成员二", "127.0.0.1", secondRec,
+                localEndpoint = "02:00:00:00:00:02",
+                signalPort = host.signalPort,
+                audioBindPort = 0,
+            ),
+        ).start()
+        await(what = "三人入房") { hostRec.rosters.lastOrNull()?.members?.size == 3 }
+
+        val plan = host.prepareHostTransfer()
+
+        assertEquals(1, plan?.successorId)
+        assertEquals(
+            listOf("02:00:00:00:00:01", "02:00:00:00:00:02"),
+            plan?.members?.map { it.endpoint },
+        )
+        await(what = "所有在线成员收到交接") {
+            firstRec.hostTransfers.size == 1 && secondRec.hostTransfers.size == 1
+        }
+        assertTrue(firstRec.disconnects.isEmpty())
+        assertTrue(secondRec.disconnects.isEmpty())
+        first.close()
+    }
+
+    @Test
+    fun `成员表更新后 WiFi 成员收到故障接管快照`() {
+        val hostRec = Recorder()
+        val host = startHost(hostRec)
+        val firstRec = Recorder()
+        track(
+            WifiClientTransport(
+                "成员一", "127.0.0.1", firstRec,
+                localEndpoint = "02:00:00:00:00:01",
+                signalPort = host.signalPort,
+                audioBindPort = 0,
+            ),
+        ).start()
+        val secondRec = Recorder()
+        track(
+            WifiClientTransport(
+                "成员二", "127.0.0.1", secondRec,
+                localEndpoint = "02:00:00:00:00:02",
+                signalPort = host.signalPort,
+                audioBindPort = 0,
+            ),
+        ).start()
+        await(what = "所有成员收到故障快照") {
+            firstRec.hostSnapshots.isNotEmpty() && secondRec.hostSnapshots.isNotEmpty()
+        }
+
+        assertEquals(1, firstRec.hostSnapshots.last().successorId)
+        assertEquals(
+            listOf("02:00:00:00:00:01", "02:00:00:00:00:02"),
+            firstRec.hostSnapshots.last().members.map { it.endpoint },
+        )
+        assertTrue(firstRec.disconnects.isEmpty())
+    }
+
+    @Test
+    fun `继任组主在宽限期后释放未重连成员的预留`() {
+        val hostRec = Recorder()
+        val host = track(
+            WifiHostTransport(
+                nickname = "继任组主",
+                listener = hostRec,
+                hostIp = "127.0.0.1",
+                signalPort = 0,
+                audioBindPort = 0,
+                transferSeed = fullTransferSeed(),
+                transferReservationGraceMs = 50,
+            ),
+        ).also { it.start() }
+
+        assertDropped(joinRaw(host, "抢位成员"), "宽限期内预留必须占用容量")
+
+        Thread.sleep(80)
+        joinRaw(host, "稍后成员")
+
+        await(what = "预留过期后新成员入房") {
+            hostRec.rosters.lastOrNull()?.members?.size == 2
+        }
+    }
+
+    private fun fullTransferSeed(): HostTransferSeed = HostTransferSeed.from(
+        HostTransferPlan(
+            successorId = 1,
+            members = (1..6).map { id ->
+                HostTransferMember(id, id.toLong(), "成员$id", "reserved-$id")
+            },
+        ),
+    )
 }

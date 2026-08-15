@@ -10,6 +10,8 @@ import com.wt.intercom.transport.ResumeJoinCodec
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.HostTransferCodec
+import com.wt.intercom.transport.HostTransferPlan
 import com.wt.intercom.transport.readFrameSafely
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -26,6 +28,7 @@ class WifiClientTransport(
     private val nickname: String,
     private val hostIp: String,
     private val listener: TransportListener,
+    private val localEndpoint: String? = null,
     private val signalPort: Int = WifiHostTransport.SIGNAL_PORT,
     private val audioBindPort: Int = WifiHostTransport.AUDIO_PORT,
     private val peerAudioPort: Int = WifiHostTransport.AUDIO_PORT,
@@ -33,6 +36,8 @@ class WifiClientTransport(
     private val socketFactory: () -> Socket = { Socket() },
     private val udpFactory: (Int) -> DatagramSocket = { DatagramSocket(it) },
 ) : Transport {
+
+    override val isHost = false
 
     private data class Link(
         val tcp: Socket,
@@ -52,6 +57,7 @@ class WifiClientTransport(
     @Volatile private var current: Link = newLink()
     @Volatile private var peers: List<MemberInfo> = emptyList()
     @Volatile private var selfId = -1
+    @Volatile private var recoverySnapshot: HostTransferPlan? = null
 
     val audioPort: Int get() = current.udp.localPort
 
@@ -83,7 +89,14 @@ class WifiClientTransport(
         link.tcp.connect(InetSocketAddress(hostIp, signalPort), CONNECT_TIMEOUT_MS)
         synchronized(link.writeLock) {
             link.tcp.getOutputStream().apply {
-                write(Frame(FrameType.JOIN, 0, 0, ResumeJoinCodec.encode(resumeToken, nickname)).encode())
+                write(
+                    Frame(
+                        FrameType.JOIN,
+                        0,
+                        0,
+                        ResumeJoinCodec.encode(resumeToken, nickname, localEndpoint),
+                    ).encode(),
+                )
                 flush()
             }
         }
@@ -115,10 +128,22 @@ class WifiClientTransport(
                         listener.onRoster(roster)
                     }
                     FrameType.LEAVE -> if (frame.senderId == HOST_ID) {
-                        listener.onDisconnected("房间已结束")
-                        close()
+                        recoverOrDisconnect("房间已结束")
                         return
                     } else listener.onFrame(frame)
+                    FrameType.HOST_TRANSFER -> if (frame.senderId == HOST_ID) {
+                        val plan = runCatching { HostTransferCodec.decode(frame.payload) }.getOrNull() ?: continue
+                        listener.onHostTransfer(plan)
+                        close()
+                        return
+                    }
+                    FrameType.HOST_SNAPSHOT -> if (frame.senderId == HOST_ID) {
+                        runCatching { HostTransferCodec.decode(frame.payload) }
+                            .onSuccess {
+                                recoverySnapshot = it
+                                listener.onHostTransferSnapshot(it)
+                            }
+                    }
                     FrameType.JOIN -> Unit
                     else -> listener.onFrame(frame)
                 }
@@ -165,6 +190,8 @@ class WifiClientTransport(
     }
 
     override fun broadcast(frame: Frame) {
+        require(frame.type != FrameType.HOST_TRANSFER) { "客户端不能发送 HOST_TRANSFER" }
+        require(frame.type != FrameType.HOST_SNAPSHOT) { "客户端不能发送 HOST_SNAPSHOT" }
         val link = current
         if (frame.type == FrameType.AUDIO) {
             val data = frame.encode()
@@ -194,7 +221,7 @@ class WifiClientTransport(
     private fun scheduleReconnect() {
         val delay = nextReconnectDelayMs(reconnectPolicy)
         if (delay == null) {
-            listener.onDisconnected("房间已结束")
+            recoverOrDisconnect("房间已结束")
             return
         }
         scheduler.schedule({
@@ -209,6 +236,11 @@ class WifiClientTransport(
                 scheduleReconnect()
             }
         }, delay, TimeUnit.MILLISECONDS)
+    }
+
+    private fun recoverOrDisconnect(reason: String) {
+        recoverySnapshot?.let(listener::onHostTransfer) ?: listener.onDisconnected(reason)
+        close()
     }
 
     private fun closeLink(link: Link) {

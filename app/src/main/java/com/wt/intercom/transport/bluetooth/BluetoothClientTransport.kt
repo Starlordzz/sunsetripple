@@ -10,6 +10,8 @@ import com.wt.intercom.session.RosterCodec
 import com.wt.intercom.transport.TransportLog
 import com.wt.intercom.transport.ReconnectPolicy
 import com.wt.intercom.transport.ResumeJoinCodec
+import com.wt.intercom.transport.HostTransferCodec
+import com.wt.intercom.transport.HostTransferPlan
 import com.wt.intercom.transport.readFrameSafely
 import java.security.SecureRandom
 import java.util.concurrent.Executors
@@ -28,7 +30,8 @@ class BluetoothClientTransport internal constructor(
         nickname: String,
         listener: BluetoothRoomTransportListener,
         device: BluetoothDevice,
-    ) : this(nickname, listener, connectionFactory = { BluetoothRoomRfcomm.client(device) })
+        secure: Boolean = true,
+    ) : this(nickname, listener, connectionFactory = { BluetoothRoomRfcomm.client(device, secure) })
 
     override val isHost = false
     private data class Link(
@@ -46,6 +49,7 @@ class BluetoothClientTransport internal constructor(
     private val reconnectPolicy = ReconnectPolicy()
     private val resumeToken = ByteArray(16).also(SecureRandom()::nextBytes)
     private val joined = AtomicBoolean(false)
+    @Volatile private var recoverySnapshot: HostTransferPlan? = null
     @Volatile private var link: Link? = null
 
     override fun start() {
@@ -116,9 +120,19 @@ class BluetoothClientTransport internal constructor(
                     }
                     listener.onRoster(roster)
                     joined.set(true)
-                } else if (frame.type == FrameType.LEAVE && frame.senderId == HOST_ID) {
-                    listener.onDisconnected("房间已结束")
+                } else if (frame.type == FrameType.HOST_TRANSFER && frame.senderId == HOST_ID) {
+                    val plan = runCatching { HostTransferCodec.decode(frame.payload) }.getOrNull() ?: continue
+                    listener.onHostTransfer(plan)
                     close()
+                    return
+                } else if (frame.type == FrameType.HOST_SNAPSHOT && frame.senderId == HOST_ID) {
+                    runCatching { HostTransferCodec.decode(frame.payload) }
+                        .onSuccess {
+                            recoverySnapshot = it
+                            listener.onHostTransferSnapshot(it)
+                        }
+                } else if (frame.type == FrameType.LEAVE && frame.senderId == HOST_ID) {
+                    recoverOrDisconnect("房间已结束")
                     return
                 } else if (frame.type != FrameType.JOIN) {
                     listener.onFrame(frame)
@@ -138,6 +152,8 @@ class BluetoothClientTransport internal constructor(
 
     override fun broadcastSignal(frame: Frame) {
         require(frame.type != FrameType.AUDIO) { "AUDIO 必须使用 sendTo 发送" }
+        require(frame.type != FrameType.HOST_TRANSFER) { "客户端不能发送 HOST_TRANSFER" }
+        require(frame.type != FrameType.HOST_SNAPSHOT) { "客户端不能发送 HOST_SNAPSHOT" }
         val current = link ?: return
         if (frame.type == FrameType.LEAVE) {
             runCatching {
@@ -165,13 +181,18 @@ class BluetoothClientTransport internal constructor(
     private fun scheduleReconnect() {
         val delay = nextReconnectDelayMs(reconnectPolicy)
         if (delay == null) {
-            listener.onDisconnected("房间已结束")
+            recoverOrDisconnect("房间已结束")
             return
         }
         scheduler.schedule({
             if (closed.get()) return@schedule
             runCatching { openLink() }.onFailure { scheduleReconnect() }
         }, delay, TimeUnit.MILLISECONDS)
+    }
+
+    private fun recoverOrDisconnect(reason: String) {
+        recoverySnapshot?.let(listener::onHostTransfer) ?: listener.onDisconnected(reason)
+        close()
     }
 
     override fun close() {

@@ -1,7 +1,7 @@
 package com.wt.intercom.protocol
 
 enum class FrameType(val id: Int) {
-    AUDIO(1), JOIN(2), ROSTER(3), PTT_STATE(4), PING(5), LEAVE(6);
+    AUDIO(1), JOIN(2), ROSTER(3), PTT_STATE(4), PING(5), LEAVE(6), HOST_TRANSFER(7), HOST_SNAPSHOT(8);
 
     companion object {
         fun from(id: Int): FrameType = entries.firstOrNull { it.id == id }

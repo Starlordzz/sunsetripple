@@ -13,6 +13,7 @@ import com.wt.intercom.protocol.FrameType
 import com.wt.intercom.transport.Transport
 import com.wt.intercom.transport.TransportListener
 import com.wt.intercom.transport.TransportLog
+import com.wt.intercom.transport.HostTransferPlan
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,7 @@ data class RoomUiState(
     val audioFocusInterrupted: Boolean = false,
     val pttPressed: Boolean = false,
     val endedReason: String? = null,
+    val hostTransfer: HostTransferPlan? = null,
 )
 
 /**
@@ -48,6 +50,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     val state: StateFlow<RoomUiState> = _state
 
     @Volatile private var transport: Transport? = null
+    @Volatile private var recoverySnapshot: HostTransferPlan? = null
     @Volatile private var engine: AudioIo? = null
     @Volatile private var playThread: Thread? = null
     @Volatile private var running = false
@@ -173,7 +176,12 @@ class RoomSession(private val selfNickname: String) : TransportListener {
 
     fun leave() {
         val id = selfId
-        if (id >= 0) runCatching { transport?.broadcast(Frame(FrameType.LEAVE, id, 0, ByteArray(0))) }
+        val handoff = if (transport?.isHost == true) {
+            runCatching { transport?.prepareHostTransfer() }.getOrNull()
+        } else null
+        if (id >= 0 && handoff == null) {
+            runCatching { transport?.broadcast(Frame(FrameType.LEAVE, id, 0, ByteArray(0))) }
+        }
         shutdown(null)
     }
 
@@ -231,7 +239,23 @@ class RoomSession(private val selfNickname: String) : TransportListener {
         publishState()
     }
 
-    override fun onDisconnected(reason: String) = shutdown(reason)
+    override fun onDisconnected(reason: String) {
+        val snapshot = recoverySnapshot
+        if (transport?.isHost == false && snapshot != null) {
+            onHostTransfer(snapshot)
+        } else {
+            shutdown(reason)
+        }
+    }
+
+    override fun onHostTransferSnapshot(plan: HostTransferPlan) {
+        if (plan.members.any { it.memberId == selfId }) recoverySnapshot = plan
+    }
+
+    override fun onHostTransfer(plan: HostTransferPlan) {
+        shutdown(null)
+        _state.value = _state.value.copy(hostTransfer = plan)
+    }
 
     /** 测试可见：某远端流当前缓存的包数；该成员不存在时返回 null。 */
     internal fun pendingPacketsFor(memberId: Int): Int? =
@@ -278,6 +302,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
             micMuted = micGate.userMuted,
             audioFocusInterrupted = micGate.focusInterrupted,
             endedReason = _state.value.endedReason,
+            hostTransfer = _state.value.hostTransfer,
         )
     }
 
