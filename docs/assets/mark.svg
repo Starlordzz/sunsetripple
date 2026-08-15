@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="落日后残波">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="0" x2="80" y2="160" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF8A3D"/>
+      <stop offset="0.55" stop-color="#FF7138"/>
+      <stop offset="1" stop-color="#B92F3B"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="80" y1="48" x2="80" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE59A"/>
+      <stop offset="1" stop-color="#FFD06B"/>
+    </linearGradient>
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="160" height="160" rx="38" ry="38"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect width="160" height="160" fill="url(#bg)"/>
+    <circle cx="80" cy="80" r="32" fill="url(#sun)"/>
+    <line x1="20" y1="80" x2="140" y2="80" stroke="#FF9B4E" stroke-opacity="0.53" stroke-width="1.8"/>
+    <g fill="none" stroke="#FFE09A" stroke-linecap="round">
+      <path d="M44,89 Q80,124 116,89" stroke-width="8" stroke-opacity="0.87"/>
+      <path d="M31,104 Q80,148 129,104" stroke-width="6.6" stroke-opacity="0.62"/>
+      <path d="M19,119 Q80,171 141,119" stroke-width="5.4" stroke-opacity="0.36"/>
+    </g>
+  </g>
+</svg>
