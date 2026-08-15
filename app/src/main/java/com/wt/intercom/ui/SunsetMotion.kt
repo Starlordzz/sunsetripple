@@ -43,7 +43,7 @@ object SunsetMotion {
         val progress = phase.coerceIn(0f, 1f)
         return EntryRippleFrame(
             scale = progress,
-            alpha = 0.88f * (1f - progress),
+            alpha = 0.92f + 0.06f * progress,
         )
     }
 }

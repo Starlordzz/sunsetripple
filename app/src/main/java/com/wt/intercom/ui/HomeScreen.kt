@@ -145,8 +145,8 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(16.dp))
                     RoomActionRow(
-                        createSupportingText = "发起波纹",
-                        joinSupportingText = "寻找信号",
+                        createSupportingText = "发起频道",
+                        joinSupportingText = "搜索频道",
                         createColor = SunsetColors.Coral,
                         onCreate = onCreateWifiRoom,
                         onJoin = onJoinWifiRoom,
@@ -165,8 +165,8 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(16.dp))
                     RoomActionRow(
-                        createSupportingText = "打开频道",
-                        joinSupportingText = "搜索电台",
+                        createSupportingText = "发起频道",
+                        joinSupportingText = "搜索频道",
                         createColor = SunsetColors.CoralDark,
                         onCreate = onCreateBluetoothRoom,
                         onJoin = onJoinBluetoothRoom,
@@ -273,19 +273,19 @@ fun HomeScreen(
                     hypot(size.width - transitionOrigin.x, size.height - transitionOrigin.y),
                 ) * frame.scale
                 drawCircle(
-                    color = SunsetColors.SoftCoral.copy(alpha = 0.20f * (1f - progress)),
+                    color = SunsetColors.Coral.copy(alpha = frame.alpha),
                     radius = radius,
                     center = transitionOrigin,
                 )
                 drawCircle(
-                    color = SunsetColors.Coral.copy(alpha = frame.alpha),
-                    radius = radius,
+                    color = SunsetColors.Gold.copy(alpha = 0.46f),
+                    radius = radius * 0.88f,
                     center = transitionOrigin,
                     style = Stroke(width = 6.dp.toPx()),
                 )
                 drawCircle(
-                    color = SunsetColors.Gold.copy(alpha = frame.alpha * 0.62f),
-                    radius = radius * 0.82f,
+                    color = Color.White.copy(alpha = 0.28f),
+                    radius = radius * 0.72f,
                     center = transitionOrigin,
                     style = Stroke(width = 2.dp.toPx()),
                 )
@@ -304,21 +304,21 @@ private fun RoomActionRow(
     onEntry: (Offset, () -> Unit) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val gap = 18.dp
-        val orbSize = minOf(128.dp, (maxWidth - gap) / 2)
+        val gap = 14.dp
+        val orbSize = minOf(136.dp, (maxWidth - gap) / 2)
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
         ) {
             SunsetActionOrb(
-                label = "创建",
+                label = "建房",
                 supportingText = createSupportingText,
                 onClick = { origin -> onEntry(origin, onCreate) },
                 modifier = Modifier.size(orbSize),
                 containerColor = createColor,
             )
             SunsetActionOrb(
-                label = "加入",
+                label = "进房",
                 supportingText = joinSupportingText,
                 onClick = { origin -> onEntry(origin, onJoin) },
                 modifier = Modifier.size(orbSize),

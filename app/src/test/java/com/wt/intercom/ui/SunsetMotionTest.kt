@@ -29,8 +29,12 @@ class SunsetMotionTest {
 
     @Test
     fun `入房波纹从触点扩散到全屏并在末段淡出`() {
-        assertEquals(EntryRippleFrame(scale = 0f, alpha = 0.88f), SunsetMotion.entryRippleFrame(0f))
-        assertEquals(EntryRippleFrame(scale = 1f, alpha = 0f), SunsetMotion.entryRippleFrame(1f))
+        assertEquals(EntryRippleFrame(scale = 0f, alpha = 0.92f), SunsetMotion.entryRippleFrame(0f))
+        val middle = SunsetMotion.entryRippleFrame(0.5f)
+        assertTrue(middle.scale > 0.45f)
+        assertTrue(middle.scale < 0.55f)
+        assertTrue(middle.alpha >= 0.92f)
+        assertEquals(EntryRippleFrame(scale = 1f, alpha = 0.98f), SunsetMotion.entryRippleFrame(1f))
     }
 
     @Test

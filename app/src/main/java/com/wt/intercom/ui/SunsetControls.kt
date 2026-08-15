@@ -40,7 +40,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun SunsetButton(
@@ -132,9 +134,11 @@ fun SunsetActionOrb(
     val surfaceModifier = if (outlined) {
         Modifier
             .background(SunsetColors.Surface, CircleShape)
-            .border(1.dp, SunsetColors.Line, CircleShape)
+            .border(1.5.dp, SunsetColors.Coral.copy(alpha = 0.48f), CircleShape)
     } else {
-        Modifier.background(containerColor, CircleShape)
+        Modifier
+            .background(containerColor, CircleShape)
+            .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
     }
 
     Box(
@@ -142,6 +146,8 @@ fun SunsetActionOrb(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
+                shadowElevation = if (pressed) 3.dp.toPx() else 8.dp.toPx()
+                shape = CircleShape
             }
             .onGloballyPositioned { coordinates ->
                 val topLeft = coordinates.positionInRoot()
@@ -156,28 +162,38 @@ fun SunsetActionOrb(
                 indication = null,
                 onClick = { onClick(centerInRoot) },
             )
-            .padding(16.dp),
+            .padding(14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             RippleStatusMark(
                 active = pressed,
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier.size(30.dp),
                 inactiveColor = if (outlined) SunsetColors.Line else Color.White.copy(alpha = 0.55f),
                 activeColor = if (outlined) SunsetColors.Speaking else SunsetColors.Gold,
             )
-            Spacer(Modifier.height(7.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = label,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 18.sp,
+                    lineHeight = 22.sp,
+                ),
                 fontWeight = FontWeight.SemiBold,
                 color = if (outlined) SunsetColors.Ink else contentColor,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = supportingText,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                ),
                 color = if (outlined) SunsetColors.Muted else contentColor.copy(alpha = 0.78f),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
             )
         }
     }
