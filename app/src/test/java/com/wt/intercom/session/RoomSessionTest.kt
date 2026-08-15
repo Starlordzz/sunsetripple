@@ -25,13 +25,14 @@ class RoomSessionTest {
         var closed = false
         @Volatile var failSend = false
         var closeCount = 0
+        var onClose: () -> Unit = {}
         var prepareCount = 0
         var transferPlan: HostTransferPlan? = null
         override fun broadcast(frame: Frame) {
             if (failSend) throw IOException("socket 已半关闭")
             sent.add(frame)
         }
-        override fun close() { closed = true; closeCount++ }
+        override fun close() { closed = true; closeCount++; onClose() }
         override fun prepareHostTransfer(): HostTransferPlan? {
             prepareCount++
             return transferPlan
@@ -227,6 +228,22 @@ class RoomSessionTest {
         assertNull(s.state.value.endedReason)
         assertFalse(s.state.value.connected)
         assertEquals(1, io()!!.stopCount)
+        assertEquals(1, t.closeCount)
+    }
+
+    @Test
+    fun `客户端主动离房时忽略关闭链路触发的同步断线回调`() {
+        val s = RoomSession("我")
+        val t = FakeTransport(isHost = false)
+        s.attachTransport(t)
+        s.onRoster(roster(1, 0, 1, 2))
+        s.onHostTransferSnapshot(transferPlan())
+        t.onClose = { s.onDisconnected("关闭链路") }
+
+        s.leave()
+
+        assertNull(s.state.value.hostTransfer)
+        assertNull(s.state.value.endedReason)
         assertEquals(1, t.closeCount)
     }
 

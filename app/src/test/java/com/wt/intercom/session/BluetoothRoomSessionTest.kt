@@ -13,6 +13,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,6 +23,7 @@ class BluetoothRoomSessionTest {
         val directed = CopyOnWriteArrayList<Pair<Int, Frame>>()
         val signals = CopyOnWriteArrayList<Frame>()
         var onStart: () -> Unit = {}
+        var onClose: () -> Unit = {}
         var startCount = 0
         var closeCount = 0
         var prepareCount = 0
@@ -33,7 +35,7 @@ class BluetoothRoomSessionTest {
             prepareCount++
             return transferPlan
         }
-        override fun close() { closeCount++ }
+        override fun close() { closeCount++; onClose() }
     }
 
     private class FakeAudioIo(
@@ -372,6 +374,19 @@ class BluetoothRoomSessionTest {
         assertEquals(null, h.session.state.value.endedReason)
         assertFalse(h.session.state.value.connected)
         assertEquals(1, h.audio.stopCount)
+        assertEquals(1, h.transport.closeCount)
+    }
+
+    @Test
+    fun `蓝牙客户端主动离房时忽略关闭链路触发的同步断线回调`() {
+        val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1, 2))
+        h.session.onHostTransferSnapshot(transferPlan(successorId = 1))
+        h.transport.onClose = { h.session.onDisconnected("关闭链路") }
+
+        h.session.leave()
+
+        assertNull(h.session.state.value.hostTransfer)
+        assertNull(h.session.state.value.endedReason)
         assertEquals(1, h.transport.closeCount)
     }
 

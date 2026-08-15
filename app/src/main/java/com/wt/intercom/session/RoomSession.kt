@@ -240,6 +240,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     }
 
     override fun onDisconnected(reason: String) {
+        if (stopped.get()) return
         val snapshot = recoverySnapshot
         if (transport?.isHost == false && snapshot != null) {
             onHostTransfer(snapshot)
