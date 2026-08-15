@@ -1,57 +1,190 @@
-# 落日后残波（SunsetRipple）
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="落日后残波 SunsetRipple — 近场语音对讲" width="820">
+</p>
 
-Android 近场语音对讲应用。当前 `0.1.0-alpha.2` 提供 WiFi Direct 全双工房间与蓝牙按住说话房间，面向小范围、无互联网场景。
+<p align="center">
+  <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&color=FF7138&labelColor=3A1030"></a>
+  <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-FF8A3D?labelColor=3A1030">
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0.20-B92F3B?labelColor=3A1030">
+  <img alt="Compose" src="https://img.shields.io/badge/Jetpack%20Compose-BOM%202024.09-D94A3D?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-243-F4B85C?labelColor=3A1030">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
+</p>
 
-## 当前能力
+---
 
-- WiFi Direct：无需路由器，最多 6 台设备，全双工语音。
-- 蓝牙 RFCOMM：最多 6 台设备，按住说话（PTT）。
-- 普通成员短暂断线后自动重连并保留成员身份。
-- 房主主动离房，或房主进程崩溃、被系统终止、主链路断开且普通重连耗尽时，自动把房主转给仍在线且最早入房的成员。
-- 通信音频模式、音频焦点、只听模式、前台服务、WakeLock 与 WifiLock。
-- 固定竖屏、应用前台期间保持屏幕常亮，以及与应用图标一致的夕照波纹界面。
+> 落日之后，波纹仍在替我们说着那天没说完的话。
+>
+> *The sun has gone; the ripple hasn't.*
 
-Nearby 房与锁屏通知交互不属于当前 alpha 范围。
+有些声音不走网络，也不留服务器——只在彼此还靠得够近的时候，才听得见。
 
-## 系统要求
+**落日后残波（SunsetRipple）** 是一个 Android 近场语音对讲应用。没有账号，没有云端，没有一行语音数据离开你和对方的设备之间的那几十米。手机之间直接建链，最多 6 台，说完就散。
 
-- Android 8.0（API 26）或更高版本。
-- WiFi Direct 房需要设备支持 WiFi P2P。
-- 蓝牙房需要设备支持经典蓝牙 RFCOMM。
-- 创建或加入房间时需要麦克风及对应的附近设备权限。
+---
 
-## 开发验证
+## 目录
 
-项目使用 JDK 17。Windows PowerShell：
+- [为什么做这个](#为什么做这个)
+- [功能特性](#功能特性)
+- [房型对比](#房型对比)
+- [快速开始](#快速开始)
+- [技术架构](#技术架构)
+- [从源码构建](#从源码构建)
+- [项目状态](#项目状态)
+- [已知限制](#已知限制)
+- [文档](#文档)
+- [许可证](#许可证)
+
+## 为什么做这个
+
+在没有基站、没有 WiFi、没有人愿意开热点的地方，人还是需要说话：山里、地下车库、演出后台、露营地、信号被挤爆的场馆。对讲机要额外买、要配频；微信要网络；蓝牙耳机只能一对一。
+
+这个应用只用手机自带的射频能力——WiFi Direct 与经典蓝牙——在几台设备之间拉起一个临时语音房。**不需要路由器，不需要互联网，不需要任何服务器。** 房主退出，房间就散了，什么都不留下。
+
+## 功能特性
+
+- **两种可用房型**——WiFi Direct 全双工房与蓝牙按住说话（PTT）房，均支持最多 6 台设备。
+- **零基础设施**——无路由器、无互联网、无账号、无服务器；语音只在设备之间点对点传输。
+- **网状音频，不经中转**——WiFi 房中每台设备把音频 UDP 直发给其他成员，组主不做转发也不是瓶颈。
+- **断线自动重连**——1 / 2 / 4 秒三次退避重试，重连后凭令牌恢复原成员身份与入房顺序。
+- **房主自动接管**——房主主动离房、进程崩溃、被系统杀死或链路中断时，房间会自动选出继任者并重建，而不是直接解散。
+- **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除、音频焦点协商、抖动缓冲与 Opus 丢包补偿。
+- **前台保活**——麦克风类型前台服务 + WakeLock + WifiLock，通知栏可直接静音或离开。
+- **只听模式**——被其他应用抢占音频焦点时自动降级为只听，不会静默掉线。
+- **243 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、权限分级全部有覆盖，且全部是纯 JVM 测试。
+
+## 房型对比
+
+| | WiFi Direct 房 | 蓝牙 RFCOMM 房 | Nearby 房 |
+| --- | --- | --- | --- |
+| 状态 | ✅ 可用 | ✅ 可用 | ⏸ 已实现，入口隐藏 |
+| 通话方式 | 全双工（同时说） | 按住说话（PTT） | 全双工 |
+| 拓扑 | 网状——音频点对点直发 | 星型——房主端混音下发 | 网状 |
+| 信令 / 音频 | TCP 8988 / UDP 8989 | 单条 RFCOMM 流复用 | Nearby BYTES 负载 |
+| 码率 | 24 kbps | 16 kbps | 24 kbps |
+| 最大人数 | 6 | 6 | 6 |
+| 依赖 | 设备支持 WiFi P2P | 经典蓝牙 RFCOMM | Google Play 服务 |
+| 房主转移 | ✅ | ✅ | ❌ 不支持 |
+
+蓝牙只做 PTT 是个刻意的取舍：RFCOMM 的带宽撑不起 6 路全双工混音，与其做成断续的全双工，不如做成可靠的对讲机。
+
+Nearby 房的代码与单元测试都在仓库里，但因为它依赖 Google Play 服务、国内机型大量缺失，且不支持房主转移，当前版本在首页隐藏了入口。
+
+## 快速开始
+
+### 安装
+
+从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新的 `SunsetRipple-*.apk` 直接安装。
+
+> 需要 Android 8.0（API 26）及以上。
+> 若装过包名为 `com.wt.intercom` 的旧测试版，**必须先卸载**——包名已改为 `host.msknet.sunsetripple`，无法覆盖升级。
+
+### 开一个房间
+
+1. 一台设备点 **创建房间**，选 WiFi 房或蓝牙房，授予麦克风与附近设备权限。
+2. 其他设备点 **加入房间**，在列表里选中房主设备。
+3. WiFi 房直接开说；蓝牙房按住中间的圆盘说话，松手收听。
+4. 房主离开即散会——其余成员会自动推选继任者并重建房间。
+
+保持设备在彼此的射频范围内（空旷环境下 WiFi Direct 约数十米，蓝牙更短）。
+
+## 技术架构
+
+Kotlin + Jetpack Compose，单 Activity，无 DI 框架，无数据库，无网络库。核心是一条自定义二进制帧协议加一套与传输无关的会话层。
+
+```mermaid
+flowchart TD
+    UI["ui — Compose 界面<br/>纯决策对象可 JVM 测试"]
+    SESSION["session — 房间会话<br/>RoomSession 网状全双工<br/>BluetoothRoomSession 星型 PTT"]
+    AUDIO["audio — 采集/播放/Opus<br/>抖动缓冲 · 混音 · 焦点"]
+    PROTO["protocol — 二进制帧<br/>6 字节头 + ≤512 字节负载"]
+    TRANS["transport — 传输抽象<br/>房主选举 · 重连策略"]
+    WIFI["wifi<br/>TCP+UDP"]
+    BT["bluetooth<br/>RFCOMM"]
+    NEARBY["nearby<br/>GMS"]
+
+    UI --> SESSION
+    SESSION --> AUDIO
+    SESSION --> TRANS
+    TRANS --> PROTO
+    TRANS --> WIFI
+    TRANS --> BT
+    TRANS --> NEARBY
+```
+
+几个关键设计：
+
+- **帧协议固定 6 字节头**——`[类型 1B][发送者 1B][序号 2B][长度 2B]`，负载上限 512 字节，8 种帧类型覆盖音频、入房、花名册、PTT、心跳、离开与两种房主转移帧。
+- **音频与信令分离**——WiFi 房把可靠的信令放 TCP，把可丢的音频放 UDP，并且音频直接网状发送，组主不承担转发负载。
+- **房主不信任客户端身份**——蓝牙房主会用自己分配的成员 ID 重写收到的帧头，客户端伪造 `senderId` 无效。
+- **纯 JVM 的决策层**——权限分级、房间流转、房主选举、混音计划都抽成了不依赖 Android 的对象，因此 243 个测试全部能在普通 JVM 上秒跑，无需模拟器。
+- **Opus 走纯 JVM 实现**（Concentus），构建不需要 NDK，产物不含 `.so`。
+
+音频参数：16 kHz 单声道，20 ms 一帧（320 采样），Opus VOIP 模式，抖动缓冲预缓存 3 帧、上限 10 帧，丢包位置交给 Opus PLC 补偿。
+
+完整细节见 [架构总览](docs/wiki/架构总览.md) 与 [协议规范](docs/wiki/协议规范.md)。
+
+## 从源码构建
+
+需要 JDK 17。仓库自带 Gradle 8.9 wrapper。
 
 ```powershell
 $env:JAVA_HOME='D:\LEARNING\tools\jdk-17'
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-## 发布签名
-
-发布签名配置与密钥仅保存在本地，不进入版本库。`keystore.properties` 与密钥文件均被 Git 忽略；后续版本必须持续使用同一密钥。
-
-生成签名 APK：
-
-```powershell
-$env:JAVA_HOME='D:\LEARNING\tools\jdk-17'
-.\gradlew.bat :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+```bash
+export JAVA_HOME=/path/to/jdk-17
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-产物位于：
+发布签名、密钥管理与出包流程见 [构建与发布](docs/wiki/构建与发布.md)。
 
-- `app/build/outputs/apk/release/app-release.apk`
+## 项目状态
 
-可通过 `-PsunsetRipple.signingProperties=<绝对路径>` 使用 CI 或临时签名配置。
+当前版本 **`0.1.0-alpha.2`**，属于早期公开测试阶段：核心链路已跑通并有较厚的单元测试，但多机真机验收还没做完。
+
+| 能力 | 状态 |
+| --- | --- |
+| WiFi Direct 全双工房 | ✅ 可用 |
+| 蓝牙 PTT 房 | ✅ 可用 |
+| 断线重连与身份恢复 | ✅ 可用 |
+| 房主主动交接 | ✅ 可用 |
+| 房主异常接管 | ⚠️ 已实现，待多机验收 |
+| 连续 A→B→C 转移 | ⚠️ 待真机验收 |
+| Nearby 房 | ⏸ 已实现，入口隐藏 |
+| 锁屏通知交互 | ⏸ 已搁置 |
+| 深色模式 / 多语言 | ❌ 暂无计划 |
 
 ## 已知限制
 
-- 异常接管依赖客户端已收到最新快照；房间刚建立即断电、所有候选设备同时离线或无线环境完全隔离时无法恢复。
-- WiFi 房转移需要重建 WiFi Direct 组，期间语音会短暂中断，系统可能再次显示连接确认。
-- Nearby 房当前隐藏且不再验收。
-- 锁屏通知显示与通知按钮交互当前不保证可用。
-- 本版本为 alpha，WiFi 与蓝牙的连续 A→B→C 房主转移仍需完成多机真机验收。
+- **异常接管依赖快照**——客户端必须已收到最新的房主快照才能接管。房间刚建立就断电、所有候选设备同时离线、或无线环境完全隔离时无法恢复。
+- **WiFi 房转移会中断语音**——继任过程需要重建 WiFi Direct 组，期间语音短暂中断，系统可能再次弹出连接确认。
+- **Nearby 房入口隐藏**——依赖 Google Play 服务，且不支持房主转移。
+- **锁屏通知未保证**——通知展示与按钮交互已搁置；屏幕关闭后的后台音频保活代码仍保留。
+- **无真机矩阵验证**——三机连续转移、WiFi 系统确认弹窗、语音恢复耗时仍待验收，因此本版本仅作为 alpha 发布。
 
-完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+## 文档
+
+| 页面 | 内容 |
+| --- | --- |
+| [Home](docs/wiki/Home.md) | Wiki 索引与阅读路径 |
+| [架构总览](docs/wiki/架构总览.md) | 分层结构、包职责、关键类 |
+| [协议规范](docs/wiki/协议规范.md) | 帧格式、8 种帧类型、各负载编码 |
+| [房间模式对比](docs/wiki/房间模式对比.md) | 三种房型的拓扑与取舍 |
+| [音频管线](docs/wiki/音频管线.md) | 采集到播放的完整链路与参数 |
+| [房主转移机制](docs/wiki/房主转移机制.md) | 主动交接与异常接管 |
+| [构建与发布](docs/wiki/构建与发布.md) | 工具链、依赖、签名、出包 |
+| [故障排查](docs/wiki/故障排查.md) | 连不上、没声音、频繁掉线 |
+| [常见问题](docs/wiki/常见问题.md) | FAQ |
+
+变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 许可证
+
+[Apache License 2.0](LICENSE) · Copyright 2026 Starlordzz
+
+---
+
+<p align="center"><sub>写给那个一起看过落日的人。<br><em>For the one who watched the sunset with me.</em></sub></p>
