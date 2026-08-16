@@ -60,23 +60,30 @@ fun SunsetBrandHeader(
         null
     }
     val scenePhase = phase ?: checkNotNull(internalPhase)
+    // DrawScope 不是 Composable，取不到 SunsetColors，只能在这里取好再传进去。
+    val palette = SunsetColors.Current
     val headerModifier = modifier
         .fillMaxWidth()
         .height(height)
         .clipToBounds()
         .let { base ->
-            if (showBackground) base.background(Brush.verticalGradient(SunsetColors.Backdrop)) else base
+            if (showBackground) base.background(Brush.verticalGradient(palette.backdrop)) else base
         }
     Box(modifier = headerModifier) {
         Canvas(Modifier.fillMaxSize()) {
-            drawSunsetHeaderScene(scenePhase.value, alpha = sceneAlpha)
+            drawSunsetHeaderScene(scenePhase.value, palette, alpha = sceneAlpha)
         }
         content()
     }
 }
 
+/**
+ * 天体加三道波纹。几何与昼夜无关：白天这轮是落日，夜里同一笔就是月亮，
+ * 底下的波纹也从被日光染暖变成被月光洗白。
+ */
 private fun DrawScope.drawSunsetHeaderScene(
     phase: Float,
+    palette: SunsetPalette,
     sceneSize: Size = size,
     alpha: Float = 1f,
 ) {
@@ -87,16 +94,16 @@ private fun DrawScope.drawSunsetHeaderScene(
     )
     val radius = sceneSize.minDimension * 0.29f
     drawCircle(
-        color = SunsetColors.Sun.copy(alpha = 0.13f * alpha),
+        color = palette.sun.copy(alpha = 0.13f * alpha),
         radius = radius * 1.28f,
         center = center,
     )
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFFFF0C7).copy(alpha = alpha),
-                SunsetColors.Sun.copy(alpha = alpha),
-                SunsetColors.Gold.copy(alpha = alpha),
+                palette.sunCore.copy(alpha = alpha),
+                palette.sun.copy(alpha = alpha),
+                palette.gold.copy(alpha = alpha),
             ),
             center = center - Offset(radius * 0.24f, radius * 0.28f),
             radius = radius * 1.34f,
@@ -108,7 +115,7 @@ private fun DrawScope.drawSunsetHeaderScene(
         brush = Brush.horizontalGradient(
             colors = listOf(
                 Color.Transparent,
-                SunsetColors.Sun.copy(alpha = 0.42f * alpha),
+                palette.sun.copy(alpha = 0.42f * alpha),
                 Color.Transparent,
             ),
         ),
@@ -128,7 +135,7 @@ private fun DrawScope.drawSunsetHeaderScene(
             brush = Brush.horizontalGradient(
                 colors = listOf(
                     Color.Transparent,
-                    SunsetColors.Sun.copy(alpha = (0.76f - index * 0.14f) * alpha),
+                    palette.sun.copy(alpha = (0.76f - index * 0.14f) * alpha),
                     Color.Transparent,
                 ),
                 startX = waveCenter.x - waveWidth / 2f,
@@ -201,9 +208,14 @@ fun RippleStatusMark(
     }
 }
 
+/**
+ * @param edgeColor 扩散圆的描边色。这里同样是非 Composable 作用域，颜色得由调用方
+ *   在组合里取好传进来（用 [SunsetColors.Sun]，白天是落日边、夜里是月光边）。
+ */
 fun Modifier.sunsetCircularReveal(
     progress: State<Float>,
     origin: Offset,
+    edgeColor: Color,
 ): Modifier = drawWithCache {
     val fullRadius = maxOf(
         hypot(origin.x, origin.y),
@@ -239,7 +251,7 @@ fun Modifier.sunsetCircularReveal(
         val edgeAlpha = (1f - revealProgress) * 0.18f
         if (edgeAlpha > 0f) {
             drawCircle(
-                color = SunsetColors.Sun.copy(alpha = edgeAlpha),
+                color = edgeColor.copy(alpha = edgeAlpha),
                 radius = radius,
                 center = origin,
                 style = edgeStroke,

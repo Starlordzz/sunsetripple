@@ -31,6 +31,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -45,8 +46,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import host.msknet.sunsetripple.audio.LoopbackController
 import host.msknet.sunsetripple.audio.AudioFocusController
@@ -88,7 +91,13 @@ import host.msknet.sunsetripple.ui.RoomScreen
 import host.msknet.sunsetripple.ui.RoomStart
 import host.msknet.sunsetripple.ui.ScanScreen
 import host.msknet.sunsetripple.ui.Screen
+import host.msknet.sunsetripple.ui.SunsetNightPalette
+import host.msknet.sunsetripple.ui.SunsetDayPalette
+import host.msknet.sunsetripple.ui.SunsetPalette
 import host.msknet.sunsetripple.ui.SunsetRippleTheme
+import host.msknet.sunsetripple.ui.ThemeMode
+import host.msknet.sunsetripple.ui.ThemeModeResolver
+import host.msknet.sunsetripple.ui.ThemeModeStore
 import host.msknet.sunsetripple.ui.SunsetColors
 import host.msknet.sunsetripple.ui.SunsetMotion
 import host.msknet.sunsetripple.ui.sunsetCircularReveal
@@ -118,6 +127,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var audioFocus: AudioFocusController
     private val loopback = LoopbackController()
 
+    /** 昼夜取向要跨启动记住，否则冷启动会把用户手动选的档位打回跟随系统。 */
+    private val themeModeStore by lazy { ThemeModeStore(this) }
+
     /** 会话得让 Compose 观察得到（建/散都要触发重组），所以用 StateFlow 而不是裸字段。 */
     private val sessionFlow = MutableStateFlow<RoomSession?>(null)
     private val bluetoothSessionFlow = MutableStateFlow<BluetoothRoomSession?>(null)
@@ -145,7 +157,44 @@ class MainActivity : ComponentActivity() {
         wifi.register()
         watchRoomDeath()
         handleLeaveIntent(intent)
-        setContent { SunsetRippleTheme { App() } }
+        setContent {
+            // 手动两档只活在 Compose 状态里，切换不重建 Activity，通话中改配色也不断线。
+            var themeMode by remember { mutableStateOf(themeModeStore.load()) }
+            val palette = if (ThemeModeResolver.isNight(themeMode, isSystemInDarkTheme())) {
+                SunsetNightPalette
+            } else {
+                SunsetDayPalette
+            }
+            SyncSystemBars(palette)
+            SunsetRippleTheme(night = palette.night) {
+                App(
+                    themeMode = themeMode,
+                    onCycleThemeMode = {
+                        themeMode = ThemeModeResolver.next(themeMode)
+                        themeModeStore.save(themeMode)
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * 系统栏跟着当前调色板走。targetSdk 35 起系统强制边到边、这两个颜色属于空操作，
+     * 但在更早的机型上仍然生效，设了无害。
+     */
+    @Composable
+    private fun SyncSystemBars(palette: SunsetPalette) {
+        LaunchedEffect(palette) {
+            @Suppress("DEPRECATION")
+            window.statusBarColor = palette.backdrop.first().toArgb()
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = palette.canvas.toArgb()
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                // 状态栏永远压在头图渐变上，图标恒定用浅色。
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = !palette.night
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -322,7 +371,10 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun App() {
+    private fun App(
+        themeMode: ThemeMode,
+        onCycleThemeMode: () -> Unit,
+    ) {
         val context = LocalContext.current
         val sdkInt = Build.VERSION.SDK_INT
 
@@ -983,6 +1035,8 @@ class MainActivity : ComponentActivity() {
                 },
                 status = status ?: wifiError ?: nearbyError,
                 headerPhase = headerPhase,
+                themeMode = themeMode,
+                onCycleThemeMode = onCycleThemeMode,
             )
 
             Screen.SCAN -> ScanScreen(
@@ -1073,6 +1127,7 @@ class MainActivity : ComponentActivity() {
                         .sunsetCircularReveal(
                             progress = entryTransitionProgressState,
                             origin = entryTransitionOrigin,
+                            edgeColor = SunsetColors.Sun,
                         )
                         .pointerInput(Unit) {
                             awaitPointerEventScope {

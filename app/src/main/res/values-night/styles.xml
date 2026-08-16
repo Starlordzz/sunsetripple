@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 跟随系统时的冷启动窗口：先铺月海底色，避免开屏闪一下落日的浅色。 -->
+    <style name="Theme.SunsetRipple" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#0E1626</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#3C5A8C</item>
+        <item name="android:navigationBarColor">#0E1626</item>
+        <item name="android:colorAccent">#3F76AC</item>
+    </style>
+</resources>

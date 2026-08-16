@@ -57,7 +57,7 @@ fun BluetoothScanScreen(
                 it,
                 modifier = Modifier.fillMaxWidth().background(SunsetColors.SoftCoral).padding(14.dp, 11.dp),
                 style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                color = SunsetColors.CoralDark,
+                color = SunsetColors.Ink,
             )
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 20.dp)) {

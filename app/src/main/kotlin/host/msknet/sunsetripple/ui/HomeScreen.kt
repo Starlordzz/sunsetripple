@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +48,8 @@ fun HomeScreen(
     onLoopbackTest: () -> Unit,
     status: String?,
     headerPhase: State<Float>? = null,
+    themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM,
+    onCycleThemeMode: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -59,6 +62,15 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             SunsetBrandHeader(phase = headerPhase) {
+            ThemeModeToggle(
+                mode = themeMode,
+                onCycle = onCycleThemeMode,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    // 强制边到边的机型上，头图会顶到状态栏底下，这里让开它。
+                    .statusBarsPadding()
+                    .padding(top = 10.dp, end = 8.dp),
+            )
             SunsetReveal(
                 delayMillis = 40,
                 modifier = Modifier
@@ -177,7 +189,7 @@ fun HomeScreen(
                     SunsetOutlinedButton(
                         onClick = onLoopbackTest,
                         modifier = Modifier.fillMaxWidth().height(50.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SunsetColors.CoralDark),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SunsetColors.Ink),
                     ) {
                         RippleStatusMark(active = true, modifier = Modifier.width(28.dp).height(28.dp))
                         Spacer(Modifier.width(8.dp))
@@ -204,7 +216,7 @@ fun HomeScreen(
                                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.Medium,
                                     ),
-                                    color = SunsetColors.CoralDark,
+                                    color = SunsetColors.Ink,
                                 )
                             }
                         }

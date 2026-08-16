@@ -511,7 +511,8 @@ private fun RoomToolbarButton(
     )
     val contentColor = when {
         item.destructive -> SunsetColors.SoftCoral
-        item.selected -> SunsetColors.Ink
+        // 选中态的底色就是 Sun，前景得用配套的压色，不能跟着正文走。
+        item.selected -> SunsetColors.OnSun
         else -> Color.White.copy(alpha = 0.88f)
     }
     val labelColor = when {
