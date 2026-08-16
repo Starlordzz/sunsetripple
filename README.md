@@ -237,6 +237,6 @@ export JAVA_HOME=/path/to/jdk-17
 
 <br>
 
-<p align="center"><sub>写给那个一起看过落日的人。<br><em>For the one who watched the sunset with me.</em></sub></p>
+<p align="center"><sub>。<br><em>For the one who watched the sunset with me.</em></sub></p>
 
 <br>
