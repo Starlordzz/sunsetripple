@@ -38,12 +38,12 @@
 | 项 | 值 |
 | --- | --- |
 | 包名 | `host.msknet.sunsetripple` |
-| 当前版本 | `0.1.0-alpha.2`（versionCode 3） |
+| 当前版本 | `0.1.0-alpha.3`（versionCode 4） |
 | 最低系统 | Android 8.0 / API 26 |
 | 目标 / 编译 SDK | 35 |
 | 语言与 UI | Kotlin 2.0.20 + Jetpack Compose |
-| 源码规模 | 58 个 Kotlin 源文件 |
-| 测试规模 | 36 个测试文件，243 个测试方法，纯 JVM |
+| 源码规模 | 59 个主源码 Kotlin 文件 |
+| 测试规模 | 37 个测试文件，247 个测试方法，纯 JVM |
 | 音频编码 | Opus（Concentus 纯 JVM）16 kHz 单声道 20 ms |
 | 房间容量 | 6 台设备（含房主） |
 | 许可证 | Apache-2.0 |
@@ -54,6 +54,8 @@
 - **没有依赖注入框架、没有数据库、没有网络库**——传输层直接用 `java.net` 与 `android.bluetooth`。
 - **测试不使用 Robolectric / MockK / Mockito**，全部是手写 fake，因此可在纯 JVM 上秒跑。
 - **纯决策逻辑一律抽成不依赖 Android 的对象**（如 `HostElection`、`RoomFlow`、`RoomPermissions`、`BluetoothMixPlanner`），这是测试覆盖率能做厚的根本原因。
+- **建房转场直接揭示真实房间界面**，首页与房间共用落日页头的运动相位和同源配色；不存在动画结束后再切页的第二阶段。
+- **房内控制保持轻量**：成员轨道、频道核心、静音、扬声器和离开操作按使用频率分层，危险操作不再占据主要视觉位置。
 
 ## 相关链接
 
