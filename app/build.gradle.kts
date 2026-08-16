@@ -30,8 +30,8 @@ android {
         applicationId = "host.msknet.sunsetripple"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.0-alpha.2"
+        versionCode = 4
+        versionName = "0.1.0-alpha.3"
     }
     signingConfigs {
         if (releaseSigningReady) {

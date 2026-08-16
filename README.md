@@ -23,7 +23,7 @@
   <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&color=FF7138&labelColor=3A1030"></a>
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0.20-B92F3B?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-243-F4B85C?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-247-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -57,7 +57,7 @@
 - **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除、音频焦点协商、抖动缓冲与 Opus 丢包补偿。
 - **前台保活**——麦克风类型前台服务 + WakeLock + WifiLock，通知栏可直接静音或离开。
 - **只听模式**——被其他应用抢占音频焦点时自动降级为只听，不会静默掉线。
-- **243 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、权限分级全部有覆盖，且全部是纯 JVM 测试。
+- **247 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、权限分级与界面动效决策全部有覆盖，且全部是纯 JVM 测试。
 
 <br>
 
@@ -98,7 +98,7 @@ Nearby 房的代码与单元测试都在仓库里，但因为它依赖 Google Pl
 1. 一台设备点 **创建房间**，选 WiFi 房或蓝牙房，授予麦克风与附近设备权限。
 2. 其他设备点 **加入房间**，在列表里选中房主设备。
 3. WiFi 房直接开说；蓝牙房按住中间的圆盘说话，松手收听。
-4. 房主离开即散会——其余成员会自动推选继任者并重建房间。
+4. 房主离开后，其余成员会自动推选继任者并重建房间；重建期间语音会短暂中断。
 
 保持设备在彼此的射频范围内（空旷环境下 WiFi Direct 约数十米，蓝牙更短）。
 
@@ -137,7 +137,7 @@ flowchart TD
 - **帧协议固定 6 字节头**——`[类型 1B][发送者 1B][序号 2B][长度 2B]`，负载上限 512 字节，8 种帧类型覆盖音频、入房、花名册、PTT、心跳、离开与两种房主转移帧。
 - **音频与信令分离**——WiFi 房把可靠的信令放 TCP，把可丢的音频放 UDP，并且音频直接网状发送，组主不承担转发负载。
 - **房主不信任客户端身份**——蓝牙房主会用自己分配的成员 ID 重写收到的帧头，客户端伪造 `senderId` 无效。
-- **纯 JVM 的决策层**——权限分级、房间流转、房主选举、混音计划都抽成了不依赖 Android 的对象，因此 243 个测试全部能在普通 JVM 上秒跑，无需模拟器。
+- **纯 JVM 的决策层**——权限分级、房间流转、房主选举、混音计划和界面动效决策都抽成了不依赖 Android 的对象，因此 247 个测试全部能在普通 JVM 上运行，无需模拟器。
 - **Opus 走纯 JVM 实现**（Concentus），构建不需要 NDK，产物不含 `.so`。
 
 音频参数：16 kHz 单声道，20 ms 一帧（320 采样），Opus VOIP 模式，抖动缓冲预缓存 3 帧、上限 10 帧，丢包位置交给 Opus PLC 补偿。
@@ -170,7 +170,7 @@ export JAVA_HOME=/path/to/jdk-17
 
 <br>
 
-当前版本 **`0.1.0-alpha.2`**，属于早期公开测试阶段：核心链路已跑通并有较厚的单元测试，但多机真机验收还没做完。
+当前版本 **`0.1.0-alpha.3`**，属于早期公开测试阶段：核心链路已跑通并有较厚的单元测试，但多机真机验收还没做完。
 
 | 能力 | 状态 |
 | --- | --- |
