@@ -14,18 +14,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 object SunsetColors {
-    val Coral = Color(0xFFD94A3D)
-    val CoralDark = Color(0xFF9F2F35)
-    val Orange = Color(0xFFF07B43)
-    val Gold = Color(0xFFF4B85C)
-    val Sun = Color(0xFFFFD878)
-    val Ink = Color(0xFF332B2A)
-    val Muted = Color(0xFF7D6B67)
-    val Canvas = Color(0xFFFFF8F0)
-    val Surface = Color(0xFFFFFDFC)
-    val SoftCoral = Color(0xFFF8E4DC)
-    val Line = Color(0xFFE9CFC4)
-    val Speaking = Color(0xFFE97045)
+    val Coral = Color(0xFF9B4A52)
+    val CoralDark = Color(0xFF392832)
+    val Orange = Color(0xFFC97C66)
+    val Gold = Color(0xFFD0AC72)
+    val Sun = Color(0xFFF3DCAA)
+    val Ink = Color(0xFF29252A)
+    val Muted = Color(0xFF746B6B)
+    val Canvas = Color(0xFFF4F1EC)
+    val Surface = Color(0xFFFCFAF7)
+    val SoftCoral = Color(0xFFE6D4CE)
+    val Line = Color(0xFFD8CCC7)
+    val Speaking = Color(0xFFBC655B)
+    val Backdrop = listOf(Orange, Coral, CoralDark)
 }
 
 private val sunsetScheme = lightColorScheme(
@@ -39,10 +40,10 @@ private val sunsetScheme = lightColorScheme(
     onBackground = SunsetColors.Ink,
     surface = SunsetColors.Surface,
     onSurface = SunsetColors.Ink,
-    surfaceVariant = Color(0xFFF7EAE2),
+    surfaceVariant = Color(0xFFEEE6E1),
     onSurfaceVariant = SunsetColors.Muted,
     outline = SunsetColors.Line,
-    error = Color(0xFFB3261E),
+    error = Color(0xFFA63F3C),
 )
 
 private val sunsetTypography = Typography(

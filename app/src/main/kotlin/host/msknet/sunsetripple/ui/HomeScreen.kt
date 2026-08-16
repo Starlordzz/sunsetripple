@@ -5,10 +5,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,59 +26,28 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
-import kotlin.math.hypot
-import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
     nickname: String,
     onNicknameChange: (String) -> Unit,
-    onCreateWifiRoom: () -> Unit,
-    onJoinWifiRoom: () -> Unit,
-    onCreateBluetoothRoom: () -> Unit,
-    onJoinBluetoothRoom: () -> Unit,
+    onCreateWifiRoom: (Offset) -> Unit,
+    onJoinWifiRoom: (Offset) -> Unit,
+    onCreateBluetoothRoom: (Offset) -> Unit,
+    onJoinBluetoothRoom: (Offset) -> Unit,
     onCreateNearbyRoom: () -> Unit,
     onJoinNearbyRoom: () -> Unit,
     onLoopbackTest: () -> Unit,
     status: String?,
+    headerPhase: State<Float>? = null,
 ) {
-    val transition = remember { EntryTransitionGate() }
-    val transitionProgress = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    var transitionOrigin by remember { mutableStateOf(Offset.Zero) }
-
-    fun enterFrom(origin: Offset, action: () -> Unit) {
-        if (!transition.tryBegin()) return
-        transitionOrigin = origin
-        scope.launch {
-            try {
-                transitionProgress.snapTo(0f)
-                transitionProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(520, easing = FastOutSlowInEasing),
-                )
-                action()
-            } finally {
-                transition.finish()
-                transitionProgress.snapTo(0f)
-            }
-        }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -93,7 +58,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            SunsetBrandHeader {
+            SunsetBrandHeader(phase = headerPhase) {
             SunsetReveal(
                 delayMillis = 40,
                 modifier = Modifier
@@ -150,7 +115,6 @@ fun HomeScreen(
                         createColor = SunsetColors.Coral,
                         onCreate = onCreateWifiRoom,
                         onJoin = onJoinWifiRoom,
-                        onEntry = ::enterFrom,
                     )
                 }
             }
@@ -170,7 +134,6 @@ fun HomeScreen(
                         createColor = SunsetColors.CoralDark,
                         onCreate = onCreateBluetoothRoom,
                         onJoin = onJoinBluetoothRoom,
-                        onEntry = ::enterFrom,
                     )
                 }
             }
@@ -251,46 +214,6 @@ fun HomeScreen(
         }
         }
 
-        val progress = transitionProgress.value
-        if (progress > 0f) {
-            Canvas(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(10f)
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                awaitPointerEvent().changes.forEach { it.consume() }
-                            }
-                        }
-                    },
-            ) {
-                val frame = SunsetMotion.entryRippleFrame(progress)
-                val radius = maxOf(
-                    hypot(transitionOrigin.x, transitionOrigin.y),
-                    hypot(size.width - transitionOrigin.x, transitionOrigin.y),
-                    hypot(transitionOrigin.x, size.height - transitionOrigin.y),
-                    hypot(size.width - transitionOrigin.x, size.height - transitionOrigin.y),
-                ) * frame.scale
-                drawCircle(
-                    color = SunsetColors.Coral.copy(alpha = frame.alpha),
-                    radius = radius,
-                    center = transitionOrigin,
-                )
-                drawCircle(
-                    color = SunsetColors.Gold.copy(alpha = 0.46f),
-                    radius = radius * 0.88f,
-                    center = transitionOrigin,
-                    style = Stroke(width = 6.dp.toPx()),
-                )
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.28f),
-                    radius = radius * 0.72f,
-                    center = transitionOrigin,
-                    style = Stroke(width = 2.dp.toPx()),
-                )
-            }
-        }
     }
 }
 
@@ -299,9 +222,8 @@ private fun RoomActionRow(
     createSupportingText: String,
     joinSupportingText: String,
     createColor: Color,
-    onCreate: () -> Unit,
-    onJoin: () -> Unit,
-    onEntry: (Offset, () -> Unit) -> Unit,
+    onCreate: (Offset) -> Unit,
+    onJoin: (Offset) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val gap = 14.dp
@@ -313,14 +235,14 @@ private fun RoomActionRow(
             SunsetActionOrb(
                 label = "建房",
                 supportingText = createSupportingText,
-                onClick = { origin -> onEntry(origin, onCreate) },
+                onClick = onCreate,
                 modifier = Modifier.size(orbSize),
                 containerColor = createColor,
             )
             SunsetActionOrb(
                 label = "进房",
                 supportingText = joinSupportingText,
-                onClick = { origin -> onEntry(origin, onJoin) },
+                onClick = onJoin,
                 modifier = Modifier.size(orbSize),
                 outlined = true,
             )

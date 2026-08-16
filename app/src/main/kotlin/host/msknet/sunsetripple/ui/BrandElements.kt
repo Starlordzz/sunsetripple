@@ -1,5 +1,6 @@
 package host.msknet.sunsetripple.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -22,73 +24,123 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.hypot
 
 @Composable
 fun SunsetBrandHeader(
     modifier: Modifier = Modifier,
     height: Dp = 214.dp,
+    showBackground: Boolean = true,
+    phase: State<Float>? = null,
+    sceneAlpha: Float = 1f,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val motion = rememberInfiniteTransition(label = "sunset-header-motion")
-    val phase by motion.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(6_400, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "sunset-header-phase",
-    )
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .clipToBounds()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFFFF8A3D), Color(0xFFFF7138), Color(0xFFB92F3B))
-                )
-            )
-    ) {
+    val internalPhase = if (phase == null) {
+        val motion = rememberInfiniteTransition(label = "sunset-header-motion")
+        motion.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(7_200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "sunset-header-phase",
+        )
+    } else {
+        null
+    }
+    val scenePhase = phase ?: checkNotNull(internalPhase)
+    val headerModifier = modifier
+        .fillMaxWidth()
+        .height(height)
+        .clipToBounds()
+        .let { base ->
+            if (showBackground) base.background(Brush.verticalGradient(SunsetColors.Backdrop)) else base
+        }
+    Box(modifier = headerModifier) {
         Canvas(Modifier.fillMaxSize()) {
-            val center = Offset(
-                size.width * (0.72f + SunsetMotion.headerSunOffset(phase)),
-                size.height * (0.53f + (phase - 0.5f) * 0.012f),
-            )
-            val radius = size.minDimension * 0.28f
-            drawCircle(
-                brush = Brush.verticalGradient(listOf(Color(0xFFFFE59A), Color(0xFFFFD06B))),
-                radius = radius,
-                center = center,
-            )
-            drawRect(
-                color = Color(0xFFFFB05B).copy(alpha = 0.45f),
-                topLeft = Offset(0f, center.y),
-                size = Size(size.width, 2.dp.toPx()),
-            )
-            val waveColor = Color(0xFFFFE09A).copy(alpha = 0.68f)
-            repeat(3) { index ->
-                val inset = size.width * (0.13f - index * 0.035f)
-                val top = center.y + 15.dp.toPx() + index * 22.dp.toPx()
-                val waveHeight = 58.dp.toPx() + index * 19.dp.toPx()
-                drawArc(
-                    color = waveColor.copy(alpha = 0.70f - index * 0.13f),
-                    startAngle = 12f,
-                    sweepAngle = 156f,
-                    useCenter = false,
-                    topLeft = Offset(inset, top - waveHeight),
-                    size = Size(size.width - inset * 2, waveHeight * 2),
-                    style = Stroke(width = (5 - index).dp.toPx(), cap = StrokeCap.Round),
-                )
-            }
+            drawSunsetHeaderScene(scenePhase.value, alpha = sceneAlpha)
         }
         content()
+    }
+}
+
+private fun DrawScope.drawSunsetHeaderScene(
+    phase: Float,
+    sceneSize: Size = size,
+    alpha: Float = 1f,
+) {
+    if (alpha <= 0f || sceneSize.minDimension <= 0f) return
+    val center = Offset(
+        sceneSize.width * (0.72f + SunsetMotion.headerSunOffset(phase)),
+        sceneSize.height * (0.48f + (phase - 0.5f) * 0.008f),
+    )
+    val radius = sceneSize.minDimension * 0.29f
+    drawCircle(
+        color = SunsetColors.Sun.copy(alpha = 0.13f * alpha),
+        radius = radius * 1.28f,
+        center = center,
+    )
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFFFF0C7).copy(alpha = alpha),
+                SunsetColors.Sun.copy(alpha = alpha),
+                SunsetColors.Gold.copy(alpha = alpha),
+            ),
+            center = center - Offset(radius * 0.24f, radius * 0.28f),
+            radius = radius * 1.34f,
+        ),
+        radius = radius,
+        center = center,
+    )
+    drawLine(
+        brush = Brush.horizontalGradient(
+            colors = listOf(
+                Color.Transparent,
+                SunsetColors.Sun.copy(alpha = 0.42f * alpha),
+                Color.Transparent,
+            ),
+        ),
+        start = Offset(0f, center.y),
+        end = Offset(sceneSize.width, center.y),
+        strokeWidth = 1.4.dp.toPx(),
+    )
+    val waveShift = (phase - 0.5f) * radius * 0.08f
+    repeat(3) { index ->
+        val waveWidth = sceneSize.width * (0.58f + index * 0.13f)
+        val waveHeight = radius * (0.52f + index * 0.14f)
+        val waveCenter = Offset(
+            sceneSize.width * 0.56f - waveShift * (index + 1),
+            center.y + radius * (0.28f + index * 0.31f),
+        )
+        drawArc(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    SunsetColors.Sun.copy(alpha = (0.76f - index * 0.14f) * alpha),
+                    Color.Transparent,
+                ),
+                startX = waveCenter.x - waveWidth / 2f,
+                endX = waveCenter.x + waveWidth / 2f,
+            ),
+            startAngle = 18f,
+            sweepAngle = 144f,
+            useCenter = false,
+            topLeft = Offset(waveCenter.x - waveWidth / 2f, waveCenter.y - waveHeight),
+            size = Size(waveWidth, waveHeight * 2f),
+            style = Stroke(width = (2.8f - index * 0.45f).dp.toPx(), cap = StrokeCap.Round),
+        )
     }
 }
 
@@ -99,45 +151,98 @@ fun RippleStatusMark(
     inactiveColor: Color = SunsetColors.Line,
     activeColor: Color = SunsetColors.Speaking,
 ) {
-    val motion = rememberInfiniteTransition(label = "ripple-status-motion")
-    val phase by motion.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1_350, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "ripple-status-phase",
-    )
-    val activation by animateFloatAsState(
+    val phase = if (active) {
+        val motion = rememberInfiniteTransition(label = "ripple-status-motion")
+        motion.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1_350, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "ripple-status-phase",
+        )
+    } else {
+        null
+    }
+    val activation = animateFloatAsState(
         targetValue = if (active) 1f else 0f,
         animationSpec = tween(220),
         label = "ripple-status-activation",
     )
     Canvas(modifier) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val pulse = SunsetMotion.rippleFrame(active = true, phase = phase)
-        val pulseScale = 1f + (pulse.scale - 1f) * activation
-        val pulseAlpha = 0.55f + (pulse.alpha - 0.55f) * activation
-        val color = lerp(inactiveColor, activeColor, activation)
+        val activationValue = activation.value
+        val pulse = SunsetMotion.rippleFrame(active = true, phase = phase?.value ?: 0f)
+        val pulseScale = 1f + (pulse.scale - 1f) * activationValue
+        val pulseAlpha = 0.55f + (pulse.alpha - 0.55f) * activationValue
+        val color = lerp(inactiveColor, activeColor, activationValue)
+        val sunCenter = Offset(size.width / 2f, size.height * 0.31f)
         drawCircle(
             color = color,
-            radius = size.minDimension * (0.16f + 0.025f * activation),
-            center = center,
+            radius = size.minDimension * (0.13f + 0.02f * activationValue),
+            center = sunCenter,
         )
-        repeat(2) { index ->
-            val baseWidth = size.width * (0.68f + index * 0.20f)
-            val baseHeight = size.height * (0.68f + index * 0.20f)
+        repeat(3) { index ->
+            val baseWidth = size.width * (0.48f + index * 0.19f)
+            val baseHeight = size.height * (0.24f + index * 0.07f)
             val waveWidth = baseWidth * pulseScale
             val waveHeight = baseHeight * pulseScale
+            val waveCenterY = size.height * (0.49f + index * 0.13f)
             drawArc(
                 color = color.copy(alpha = pulseAlpha * (1f - index * 0.14f)),
-                startAngle = 205f,
-                sweepAngle = 130f,
+                startAngle = 18f,
+                sweepAngle = 144f,
                 useCenter = false,
-                topLeft = Offset((size.width - waveWidth) / 2f, (size.height - waveHeight) / 2f),
+                topLeft = Offset((size.width - waveWidth) / 2f, waveCenterY - waveHeight),
                 size = Size(waveWidth, waveHeight),
-                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round),
+                style = Stroke(width = (1.7f - index * 0.18f).dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
+    }
+}
+
+fun Modifier.sunsetCircularReveal(
+    progress: State<Float>,
+    origin: Offset,
+): Modifier = drawWithCache {
+    val fullRadius = maxOf(
+        hypot(origin.x, origin.y),
+        hypot(size.width - origin.x, origin.y),
+        hypot(origin.x, size.height - origin.y),
+        hypot(size.width - origin.x, size.height - origin.y),
+    )
+    val revealPath = Path()
+    val edgeStroke = Stroke(width = 1.4.dp.toPx())
+    onDrawWithContent {
+        val revealProgress = progress.value.coerceIn(0f, 1f)
+        val frame = SunsetMotion.entryRippleFrame(revealProgress)
+        if (frame.scale >= 1f) {
+            drawContent()
+            return@onDrawWithContent
+        }
+        if (frame.scale <= 0f) return@onDrawWithContent
+
+        val radius = fullRadius * frame.scale
+        revealPath.reset()
+        revealPath.addOval(
+            Rect(
+                left = origin.x - radius,
+                top = origin.y - radius,
+                right = origin.x + radius,
+                bottom = origin.y + radius,
+            ),
+        )
+        clipPath(revealPath) {
+            this@onDrawWithContent.drawContent()
+        }
+
+        val edgeAlpha = (1f - revealProgress) * 0.18f
+        if (edgeAlpha > 0f) {
+            drawCircle(
+                color = SunsetColors.Sun.copy(alpha = edgeAlpha),
+                radius = radius,
+                center = origin,
+                style = edgeStroke,
             )
         }
     }

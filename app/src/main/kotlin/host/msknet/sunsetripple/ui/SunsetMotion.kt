@@ -2,6 +2,11 @@ package host.msknet.sunsetripple.ui
 
 data class RippleMotionFrame(val scale: Float, val alpha: Float)
 data class EntryRippleFrame(val scale: Float, val alpha: Float)
+data class RoomTransitionFrame(
+    val headerHeightDp: Float,
+    val contentAlpha: Float,
+    val contentTranslationDp: Float,
+)
 
 class EntryTransitionGate {
     private var active = false
@@ -18,6 +23,10 @@ class EntryTransitionGate {
 }
 
 object SunsetMotion {
+    const val ENTRY_COVER_PHASE = 0.56f
+    private const val HOME_HEADER_HEIGHT_DP = 214f
+    private const val ROOM_HEADER_HEIGHT_DP = 166f
+
     fun controlScale(pressed: Boolean, enabled: Boolean): Float =
         if (pressed && enabled) 0.975f else 1f
 
@@ -39,11 +48,24 @@ object SunsetMotion {
         return -0.012f + 0.024f * progress
     }
 
+    fun useImmediateScreenSwap(entryProgress: Float): Boolean = entryProgress > 0f
+
+    fun roomTransitionFrame(entryProgress: Float): RoomTransitionFrame {
+        val revealProgress = entryProgress.coerceIn(0f, 1f)
+        val eased = revealProgress * revealProgress * (3f - 2f * revealProgress)
+        return RoomTransitionFrame(
+            headerHeightDp = HOME_HEADER_HEIGHT_DP +
+                (ROOM_HEADER_HEIGHT_DP - HOME_HEADER_HEIGHT_DP) * eased,
+            contentAlpha = 1f,
+            contentTranslationDp = 0f,
+        )
+    }
+
     fun entryRippleFrame(phase: Float): EntryRippleFrame {
         val progress = phase.coerceIn(0f, 1f)
         return EntryRippleFrame(
             scale = progress,
-            alpha = 0.92f + 0.06f * progress,
+            alpha = 1f,
         )
     }
 }

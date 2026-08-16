@@ -2,9 +2,10 @@
 <resources>
     <style name="Theme.SunsetRipple" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#F4F1EC</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">#D94A3D</item>
-        <item name="android:navigationBarColor">#FFF8F0</item>
-        <item name="android:colorAccent">#D94A3D</item>
+        <item name="android:statusBarColor">#9B4A52</item>
+        <item name="android:navigationBarColor">#F4F1EC</item>
+        <item name="android:colorAccent">#9B4A52</item>
     </style>
 </resources>

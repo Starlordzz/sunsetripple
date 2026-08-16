@@ -16,12 +16,34 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
@@ -51,6 +73,7 @@ import host.msknet.sunsetripple.ui.GroupInfo
 import host.msknet.sunsetripple.ui.BluetoothPermissions
 import host.msknet.sunsetripple.ui.BluetoothRoomRole
 import host.msknet.sunsetripple.ui.BluetoothScanScreen
+import host.msknet.sunsetripple.ui.EntryTransitionGate
 import host.msknet.sunsetripple.ui.HomeScreen
 import host.msknet.sunsetripple.ui.HostTransferAction
 import host.msknet.sunsetripple.ui.HostTransferFlow
@@ -66,6 +89,9 @@ import host.msknet.sunsetripple.ui.RoomStart
 import host.msknet.sunsetripple.ui.ScanScreen
 import host.msknet.sunsetripple.ui.Screen
 import host.msknet.sunsetripple.ui.SunsetRippleTheme
+import host.msknet.sunsetripple.ui.SunsetColors
+import host.msknet.sunsetripple.ui.SunsetMotion
+import host.msknet.sunsetripple.ui.sunsetCircularReveal
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -309,9 +335,51 @@ class MainActivity : ComponentActivity() {
         var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
         var pendingBluetoothRole by remember { mutableStateOf<BluetoothRoomRole?>(null) }
         var pendingBluetoothAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+        var pendingBluetoothEntryOrigin by remember { mutableStateOf<Offset?>(null) }
         var pendingNearbyAction by remember { mutableStateOf<(() -> Unit)?>(null) }
         var pendingWifiTransferSeed by remember { mutableStateOf<HostTransferSeed?>(null) }
         var wifiTransferTarget by remember { mutableStateOf<String?>(null) }
+        val entryTransition = remember { EntryTransitionGate() }
+        val entryTransitionProgress = remember { Animatable(0f) }
+        val entryTransitionProgressState = entryTransitionProgress.asState()
+        val entryTransitionScope = rememberCoroutineScope()
+        var entryTransitionOrigin by remember { mutableStateOf(Offset.Zero) }
+        var entryPreviewVisible by remember { mutableStateOf(false) }
+        val headerMotion = rememberInfiniteTransition(label = "shared-sunset-header-motion")
+        val headerPhase = headerMotion.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(7_200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "shared-sunset-header-phase",
+        )
+
+        fun runEntryTransition(origin: Offset, action: () -> Unit) {
+            if (!entryTransition.tryBegin()) return
+            entryTransitionOrigin = origin
+            entryTransitionScope.launch {
+                try {
+                    entryTransitionProgress.snapTo(0f)
+                    entryPreviewVisible = true
+                    action()
+                    withFrameNanos { }
+                    entryTransitionProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(560, easing = LinearOutSlowInEasing),
+                    )
+                    if (entryPreviewVisible) {
+                        screen = Screen.ROOM
+                        withFrameNanos { }
+                    }
+                } finally {
+                    entryPreviewVisible = false
+                    entryTransitionProgress.snapTo(0f)
+                    entryTransition.finish()
+                }
+            }
+        }
 
         val required = remember(sdkInt) { RoomPermissions.required(sdkInt) }
         val requested = remember(sdkInt) { RoomPermissions.requested(sdkInt).toTypedArray() }
@@ -346,6 +414,7 @@ class MainActivity : ComponentActivity() {
         }
 
         fun goHome(message: String?) {
+            entryPreviewVisible = false
             pendingWifiTransferSeed = null
             wifiTransferTarget = null
             releaseRoom()
@@ -444,7 +513,7 @@ class MainActivity : ComponentActivity() {
             runCatching { newSession.start(transport) }
                 .onSuccess {
                     status = null
-                    screen = Screen.ROOM
+                    if (!entryPreviewVisible) screen = Screen.ROOM
                 }
                 .onFailure { error ->
                     TransportLog.w("蓝牙建房失败: ${error.message}", error)
@@ -456,10 +525,17 @@ class MainActivity : ComponentActivity() {
         val discoverableLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
+            val origin = pendingBluetoothEntryOrigin
+            pendingBluetoothEntryOrigin = null
             if (result.resultCode == RESULT_CANCELED) {
                 status = "需要允许蓝牙可发现才能创建房间"
-            } else {
-                startBluetoothHost()
+            } else if (origin != null) {
+                runEntryTransition(origin) {
+                    roomKindFlow.value = RoomKind.BLUETOOTH
+                    isHost = true
+                    status = "正在建立蓝牙频道……"
+                    startBluetoothHost()
+                }
             }
         }
 
@@ -646,7 +722,7 @@ class MainActivity : ComponentActivity() {
             }
             status = null
             pendingWifiTransferSeed = null
-            screen = Screen.ROOM
+            if (!entryPreviewVisible) screen = Screen.ROOM
         }
 
         fun startGuest(hostIp: String) {
@@ -830,15 +906,32 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        when (screen) {
+        Box(Modifier.fillMaxSize().background(SunsetColors.Canvas)) {
+            AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    if (SunsetMotion.useImmediateScreenSwap(entryTransitionProgress.value)) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        fadeIn(tween(220, easing = FastOutSlowInEasing)) togetherWith
+                            fadeOut(tween(140))
+                    }
+                },
+                label = "app-screen-transition",
+            ) { targetScreen ->
+                when (targetScreen) {
             Screen.HOME -> HomeScreen(
                 nickname = nickname,
                 onNicknameChange = { nickname = it.take(16) },
-                onCreateWifiRoom = {
+                onCreateWifiRoom = { origin ->
                     withRoomPreconditions {
-                        role = RoomRole.HOST
-                        status = "正在建房……"
-                        wifi.createGroup()
+                        runEntryTransition(origin) {
+                            role = RoomRole.HOST
+                            isHost = true
+                            roomKindFlow.value = RoomKind.WIFI
+                            status = "正在建立 WiFi 频道……"
+                            wifi.createGroup()
+                        }
                     }
                 },
                 onJoinWifiRoom = {
@@ -849,13 +942,14 @@ class MainActivity : ComponentActivity() {
                         screen = Screen.SCAN
                     }
                 },
-                onCreateBluetoothRoom = {
+                onCreateBluetoothRoom = { origin ->
                     withBluetoothPermissions(BluetoothRoomRole.HOST) {
                         bluetooth.register()
                         val intent = bluetooth.requestDiscoverableIntent(300)
                         if (intent == null) {
                             status = bluetooth.lastError.value
                         } else {
+                            pendingBluetoothEntryOrigin = origin
                             discoverableLauncher.launch(intent)
                         }
                     }
@@ -888,6 +982,7 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 status = status ?: wifiError ?: nearbyError,
+                headerPhase = headerPhase,
             )
 
             Screen.SCAN -> ScanScreen(
@@ -960,6 +1055,7 @@ class MainActivity : ComponentActivity() {
                         CallForegroundService.refresh()
                     }
                 } else null,
+                headerPhase = headerPhase,
             )
 
             Screen.LOOPBACK -> LoopbackScreen(
@@ -968,6 +1064,38 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.HOME
                 },
             )
+                }
+            }
+            if (entryPreviewVisible) {
+                RoomScreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .sunsetCircularReveal(
+                            progress = entryTransitionProgressState,
+                            origin = entryTransitionOrigin,
+                        )
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent().changes.forEach { it.consume() }
+                                }
+                            }
+                        },
+                    state = roomState,
+                    roomLabel = when (roomKind) {
+                        RoomKind.BLUETOOTH -> if (isHost) BLUETOOTH_HOST_LABEL else BLUETOOTH_GUEST_LABEL
+                        RoomKind.NEARBY -> if (isHost) NEARBY_HOST_LABEL else NEARBY_GUEST_LABEL
+                        else -> if (isHost) HOST_LABEL else GUEST_LABEL
+                    },
+                    speakerOn = speakerOn,
+                    onToggleMute = {},
+                    onToggleSpeaker = {},
+                    onLeave = {},
+                    onPttChanged = if (roomKind == RoomKind.BLUETOOTH) ({ _ -> }) else null,
+                    entryProgress = entryTransitionProgressState,
+                    headerPhase = headerPhase,
+                )
+            }
         }
     }
 

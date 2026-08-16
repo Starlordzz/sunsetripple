@@ -28,13 +28,43 @@ class SunsetMotionTest {
     }
 
     @Test
-    fun `入房波纹从触点扩散到全屏并在末段淡出`() {
-        assertEquals(EntryRippleFrame(scale = 0f, alpha = 0.92f), SunsetMotion.entryRippleFrame(0f))
+    fun `房间页面从触点持续展开且铺满后不再退场`() {
+        assertEquals(EntryRippleFrame(scale = 0f, alpha = 1f), SunsetMotion.entryRippleFrame(0f))
+
         val middle = SunsetMotion.entryRippleFrame(0.5f)
-        assertTrue(middle.scale > 0.45f)
-        assertTrue(middle.scale < 0.55f)
-        assertTrue(middle.alpha >= 0.92f)
-        assertEquals(EntryRippleFrame(scale = 1f, alpha = 0.98f), SunsetMotion.entryRippleFrame(1f))
+        assertEquals(0.5f, middle.scale)
+        assertEquals(1f, middle.alpha)
+
+        assertEquals(EntryRippleFrame(scale = 1f, alpha = 1f), SunsetMotion.entryRippleFrame(1f))
+    }
+
+    @Test
+    fun `房间布局在展开时只收拢横幅而不二次淡入位移`() {
+        val start = SunsetMotion.roomTransitionFrame(0f)
+        val middle = SunsetMotion.roomTransitionFrame(0.5f)
+        val end = SunsetMotion.roomTransitionFrame(1f)
+
+        assertEquals(214f, start.headerHeightDp)
+        assertTrue(middle.headerHeightDp in 166f..214f)
+        assertEquals(166f, end.headerHeightDp)
+        listOf(start, middle, end).forEach { frame ->
+            assertEquals(1f, frame.contentAlpha)
+            assertEquals(0f, frame.contentTranslationDp)
+        }
+    }
+
+    @Test
+    fun `遮罩活动期间页面在其下方直接交换而不叠加第二套转场`() {
+        val method = SunsetMotion::class.java.methods.firstOrNull {
+            it.name == "useImmediateScreenSwap" && it.parameterTypes.contentEquals(arrayOf(Float::class.javaPrimitiveType))
+        }
+        assertTrue("缺少遮罩期间直接交换页面的时序策略", method != null)
+        method ?: return
+
+        assertFalse(method.invoke(SunsetMotion, 0f) as Boolean)
+        assertTrue(method.invoke(SunsetMotion, SunsetMotion.ENTRY_COVER_PHASE) as Boolean)
+        assertTrue(method.invoke(SunsetMotion, 0.99f) as Boolean)
+        assertTrue(method.invoke(SunsetMotion, 1f) as Boolean)
     }
 
     @Test
