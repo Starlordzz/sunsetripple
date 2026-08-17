@@ -23,7 +23,7 @@
   <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&color=FF7138&labelColor=3A1030"></a>
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0.20-B92F3B?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-247-F4B85C?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-253-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -56,10 +56,11 @@
 - **房主自动接管**——房主主动离房、进程崩溃、被系统杀死或链路中断时，房间会自动选出继任者并重建，而不是直接解散。
 - **连续建房转场**——从实际点击位置展开真实房间界面，首页与房间共享同一套落日页头和配色，不经过独立遮罩、黑帧或二次弹页。
 - **轻量房内控制**——成员轨道、频道核心与底部操作共用一套视觉层级；静音、扬声器和离开均使用紧凑图标控件。
+- **昼夜双配色**——白天是落日暖色，夜里换成月与海面：同一份绘制代码，页头那轮天体成为月亮，波纹成为月光在水面的反射。可跟随系统，也可手动锁定浅色或深色。
 - **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除、音频焦点协商、抖动缓冲与 Opus 丢包补偿。
 - **前台保活**——麦克风类型前台服务 + WakeLock + WifiLock，通知栏可直接静音或离开。
 - **只听模式**——被其他应用抢占音频焦点时自动降级为只听，不会静默掉线。
-- **247 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、权限分级与界面动效决策全部有覆盖，且全部是纯 JVM 测试。
+- **253 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、权限分级、界面动效与主题档位决策全部有覆盖，且全部是纯 JVM 测试。
 
 <br>
 
@@ -141,7 +142,7 @@ flowchart TD
 - **帧协议固定 6 字节头**——`[类型 1B][发送者 1B][序号 2B][长度 2B]`，负载上限 512 字节，8 种帧类型覆盖音频、入房、花名册、PTT、心跳、离开与两种房主转移帧。
 - **音频与信令分离**——WiFi 房把可靠的信令放 TCP，把可丢的音频放 UDP，并且音频直接网状发送，组主不承担转发负载。
 - **房主不信任客户端身份**——蓝牙房主会用自己分配的成员 ID 重写收到的帧头，客户端伪造 `senderId` 无效。
-- **纯 JVM 的决策层**——权限分级、房间流转、房主选举、混音计划和界面动效决策都抽成了不依赖 Android 的对象，因此 247 个测试全部能在普通 JVM 上运行，无需模拟器。
+- **纯 JVM 的决策层**——权限分级、房间流转、房主选举、混音计划、界面动效和主题档位决策都抽成了不依赖 Android 的对象，因此 253 个测试全部能在普通 JVM 上运行，无需模拟器。
 - **真实界面参与转场**——`MainActivity` 同时绘制首页与实际 `RoomScreen`，圆形揭示只负责裁剪可见区域；动画状态读取收敛在绘制层，避免逐帧重组整棵 Compose 页面。
 - **Opus 走纯 JVM 实现**（Concentus），构建不需要 NDK，产物不含 `.so`。
 
@@ -175,7 +176,7 @@ export JAVA_HOME=/path/to/jdk-17
 
 <br>
 
-当前版本 **`0.1.0-alpha.3`**，属于早期公开测试阶段：核心链路已跑通并有较厚的单元测试，但多机真机验收还没做完。
+当前版本 **`0.1.0-alpha.4`**，属于早期公开测试阶段：核心链路已跑通并有较厚的单元测试，但多机真机验收还没做完。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -187,7 +188,8 @@ export JAVA_HOME=/path/to/jdk-17
 | 连续 A→B→C 转移 | ⚠️ 待真机验收 |
 | Nearby 房 | ⏸ 已实现，入口隐藏 |
 | 锁屏通知交互 | ⏸ 已搁置 |
-| 深色模式 / 多语言 | ❌ 暂无计划 |
+| 昼夜双配色与三档切换 | ✅ 可用 |
+| 多语言 | ❌ 暂无计划 |
 
 <br>
 
@@ -199,6 +201,7 @@ export JAVA_HOME=/path/to/jdk-17
 - **WiFi 房转移会中断语音**——继任过程需要重建 WiFi Direct 组，期间语音短暂中断，系统可能再次弹出连接确认。
 - **Nearby 房入口隐藏**——依赖 Google Play 服务，且不支持房主转移。
 - **锁屏通知未保证**——通知展示与按钮交互已搁置；屏幕关闭后的后台音频保活代码仍保留。
+- **夜间配色未上真机**——仅在模拟器上完成视觉核对，尚未在真机屏幕上验收。
 - **无真机矩阵验证**——三机连续转移、WiFi 系统确认弹窗、语音恢复耗时仍待验收，因此本版本仅作为 alpha 发布。
 
 <br>
