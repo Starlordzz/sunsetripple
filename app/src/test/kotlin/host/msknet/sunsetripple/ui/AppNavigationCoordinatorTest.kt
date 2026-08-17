@@ -27,6 +27,10 @@ class AppNavigationCoordinatorTest {
 
         transientScreens.forEach { screen ->
             assertEquals(Screen.HOME, ScreenRestoration.restore(ScreenRestoration.save(screen)))
+            assertEquals(
+                ScreenRestoration.TRANSIENT_SCREEN_MESSAGE,
+                ScreenRestoration.restoreState(ScreenRestoration.save(screen)).message,
+            )
         }
     }
 
@@ -34,5 +38,6 @@ class AppNavigationCoordinatorTest {
     fun missingOrUnknownStateRestoresToHome() {
         assertEquals(Screen.HOME, ScreenRestoration.restore(null))
         assertEquals(Screen.HOME, ScreenRestoration.restore("REMOVED_SCREEN"))
+        assertEquals(null, ScreenRestoration.restoreState("REMOVED_SCREEN").message)
     }
 }

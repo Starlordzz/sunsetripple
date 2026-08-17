@@ -1,10 +1,9 @@
 package host.msknet.sunsetripple
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.media.AudioManager
 import android.os.Build
@@ -13,9 +12,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -47,7 +44,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.toArgb
-import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -74,7 +70,6 @@ import host.msknet.sunsetripple.transport.wifi.WifiClientTransport
 import host.msknet.sunsetripple.transport.wifi.WifiDirectManager
 import host.msknet.sunsetripple.transport.wifi.WifiHostTransport
 import host.msknet.sunsetripple.ui.GroupInfo
-import host.msknet.sunsetripple.ui.BluetoothPermissions
 import host.msknet.sunsetripple.ui.BluetoothRoomRole
 import host.msknet.sunsetripple.ui.BluetoothScanScreen
 import host.msknet.sunsetripple.ui.EntryTransitionGate
@@ -85,8 +80,8 @@ import host.msknet.sunsetripple.ui.AppCoordinator
 import host.msknet.sunsetripple.ui.HostTransferAction
 import host.msknet.sunsetripple.ui.HostTransferFlow
 import host.msknet.sunsetripple.ui.LoopbackScreen
-import host.msknet.sunsetripple.ui.NearbyPermissions
-import host.msknet.sunsetripple.ui.PendingActionQueue
+import host.msknet.sunsetripple.ui.rememberPermissionLaunchers
+import host.msknet.sunsetripple.ui.rememberDiscoverableLauncher
 import host.msknet.sunsetripple.ui.NearbyScanScreen
 import host.msknet.sunsetripple.ui.RoomFlow
 import host.msknet.sunsetripple.ui.RoomPermissions
@@ -164,11 +159,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        navigation = AppNavigationCoordinator(
-            ScreenRestoration.restore(savedInstanceState?.getString(STATE_SCREEN)),
-        )
+        val restoredState = ScreenRestoration.restoreState(savedInstanceState?.getString(STATE_SCREEN))
+        navigation = AppNavigationCoordinator(restoredState.screen)
         appCoordinator = AppCoordinator(
             Build.MODEL?.take(8)?.trim().orEmpty().ifEmpty { "我" },
+            initialStatus = restoredState.message,
         )
         if (AppWindowPolicy.keepScreenOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -377,6 +372,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    @SuppressLint("MissingPermission")
     private fun App(
         themeMode: ThemeMode,
         onCycleThemeMode: () -> Unit,
@@ -395,13 +391,7 @@ class MainActivity : ComponentActivity() {
         val role = appState.roomRole
         val isHost = appState.isHost
         val speakerOn = appState.speakerOn
-        val roomPermissionActions = remember { PendingActionQueue<() -> Unit>() }
-        val micPermissionActions = remember { PendingActionQueue<() -> Unit>() }
-        val bluetoothPermissionActions = remember {
-            PendingActionQueue<Pair<BluetoothRoomRole, () -> Unit>>()
-        }
         var pendingBluetoothEntryOrigin by remember { mutableStateOf<Offset?>(null) }
-        val nearbyPermissionActions = remember { PendingActionQueue<() -> Unit>() }
         var pendingWifiTransferSeed by remember { mutableStateOf<HostTransferSeed?>(null) }
         var wifiTransferTarget by remember { mutableStateOf<String?>(null) }
         val entryTransition = remember { EntryTransitionGate() }
@@ -445,9 +435,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-        val required = remember(sdkInt) { RoomPermissions.required(sdkInt) }
-        val requested = remember(sdkInt) { RoomPermissions.requested(sdkInt).toTypedArray() }
 
         val connection by wifi.connection.collectAsStateWithLifecycle()
         val peers by wifi.peers.collectAsStateWithLifecycle()
@@ -496,61 +483,15 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(context, RoomPermissions.LOCATION_SERVICE_OFF_HINT, Toast.LENGTH_LONG).show()
         }
 
-        val roomPermLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { result ->
-            val action = roomPermissionActions.take()
-            val denied = RoomPermissions.blockingDenied(result, sdkInt)
-            if (denied.isEmpty()) {
-                action?.let { runWhenLocationReady(it) }
-            } else {
-                val message = RoomPermissions.deniedMessage(denied)
+        val permissionLaunchers = rememberPermissionLaunchers(
+            context = context,
+            sdkInt = sdkInt,
+            runWhenLocationReady = ::runWhenLocationReady,
+            onDenied = { message ->
                 appCoordinator.setStatus(message)
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-            }
-        }
-
-        val micPermLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { granted ->
-            val action = micPermissionActions.take()
-            if (granted) {
-                action?.invoke()
-            } else {
-                appCoordinator.setStatus("缺少麦克风权限，无法录音")
-                Toast.makeText(context, "缺少麦克风权限，无法录音", Toast.LENGTH_LONG).show()
-            }
-        }
-
-        val bluetoothPermLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { result ->
-            val pending = bluetoothPermissionActions.take()
-                ?: return@rememberLauncherForActivityResult
-            val (bluetoothRole, action) = pending
-            val denied = BluetoothPermissions.blockingDenied(result, sdkInt, bluetoothRole)
-            if (denied.isEmpty()) {
-                action.invoke()
-            } else {
-                val message = BluetoothPermissions.deniedMessage(denied)
-                appCoordinator.setStatus(message)
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-            }
-        }
-
-        val nearbyPermLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { result ->
-            val action = nearbyPermissionActions.take()
-            val denied = NearbyPermissions.blockingDenied(result, sdkInt)
-            if (denied.isEmpty()) {
-                action?.invoke()
-            } else {
-                val message = NearbyPermissions.deniedMessage(denied)
-                appCoordinator.setStatus(message)
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-            }
-        }
+            },
+        )
 
         fun startBluetoothHost(
             transferSeed: HostTransferSeed? = null,
@@ -580,14 +521,15 @@ class MainActivity : ComponentActivity() {
                 }
         }
 
-        val discoverableLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
+        val launchDiscoverable = rememberDiscoverableLauncher(
+            onCanceled = {
+                pendingBluetoothEntryOrigin = null
+                appCoordinator.setStatus("需要允许蓝牙可发现才能创建房间")
+            },
+            onAllowed = {
             val origin = pendingBluetoothEntryOrigin
             pendingBluetoothEntryOrigin = null
-            if (result.resultCode == RESULT_CANCELED) {
-                appCoordinator.setStatus("需要允许蓝牙可发现才能创建房间")
-            } else if (origin != null) {
+            if (origin != null) {
                 runEntryTransition(origin) {
                     roomLifecycle.setRoomKind(RoomKind.BLUETOOTH)
                     appCoordinator.setHost(true)
@@ -595,58 +537,8 @@ class MainActivity : ComponentActivity() {
                     startBluetoothHost()
                 }
             }
-        }
-
-        /** 进房前置条件：权限齐 +（旧版本上）系统定位服务开着。 */
-        fun withRoomPreconditions(action: () -> Unit) {
-            val missing = required.any {
-                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing) {
-                roomPermissionActions.replace(action)
-                roomPermLauncher.launch(requested)
-            } else {
-                runWhenLocationReady(action)
-            }
-        }
-
-        /** 回环自测只碰麦克风，不该被 WiFi 权限或定位开关挡住。 */
-        fun withMicPermission(action: () -> Unit) {
-            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
-            if (granted) {
-                action()
-            } else {
-                micPermissionActions.replace(action)
-                micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        }
-
-        fun withBluetoothPermissions(bluetoothRole: BluetoothRoomRole, action: () -> Unit) {
-            val requiredPermissions = BluetoothPermissions.required(sdkInt, bluetoothRole)
-            val missing = requiredPermissions.any {
-                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing) {
-                bluetoothPermissionActions.replace(bluetoothRole to action)
-                bluetoothPermLauncher.launch(requiredPermissions.toTypedArray())
-            } else {
-                action()
-            }
-        }
-
-        fun withNearbyPermissions(action: () -> Unit) {
-            val permissions = NearbyPermissions.required(sdkInt)
-            val missing = permissions.any {
-                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing) {
-                nearbyPermissionActions.replace(action)
-                nearbyPermLauncher.launch(permissions.toTypedArray())
-            } else {
-                action()
-            }
-        }
+            },
+        )
 
         fun startNearbyHost() {
             val manager = NearbyRoomManager(this)
@@ -978,7 +870,7 @@ class MainActivity : ComponentActivity() {
                 nickname = nickname,
                 onNicknameChange = appCoordinator::setNickname,
                 onCreateWifiRoom = { origin ->
-                    withRoomPreconditions {
+                    permissionLaunchers.withRoomPreconditions {
                         runEntryTransition(origin) {
                             appCoordinator.setRoomRole(RoomRole.HOST)
                             appCoordinator.setHost(true)
@@ -989,7 +881,7 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onJoinWifiRoom = {
-                    withRoomPreconditions {
+                    permissionLaunchers.withRoomPreconditions {
                         appCoordinator.setRoomRole(RoomRole.GUEST)
                         appCoordinator.setStatus(null)
                         wifi.discoverPeers()
@@ -997,19 +889,19 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onCreateBluetoothRoom = { origin ->
-                    withBluetoothPermissions(BluetoothRoomRole.HOST) {
+                    permissionLaunchers.withBluetoothPermissions(BluetoothRoomRole.HOST) {
                         bluetooth.register()
                         val intent = bluetooth.requestDiscoverableIntent(300)
                         if (intent == null) {
                             appCoordinator.setStatus(bluetooth.lastError.value)
                         } else {
                             pendingBluetoothEntryOrigin = origin
-                            discoverableLauncher.launch(intent)
+                        launchDiscoverable(intent)
                         }
                     }
                 },
                 onJoinBluetoothRoom = {
-                    withBluetoothPermissions(BluetoothRoomRole.GUEST) {
+                    permissionLaunchers.withBluetoothPermissions(BluetoothRoomRole.GUEST) {
                         bluetooth.register()
                         bluetooth.discoverDevices()
                         appCoordinator.setStatus(null)
@@ -1017,13 +909,13 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onCreateNearbyRoom = {
-                    withNearbyPermissions { startNearbyHost() }
+                    permissionLaunchers.withNearbyPermissions { startNearbyHost() }
                 },
                 onJoinNearbyRoom = {
-                    withNearbyPermissions { startNearbyDiscovery() }
+                    permissionLaunchers.withNearbyPermissions { startNearbyDiscovery() }
                 },
                  onLoopbackTest = {
-                    withMicPermission {
+                    permissionLaunchers.withMicPermission {
                         runCatching { loopback.start() }
                             .onSuccess {
                                 appCoordinator.setStatus(null)

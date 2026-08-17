@@ -2,7 +2,7 @@
 
 > **状态：执行中。** 本计划基于 `0.1.0-alpha.4`，优先改善 Android 单平台的产品完整性、可靠性和可维护性；iOS 与 HarmonyOS NEXT 仍按《多平台设想》单独评估，不作为本计划前置条件。
 
-截至 2026-08-17，阶段 0 接近完成：`AppCoordinator`、`AppNavigationCoordinator`、`ThemeCoordinator`、`LanguagePolicy`、权限一次性队列和 `AboutUpdateCoordinator` 已把主要状态与事件移出 Compose；`RoomLifecycleCoordinator` 统一拥有三类会话、房型和幂等释放顺序；更新模块已暴露 `check/download/install` 服务契约，未实现动作会明确返回不支持。Activity `SavedState` 可恢复稳定的关于页，依赖活跃连接的房间、扫描和回环页面重建后安全回首页。剩余验收缺口是 `MainActivity` 仍有约 1,200 行 Android 权限 launcher、传输构造和根 Compose 接线，尚未瘦成纯宿主；进程死亡后的活跃通话恢复也未实现。阶段 1 的“关于与更新”首个垂直切片已落地，但签名更新清单、下载与安装仍未开始；阶段 2、3、5 尚未开始，阶段 4、6 只有既有基础能力。
+截至 2026-08-17，阶段 0 已完成：`AppCoordinator`、`AppNavigationCoordinator`、`ThemeCoordinator`、`LanguagePolicy`、权限 adapter 和 `AboutUpdateCoordinator` 已把主要状态、权限结果归约与事件移出 Compose；`RoomLifecycleCoordinator` 统一拥有三类会话、房型和幂等释放顺序；更新模块已暴露 `check/download/install` 服务契约，未实现动作会明确返回不支持。Activity `SavedState` 可恢复稳定的关于页；依赖活跃连接的房间、扫描和回环页面在 Activity 或进程重建后安全回首页并给出连接已结束提示。`MainActivity` 只保留 Android 资源适配、传输构造和根 Compose 接线，不再直接持有权限 launcher 或可变业务 UI 状态。阶段 1 的“关于与更新”首个垂直切片已落地，但签名更新清单、下载与安装仍未开始；阶段 2、3、5 尚未开始，阶段 4、6 只有既有基础能力。
 
 ## 一、目标与原则
 

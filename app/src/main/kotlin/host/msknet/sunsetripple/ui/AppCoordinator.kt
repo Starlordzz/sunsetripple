@@ -12,8 +12,13 @@ data class AppUiState(
     val speakerOn: Boolean = true,
 )
 
-class AppCoordinator(initialNickname: String) {
-    private val _state = MutableStateFlow(AppUiState(nickname = initialNickname))
+class AppCoordinator(
+    initialNickname: String,
+    initialStatus: String? = null,
+) {
+    private val _state = MutableStateFlow(
+        AppUiState(nickname = initialNickname, status = initialStatus),
+    )
     val state: StateFlow<AppUiState> = _state.asStateFlow()
 
     fun setNickname(nickname: String) = update { copy(nickname = nickname.take(16)) }
