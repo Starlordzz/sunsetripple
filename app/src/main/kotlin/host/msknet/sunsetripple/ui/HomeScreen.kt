@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun HomeScreen(
+    versionName: String,
     nickname: String,
     onNicknameChange: (String) -> Unit,
     onCreateWifiRoom: (Offset) -> Unit,
@@ -46,6 +47,7 @@ fun HomeScreen(
     onCreateNearbyRoom: () -> Unit,
     onJoinNearbyRoom: () -> Unit,
     onLoopbackTest: () -> Unit,
+    onAboutUpdate: () -> Unit,
     status: String?,
     headerPhase: State<Float>? = null,
     themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM,
@@ -220,6 +222,21 @@ fun HomeScreen(
                                 )
                             }
                         }
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    Text(
+                        text = "v$versionName · 关于与更新",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        color = SunsetColors.Muted,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                    )
+                    SunsetOutlinedButton(
+                        onClick = onAboutUpdate,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                    ) {
+                        Text("查看关于与更新")
                     }
                 }
             }

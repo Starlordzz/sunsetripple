@@ -78,6 +78,7 @@ import host.msknet.sunsetripple.ui.BluetoothRoomRole
 import host.msknet.sunsetripple.ui.BluetoothScanScreen
 import host.msknet.sunsetripple.ui.EntryTransitionGate
 import host.msknet.sunsetripple.ui.HomeScreen
+import host.msknet.sunsetripple.ui.AboutUpdateScreen
 import host.msknet.sunsetripple.ui.HostTransferAction
 import host.msknet.sunsetripple.ui.HostTransferFlow
 import host.msknet.sunsetripple.ui.LoopbackScreen
@@ -100,6 +101,8 @@ import host.msknet.sunsetripple.ui.ThemeModeResolver
 import host.msknet.sunsetripple.ui.ThemeModeStore
 import host.msknet.sunsetripple.ui.SunsetColors
 import host.msknet.sunsetripple.ui.SunsetMotion
+import host.msknet.sunsetripple.update.UpdateChecker
+import host.msknet.sunsetripple.update.UpdateState
 import host.msknet.sunsetripple.ui.sunsetCircularReveal
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
@@ -379,8 +382,13 @@ class MainActivity : ComponentActivity() {
         val sdkInt = Build.VERSION.SDK_INT
 
         var screen by remember { mutableStateOf(Screen.HOME) }
+        val versionName = remember {
+            packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+        }
         var nickname by remember { mutableStateOf(Build.MODEL?.take(8)?.trim().orEmpty().ifEmpty { "我" }) }
         var status by remember { mutableStateOf<String?>(null) }
+        var updateState by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
+        val updateChecker = remember { UpdateChecker { Result.success(null) } }
         var role by remember { mutableStateOf(RoomRole.NONE) }
         var isHost by remember { mutableStateOf(false) }
         var speakerOn by remember { mutableStateOf(true) }
@@ -955,6 +963,7 @@ class MainActivity : ComponentActivity() {
                     goHome(null)
                 }
                 Screen.HOME -> Unit
+                Screen.ABOUT_UPDATE -> screen = Screen.HOME
             }
         }
 
@@ -973,6 +982,7 @@ class MainActivity : ComponentActivity() {
             ) { targetScreen ->
                 when (targetScreen) {
             Screen.HOME -> HomeScreen(
+                versionName = versionName,
                 nickname = nickname,
                 onNicknameChange = { nickname = it.take(16) },
                 onCreateWifiRoom = { origin ->
@@ -1020,7 +1030,7 @@ class MainActivity : ComponentActivity() {
                 onJoinNearbyRoom = {
                     withNearbyPermissions { startNearbyDiscovery() }
                 },
-                onLoopbackTest = {
+                 onLoopbackTest = {
                     withMicPermission {
                         runCatching { loopback.start() }
                             .onSuccess {
@@ -1032,11 +1042,31 @@ class MainActivity : ComponentActivity() {
                                 Toast.makeText(context, "回环启动失败：${it.message}", Toast.LENGTH_LONG).show()
                             }
                     }
-                },
+                 },
+                 onAboutUpdate = { screen = Screen.ABOUT_UPDATE },
                 status = status ?: wifiError ?: nearbyError,
                 headerPhase = headerPhase,
                 themeMode = themeMode,
                 onCycleThemeMode = onCycleThemeMode,
+             )
+
+            Screen.ABOUT_UPDATE -> AboutUpdateScreen(
+                versionName = versionName,
+                updateState = updateState,
+                onCheckUpdate = { updateState = updateChecker.check() },
+                onOpenGithub = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://github.com/Starlordzz/sunsetripple"),
+                            ),
+                        )
+                    }.onFailure {
+                        updateState = UpdateState.Failed("没有可用的浏览器")
+                    }
+                },
+                onClose = { screen = Screen.HOME },
             )
 
             Screen.SCAN -> ScanScreen(

@@ -1,7 +1,7 @@
 package host.msknet.sunsetripple.ui
 
 /** 三屏导航。 */
-enum class Screen { HOME, SCAN, BLUETOOTH_SCAN, NEARBY_SCAN, ROOM, LOOPBACK }
+enum class Screen { HOME, SCAN, BLUETOOTH_SCAN, NEARBY_SCAN, ROOM, LOOPBACK, ABOUT_UPDATE }
 
 /** 用户在首页表达的意图。真实主客身份仍以系统协商结果为准，见 [RoomFlow.decide]。 */
 enum class RoomRole { NONE, HOST, GUEST }
