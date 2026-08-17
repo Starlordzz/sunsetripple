@@ -8,6 +8,15 @@
 
 **技术栈：** Kotlin、Jetpack Compose Material 3、JUnit 4、现有单 Activity 导航。
 
+## 实际执行状态
+
+截至 2026-08-17，本切片已在提交 `233c879` 中完成主体接线，并在后续工作区补齐三段内容展开与决策测试。实现没有按下列清单拆成逐任务提交，因此保留原复选框作为计划记录，不把未实际执行的“先失败”步骤伪标为完成。
+
+- 已完成：更新状态模型、重复检查保护测试、关于页、首页入口、运行时版本、GitHub Intent、返回行为、可展开内容和文档同步。
+- 已验证：`UpdateCheckerTest` 与 `AboutUpdateScreenTest` 通过。
+- 待完成：签名更新源、SHA-256、下载、系统安装确认，以及路线图后续阶段。
+- 待门禁：本轮工作区的 `testDebugUnitTest`、`assembleDebug`、`lintDebug` 全量验证。
+
 ---
 
 ### 任务 1：定义更新状态与纯 JVM 检查器

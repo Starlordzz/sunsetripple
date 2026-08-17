@@ -24,4 +24,18 @@ class UpdateCheckerTest {
 
         assertEquals(UpdateState.Failed("offline"), checker.check())
     }
+
+    @Test
+    fun checkingStateRejectsAReentrantCheck() {
+        lateinit var checker: UpdateChecker
+        var sourceCalls = 0
+        checker = UpdateChecker(UpdateSource {
+            sourceCalls += 1
+            assertEquals(UpdateState.Checking, checker.check())
+            Result.success(null)
+        })
+
+        assertEquals(UpdateState.UpToDate, checker.check())
+        assertEquals(1, sourceCalls)
+    }
 }
