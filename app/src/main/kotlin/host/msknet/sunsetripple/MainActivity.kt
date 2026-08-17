@@ -101,8 +101,8 @@ import host.msknet.sunsetripple.ui.ThemeModeResolver
 import host.msknet.sunsetripple.ui.ThemeModeStore
 import host.msknet.sunsetripple.ui.SunsetColors
 import host.msknet.sunsetripple.ui.SunsetMotion
+import host.msknet.sunsetripple.update.AboutUpdateCoordinator
 import host.msknet.sunsetripple.update.UpdateChecker
-import host.msknet.sunsetripple.update.UpdateState
 import host.msknet.sunsetripple.ui.sunsetCircularReveal
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
@@ -129,6 +129,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var bluetooth: BluetoothRoomManager
     private lateinit var audioFocus: AudioFocusController
     private val loopback = LoopbackController()
+    private val aboutUpdateCoordinator = AboutUpdateCoordinator(
+        UpdateChecker { Result.success(null) },
+    )
 
     /** 昼夜取向要跨启动记住，否则冷启动会把用户手动选的档位打回跟随系统。 */
     private val themeModeStore by lazy { ThemeModeStore(this) }
@@ -387,8 +390,7 @@ class MainActivity : ComponentActivity() {
         }
         var nickname by remember { mutableStateOf(Build.MODEL?.take(8)?.trim().orEmpty().ifEmpty { "我" }) }
         var status by remember { mutableStateOf<String?>(null) }
-        var updateState by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
-        val updateChecker = remember { UpdateChecker { Result.success(null) } }
+        val updateState = aboutUpdateCoordinator.state.collectAsStateWithLifecycle().value
         var role by remember { mutableStateOf(RoomRole.NONE) }
         var isHost by remember { mutableStateOf(false) }
         var speakerOn by remember { mutableStateOf(true) }
@@ -1053,7 +1055,7 @@ class MainActivity : ComponentActivity() {
             Screen.ABOUT_UPDATE -> AboutUpdateScreen(
                 versionName = versionName,
                 updateState = updateState,
-                onCheckUpdate = { updateState = updateChecker.check() },
+                onCheckUpdate = aboutUpdateCoordinator::check,
                 onOpenGithub = {
                     runCatching {
                         context.startActivity(
@@ -1063,7 +1065,7 @@ class MainActivity : ComponentActivity() {
                             ),
                         )
                     }.onFailure {
-                        updateState = UpdateState.Failed("没有可用的浏览器")
+                        aboutUpdateCoordinator.reportFailure("没有可用的浏览器")
                     }
                 },
                 onClose = { screen = Screen.HOME },
