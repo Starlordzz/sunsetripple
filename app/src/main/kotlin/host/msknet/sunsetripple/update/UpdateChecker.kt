@@ -12,6 +12,30 @@ fun interface UpdateSource {
     fun check(): Result<String?>
 }
 
+sealed interface UpdateActionResult {
+    data object Started : UpdateActionResult
+    data class Unsupported(val reason: String) : UpdateActionResult
+    data class Failed(val message: String) : UpdateActionResult
+}
+
+interface UpdateService {
+    fun check(): UpdateState
+    fun download(): UpdateActionResult
+    fun install(): UpdateActionResult
+}
+
+class CheckOnlyUpdateService(
+    private val checker: UpdateChecker,
+) : UpdateService {
+    override fun check(): UpdateState = checker.check()
+
+    override fun download(): UpdateActionResult =
+        UpdateActionResult.Unsupported("更新下载尚未接入")
+
+    override fun install(): UpdateActionResult =
+        UpdateActionResult.Unsupported("更新安装尚未接入")
+}
+
 class UpdateChecker(private val source: UpdateSource) {
     var state: UpdateState = UpdateState.Idle
         private set

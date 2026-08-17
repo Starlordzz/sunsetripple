@@ -49,4 +49,19 @@ class ThemeModeTest {
         assertEquals(ThemeMode.FOLLOW_SYSTEM, ThemeModeResolver.fromStoredValue(""))
         assertEquals(ThemeMode.FOLLOW_SYSTEM, ThemeModeResolver.fromStoredValue("midnight"))
     }
+
+    @Test
+    fun `主题协调器读取存档并在切换后持久化`() {
+        val saved = mutableListOf<ThemeMode>()
+        val persistence = object : ThemeModePersistence {
+            override fun load(): ThemeMode = ThemeMode.LIGHT
+            override fun save(mode: ThemeMode) { saved += mode }
+        }
+        val coordinator = ThemeCoordinator(persistence)
+
+        coordinator.cycle()
+
+        assertEquals(ThemeMode.DARK, coordinator.mode.value)
+        assertEquals(listOf(ThemeMode.DARK), saved)
+    }
 }

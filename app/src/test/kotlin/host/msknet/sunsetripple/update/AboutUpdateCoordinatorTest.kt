@@ -7,7 +7,7 @@ class AboutUpdateCoordinatorTest {
     @Test
     fun checkPublishesCheckerResult() {
         val coordinator = AboutUpdateCoordinator(
-            UpdateChecker(UpdateSource { Result.success("0.1.0-alpha.6") }),
+            CheckOnlyUpdateService(UpdateChecker(UpdateSource { Result.success("0.1.0-alpha.6") })),
         )
 
         coordinator.check()
@@ -18,7 +18,7 @@ class AboutUpdateCoordinatorTest {
     @Test
     fun adapterFailureCanBePublished() {
         val coordinator = AboutUpdateCoordinator(
-            UpdateChecker(UpdateSource { Result.success(null) }),
+            CheckOnlyUpdateService(UpdateChecker(UpdateSource { Result.success(null) })),
         )
 
         coordinator.reportFailure("没有可用的浏览器")

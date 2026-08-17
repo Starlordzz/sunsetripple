@@ -5,13 +5,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class AboutUpdateCoordinator(
-    private val checker: UpdateChecker,
+    private val updateService: UpdateService,
 ) {
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
     fun check() {
-        _state.value = checker.check()
+        _state.value = updateService.check()
     }
 
     fun reportFailure(message: String) {

@@ -1,5 +1,9 @@
 package host.msknet.sunsetripple.ui
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
  * 界面配色的三档取向。手动两档压过系统开关，[FOLLOW_SYSTEM] 才把决定权交回系统。
  */
@@ -7,6 +11,24 @@ enum class ThemeMode {
     FOLLOW_SYSTEM,
     LIGHT,
     DARK,
+}
+
+interface ThemeModePersistence {
+    fun load(): ThemeMode
+    fun save(mode: ThemeMode)
+}
+
+class ThemeCoordinator(
+    private val persistence: ThemeModePersistence,
+) {
+    private val _mode = MutableStateFlow(persistence.load())
+    val mode: StateFlow<ThemeMode> = _mode.asStateFlow()
+
+    fun cycle() {
+        val next = ThemeModeResolver.next(_mode.value)
+        persistence.save(next)
+        _mode.value = next
+    }
 }
 
 /**

@@ -38,4 +38,12 @@ class UpdateCheckerTest {
         assertEquals(UpdateState.UpToDate, checker.check())
         assertEquals(1, sourceCalls)
     }
+
+    @Test
+    fun checkOnlyServiceMakesUnsupportedActionsExplicit() {
+        val service = CheckOnlyUpdateService(UpdateChecker(UpdateSource { Result.success(null) }))
+
+        assertEquals(UpdateActionResult.Unsupported("更新下载尚未接入"), service.download())
+        assertEquals(UpdateActionResult.Unsupported("更新安装尚未接入"), service.install())
+    }
 }

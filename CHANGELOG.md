@@ -11,6 +11,9 @@
 
 - 启动应用编排拆分：关于页更新状态和适配器失败事件由纯 Kotlin coordinator 统一管理，Compose 只收集不可变状态并转发事件。
 - 导航状态统一交给纯 Kotlin coordinator；Activity 重建时恢复关于页，房间、扫描和回环等瞬态页面安全回到首页。
+- 应用昵称、提示、主客意图和扬声器选择改由不可变 `AppUiState` 管理；主题状态、系统语言策略和权限等待动作均有独立纯 Kotlin 模块。
+- 三类房间的会话所有权与释放顺序收口到 `RoomLifecycleCoordinator`，WiFi 房主转移保留组网和客户端连接身份守卫保持不变。
+- 更新模块新增 `check/download/install` 服务契约；当前检查专用实现会对尚未接入的下载和安装动作明确返回不支持。
 
 ### 已知限制
 
