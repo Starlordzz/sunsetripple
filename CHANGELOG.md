@@ -10,6 +10,7 @@
 ### 变更
 
 - 启动应用编排拆分：关于页更新状态和适配器失败事件由纯 Kotlin coordinator 统一管理，Compose 只收集不可变状态并转发事件。
+- 导航状态统一交给纯 Kotlin coordinator；Activity 重建时恢复关于页，房间、扫描和回环等瞬态页面安全回到首页。
 
 ### 已知限制
 

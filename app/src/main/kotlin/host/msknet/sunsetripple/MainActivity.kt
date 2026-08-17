@@ -79,6 +79,7 @@ import host.msknet.sunsetripple.ui.BluetoothScanScreen
 import host.msknet.sunsetripple.ui.EntryTransitionGate
 import host.msknet.sunsetripple.ui.HomeScreen
 import host.msknet.sunsetripple.ui.AboutUpdateScreen
+import host.msknet.sunsetripple.ui.AppNavigationCoordinator
 import host.msknet.sunsetripple.ui.HostTransferAction
 import host.msknet.sunsetripple.ui.HostTransferFlow
 import host.msknet.sunsetripple.ui.LoopbackScreen
@@ -92,6 +93,7 @@ import host.msknet.sunsetripple.ui.RoomScreen
 import host.msknet.sunsetripple.ui.RoomStart
 import host.msknet.sunsetripple.ui.ScanScreen
 import host.msknet.sunsetripple.ui.Screen
+import host.msknet.sunsetripple.ui.ScreenRestoration
 import host.msknet.sunsetripple.ui.SunsetNightPalette
 import host.msknet.sunsetripple.ui.SunsetDayPalette
 import host.msknet.sunsetripple.ui.SunsetPalette
@@ -132,6 +134,7 @@ class MainActivity : ComponentActivity() {
     private val aboutUpdateCoordinator = AboutUpdateCoordinator(
         UpdateChecker { Result.success(null) },
     )
+    private lateinit var navigation: AppNavigationCoordinator
 
     /** 昼夜取向要跨启动记住，否则冷启动会把用户手动选的档位打回跟随系统。 */
     private val themeModeStore by lazy { ThemeModeStore(this) }
@@ -154,6 +157,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        navigation = AppNavigationCoordinator(
+            ScreenRestoration.restore(savedInstanceState?.getString(STATE_SCREEN)),
+        )
         if (AppWindowPolicy.keepScreenOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
@@ -207,6 +213,11 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleLeaveIntent(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_SCREEN, ScreenRestoration.save(navigation.screen.value))
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
@@ -384,7 +395,7 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
         val sdkInt = Build.VERSION.SDK_INT
 
-        var screen by remember { mutableStateOf(Screen.HOME) }
+        val screen = navigation.screen.collectAsStateWithLifecycle().value
         val versionName = remember {
             packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
         }
@@ -432,7 +443,7 @@ class MainActivity : ComponentActivity() {
                         animationSpec = tween(560, easing = LinearOutSlowInEasing),
                     )
                     if (entryPreviewVisible) {
-                        screen = Screen.ROOM
+                        navigation.navigateTo(Screen.ROOM)
                         withFrameNanos { }
                     }
                 } finally {
@@ -482,7 +493,7 @@ class MainActivity : ComponentActivity() {
             releaseRoom()
             role = RoomRole.NONE
             status = message
-            screen = Screen.HOME
+            navigation.navigateTo(Screen.HOME)
         }
 
         fun runWhenLocationReady(action: () -> Unit) {
@@ -575,7 +586,7 @@ class MainActivity : ComponentActivity() {
             runCatching { newSession.start(transport) }
                 .onSuccess {
                     status = null
-                    if (!entryPreviewVisible) screen = Screen.ROOM
+                    if (!entryPreviewVisible) navigation.navigateTo(Screen.ROOM)
                 }
                 .onFailure { error ->
                     TransportLog.w("蓝牙建房失败: ${error.message}", error)
@@ -675,7 +686,7 @@ class MainActivity : ComponentActivity() {
                 transport.start()
             }.onSuccess {
                 status = null
-                screen = Screen.ROOM
+                navigation.navigateTo(Screen.ROOM)
             }.onFailure { error ->
                 TransportLog.w("Nearby 建房失败: ${error.message}", error)
                 goHome("Nearby 建房失败：${error.message}")
@@ -690,7 +701,7 @@ class MainActivity : ComponentActivity() {
             manager.startDiscovery()
             if (manager.lastError.value == null) {
                 status = null
-                screen = Screen.NEARBY_SCAN
+                navigation.navigateTo(Screen.NEARBY_SCAN)
             } else {
                 status = manager.lastError.value
                 releaseRoom()
@@ -721,7 +732,7 @@ class MainActivity : ComponentActivity() {
                 transport.start()
             }.onSuccess {
                 status = "正在连接 ${endpoint.name}……"
-                screen = Screen.ROOM
+                navigation.navigateTo(Screen.ROOM)
             }.onFailure { error ->
                 TransportLog.w("Nearby 入房失败: ${error.message}", error)
                 goHome("Nearby 入房失败：${error.message}")
@@ -752,7 +763,7 @@ class MainActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     status = null
-                    screen = Screen.ROOM
+                    navigation.navigateTo(Screen.ROOM)
                 }
             }
         }
@@ -784,7 +795,7 @@ class MainActivity : ComponentActivity() {
             }
             status = null
             pendingWifiTransferSeed = null
-            if (!entryPreviewVisible) screen = Screen.ROOM
+            if (!entryPreviewVisible) navigation.navigateTo(Screen.ROOM)
         }
 
         fun startGuest(hostIp: String) {
@@ -831,7 +842,7 @@ class MainActivity : ComponentActivity() {
                     }
                     status = null
                     wifiTransferTarget = null
-                    screen = Screen.ROOM
+                    navigation.navigateTo(Screen.ROOM)
                 }
             }
         }
@@ -853,7 +864,7 @@ class MainActivity : ComponentActivity() {
                     role = RoomRole.NONE
                     wifi.disconnect()
                     status = reason
-                    screen = Screen.HOME
+                    navigation.navigateTo(Screen.HOME)
                     Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
                 }
                 is RoomStart.Host -> startHost(start.hostIp, pendingWifiTransferSeed)
@@ -915,7 +926,7 @@ class MainActivity : ComponentActivity() {
                         isHost = true
                         roomKindFlow.value = null
                         wifi.createGroup()
-                        screen = Screen.ROOM
+                        navigation.navigateTo(Screen.ROOM)
                     }
                     is HostTransferAction.JoinHost -> {
                         pendingWifiTransferSeed = null
@@ -924,7 +935,7 @@ class MainActivity : ComponentActivity() {
                         isHost = false
                         roomKindFlow.value = null
                         wifi.disconnectAndDiscoverPeers()
-                        screen = Screen.ROOM
+                        navigation.navigateTo(Screen.ROOM)
                     }
                     HostTransferAction.Ignore -> goHome("房主交接信息已失效")
                 }
@@ -949,14 +960,14 @@ class MainActivity : ComponentActivity() {
                 Screen.ROOM -> goHome(null)
                 Screen.LOOPBACK -> {
                     loopback.stop()
-                    screen = Screen.HOME
+                    navigation.navigateTo(Screen.HOME)
                 }
                 Screen.SCAN -> {
                     // 先清意图再断连：否则晚到的连接广播会把人硬拖进房间。
                     role = RoomRole.NONE
                     wifi.disconnect()
                     status = null
-                    screen = Screen.HOME
+                    navigation.navigateTo(Screen.HOME)
                 }
                 Screen.BLUETOOTH_SCAN -> {
                     goHome(null)
@@ -965,7 +976,7 @@ class MainActivity : ComponentActivity() {
                     goHome(null)
                 }
                 Screen.HOME -> Unit
-                Screen.ABOUT_UPDATE -> screen = Screen.HOME
+                Screen.ABOUT_UPDATE -> navigation.navigateTo(Screen.HOME)
             }
         }
 
@@ -1003,7 +1014,7 @@ class MainActivity : ComponentActivity() {
                         role = RoomRole.GUEST
                         status = null
                         wifi.discoverPeers()
-                        screen = Screen.SCAN
+                        navigation.navigateTo(Screen.SCAN)
                     }
                 },
                 onCreateBluetoothRoom = { origin ->
@@ -1023,7 +1034,7 @@ class MainActivity : ComponentActivity() {
                         bluetooth.register()
                         bluetooth.discoverDevices()
                         status = null
-                        screen = Screen.BLUETOOTH_SCAN
+                        navigation.navigateTo(Screen.BLUETOOTH_SCAN)
                     }
                 },
                 onCreateNearbyRoom = {
@@ -1037,7 +1048,7 @@ class MainActivity : ComponentActivity() {
                         runCatching { loopback.start() }
                             .onSuccess {
                                 status = null
-                                screen = Screen.LOOPBACK
+                                navigation.navigateTo(Screen.LOOPBACK)
                             }
                             .onFailure {
                                 status = "回环启动失败：${it.message}"
@@ -1045,7 +1056,7 @@ class MainActivity : ComponentActivity() {
                             }
                     }
                  },
-                 onAboutUpdate = { screen = Screen.ABOUT_UPDATE },
+                 onAboutUpdate = { navigation.navigateTo(Screen.ABOUT_UPDATE) },
                 status = status ?: wifiError ?: nearbyError,
                 headerPhase = headerPhase,
                 themeMode = themeMode,
@@ -1068,7 +1079,7 @@ class MainActivity : ComponentActivity() {
                         aboutUpdateCoordinator.reportFailure("没有可用的浏览器")
                     }
                 },
-                onClose = { screen = Screen.HOME },
+                onClose = { navigation.navigateTo(Screen.HOME) },
             )
 
             Screen.SCAN -> ScanScreen(
@@ -1082,7 +1093,7 @@ class MainActivity : ComponentActivity() {
                     role = RoomRole.NONE
                     wifi.disconnect()
                     status = null
-                    screen = Screen.HOME
+                    navigation.navigateTo(Screen.HOME)
                 },
             )
 
@@ -1147,7 +1158,7 @@ class MainActivity : ComponentActivity() {
             Screen.LOOPBACK -> LoopbackScreen(
                 onStop = {
                     loopback.stop()
-                    screen = Screen.HOME
+                    navigation.navigateTo(Screen.HOME)
                 },
             )
                 }
@@ -1187,6 +1198,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val STATE_SCREEN = "screen"
         const val HOST_LABEL = "WiFi 房（我是房主）"
         const val GUEST_LABEL = "WiFi 房"
         const val BLUETOOTH_HOST_LABEL = "蓝牙房（我是房主）"
