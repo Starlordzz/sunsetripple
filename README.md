@@ -249,6 +249,6 @@ Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。
 
 <br>
 
-<p align="center"><sub>。<br><em>For the one who watched the sunset with me.</em></sub></p>
+<p align="center"><sub>。<br><em>For the one who watched the sunset with me.</em><br><em>Never Meant</em></sub></p>
 
 <br>
