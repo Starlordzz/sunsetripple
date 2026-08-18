@@ -159,57 +159,21 @@ flowchart TD
 
 <br>
 
-需要 JDK 17。仓库自带 Gradle 8.9 wrapper。
+需要 JDK 17 和 Android SDK 35；Gradle Wrapper 已包含在仓库中。
 
 ```powershell
-$env:JAVA_HOME='D:\LEARNING\tools\jdk-17'
+$env:JAVA_HOME='C:\Path\To\jdk-17' # 已配置时可省略
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
 ```bash
-export JAVA_HOME=/path/to/jdk-17
+export JAVA_HOME=/path/to/jdk-17 # 已配置时可省略
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-发布签名、密钥管理与出包流程见 [构建与发布](https://github.com/Starlordzz/sunsetripple/wiki/构建与发布)。
+Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。
 
-GitHub 更新验签公钥通过 `-PsunsetRipple.updatePublicKey=<Base64 X.509 EC public key>` 注入。未配置时应用会拒绝更新检查，不会降级为未签名下载。
-
-### GitHub Actions 自动发版
-
-仓库的 `Release` workflow 在推送 `v*` Tag 时自动执行单元测试和 Release lint，构建签名 APK/AAB，生成 ECDSA 签名的 `update.json`，创建 GitHub Release，并更新固定的 `updates-prerelease` 或 `updates-stable` 更新通道。Tag 必须与 `app/build.gradle.kts` 的 `versionName` 完全一致。
-
-在仓库 Settings → Secrets and variables → Actions 中配置以下 Secrets：
-
-| 名称 | 内容 |
-| --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | Android 发布 keystore 文件的 Base64 |
-| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
-| `ANDROID_KEY_ALIAS` | Android 发布密钥别名 |
-| `ANDROID_KEY_PASSWORD` | Android 发布密钥密码 |
-| `UPDATE_PRIVATE_KEY_PKCS8_BASE64` | `.update-signing/update-private-key.pk8` 的 Base64 |
-
-再配置一个非敏感 Repository variable：
-
-| 名称 | 内容 |
-| --- | --- |
-| `UPDATE_PUBLIC_KEY_BASE64` | `.update-signing/gradle-public-key.properties` 中等号后的 X.509 EC 公钥 |
-
-Windows PowerShell 可用以下命令准备 Base64 值：
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes('release/sunset-ripple-release.p12'))
-[Convert]::ToBase64String([IO.File]::ReadAllBytes('.update-signing/update-private-key.pk8'))
-```
-
-更新版本号和 CHANGELOG 后创建并推送 Tag 即可发版：
-
-```powershell
-git tag -a v0.1.0-alpha.5 -m "Release v0.1.0-alpha.5"
-git push origin v0.1.0-alpha.5
-```
-
-也可在 GitHub Actions 页面手动运行 `Release`，但输入的 Tag 必须已经存在并指向待发布提交。更新私钥和 Android keystore 必须长期备份；丢失任意一项都会破坏后续升级链。
+发布签名、更新验签密钥和 GitHub Actions 自动发版说明见 [构建与发布](https://github.com/Starlordzz/sunsetripple/wiki/构建与发布)。正式发布时只需更新版本号与 CHANGELOG，再推送与 `versionName` 一致的 `v*` Tag。
 
 <br>
 
