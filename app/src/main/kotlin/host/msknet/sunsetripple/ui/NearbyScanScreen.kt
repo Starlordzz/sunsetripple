@@ -21,7 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import host.msknet.sunsetripple.R
 import host.msknet.sunsetripple.transport.nearby.NearbyEndpoint
 import host.msknet.sunsetripple.transport.nearby.NearbyEndpointState
 
@@ -38,12 +40,12 @@ fun NearbyScanScreen(
         SunsetBrandHeader(height = 170.dp) {
             Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
                 Text(
-                    "寻找 Nearby 房",
+                    stringResource(R.string.scan_nearby_title),
                     style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
                     color = Color.White,
                 )
                 Text(
-                    "通过 Google Nearby 建立全双工连接",
+                    stringResource(R.string.scan_nearby_subtitle),
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.82f),
                 )
@@ -61,9 +63,9 @@ fun NearbyScanScreen(
             item {
                 Text(
                     when {
-                        discovering -> "正在发现 · ${endpoints.size}"
-                        endpoints.isEmpty() -> "尚未发现房间"
-                        else -> "可加入房间 · ${endpoints.size}"
+                discovering -> stringResource(R.string.discovering_count, endpoints.size)
+                endpoints.isEmpty() -> stringResource(R.string.no_rooms)
+                else -> stringResource(R.string.joinable_room_count, endpoints.size)
                     },
                     modifier = Modifier.padding(top = 22.dp, bottom = 10.dp),
                     style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
@@ -83,18 +85,18 @@ fun NearbyScanScreen(
                         modifier = Modifier.size(38.dp),
                     )
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(endpoint.name.ifBlank { "未命名 Nearby 房" }, fontWeight = FontWeight.SemiBold)
+                        Text(endpoint.name.ifBlank { stringResource(R.string.unnamed_nearby_room) }, fontWeight = FontWeight.SemiBold)
                         Text(
                             when (endpoint.state) {
-                                NearbyEndpointState.DISCOVERED -> "可以加入"
-                                NearbyEndpointState.CONNECTING -> "正在连接"
-                                NearbyEndpointState.CONNECTED -> "已连接"
+                            NearbyEndpointState.DISCOVERED -> stringResource(R.string.can_join)
+                            NearbyEndpointState.CONNECTING -> stringResource(R.string.connecting)
+                            NearbyEndpointState.CONNECTED -> stringResource(R.string.connected)
                             },
                             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                             color = SunsetColors.Muted,
                         )
                     }
-                    Text("加入", color = SunsetColors.Coral, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.join), color = SunsetColors.Coral, fontWeight = FontWeight.SemiBold)
                 }
                 HorizontalDivider(color = SunsetColors.Line.copy(alpha = 0.65f))
             }
@@ -104,13 +106,13 @@ fun NearbyScanScreen(
             enabled = !discovering,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(50.dp),
             shape = RoundedCornerShape(8.dp),
-        ) { Text(if (discovering) "正在发现" else "重新发现") }
+            ) { Text(stringResource(if (discovering) R.string.discovering else R.string.discover_again)) }
         Spacer(Modifier.height(10.dp))
         OutlinedButton(
             onClick = onBack,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(50.dp),
             shape = RoundedCornerShape(8.dp),
-        ) { Text("返回首页") }
+        ) { Text(stringResource(R.string.back_home)) }
         Spacer(Modifier.height(20.dp))
     }
 }

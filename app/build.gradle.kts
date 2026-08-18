@@ -4,6 +4,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    id("androidx.baselineprofile")
 }
 
 val releaseSigningPropertiesPath =
@@ -19,6 +21,12 @@ val missingReleaseSigningKeys = releaseSigningKeys.filter {
     releaseSigningProperties.getProperty(it).isNullOrBlank()
 }
 val releaseSigningReady = releaseSigningFile.isFile && missingReleaseSigningKeys.isEmpty()
+val updateManifestUrl = providers.gradleProperty("sunsetRipple.updateManifestUrl")
+    .orElse("https://github.com/Starlordzz/sunsetripple/releases/download/updates-prerelease/update.json")
+    .get()
+val updatePublicKey = providers.gradleProperty("sunsetRipple.updatePublicKey").orElse("").get()
+
+fun buildConfigString(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 fun releaseSigningValue(key: String): String = releaseSigningProperties.getProperty(key).trim()
 
@@ -30,8 +38,10 @@ android {
         applicationId = "host.msknet.sunsetripple"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.1.0-alpha.4"
+        versionName = "0.1.0-alpha.5"
+        versionCode = 6
+        buildConfigField("String", "UPDATE_MANIFEST_URL", buildConfigString(updateManifestUrl))
+        buildConfigField("String", "UPDATE_PUBLIC_KEY", buildConfigString(updatePublicKey))
     }
     signingConfigs {
         if (releaseSigningReady) {
@@ -59,6 +69,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -83,6 +94,23 @@ tasks.matching { it.name == "packageRelease" || it.name == "bundleRelease" }.con
     dependsOn(verifyReleaseSigning)
 }
 
+val writeReleaseMetadata by tasks.registering {
+    val outputFile = layout.buildDirectory.file("release/release-metadata.properties")
+    outputs.file(outputFile)
+    doLast {
+        val versionName = android.defaultConfig.versionName ?: error("versionName 未配置")
+        val versionCode = android.defaultConfig.versionCode ?: error("versionCode 未配置")
+        outputFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                "versionName=$versionName\n" +
+                    "versionCode=$versionCode\n" +
+                    "applicationId=${android.defaultConfig.applicationId}\n",
+            )
+        }
+    }
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.activity:activity-compose:1.9.2")
@@ -91,8 +119,10 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("io.github.jaredmdobson:concentus:1.0.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.5")
     implementation("com.google.android.gms:play-services-nearby:19.3.0")
+    baselineProfile(project(":benchmark"))
     testImplementation("junit:junit:4.13.2")
 }

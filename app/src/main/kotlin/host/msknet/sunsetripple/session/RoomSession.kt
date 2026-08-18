@@ -3,6 +3,8 @@ package host.msknet.sunsetripple.session
 import host.msknet.sunsetripple.audio.AudioConfig
 import host.msknet.sunsetripple.audio.AudioEngine
 import host.msknet.sunsetripple.audio.AudioIo
+import host.msknet.sunsetripple.audio.AudioQualityMonitor
+import host.msknet.sunsetripple.audio.AudioQualitySnapshot
 import host.msknet.sunsetripple.audio.EngineAudioIo
 import host.msknet.sunsetripple.audio.JitterBuffer
 import host.msknet.sunsetripple.audio.MicGate
@@ -35,6 +37,7 @@ data class RoomUiState(
     val pttPressed: Boolean = false,
     val endedReason: String? = null,
     val hostTransfer: HostTransferPlan? = null,
+    val audioQuality: AudioQualitySnapshot = AudioQualitySnapshot(),
 )
 
 /**
@@ -59,6 +62,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
     private var seq = 0
     private val selfSpeaking = SpeakingDetector()
     private val micGate = MicGate()
+    private val qualityMonitor = AudioQualityMonitor()
 
     private val started = AtomicBoolean(false)
     private val stopped = AtomicBoolean(false)
@@ -142,15 +146,19 @@ class RoomSession(private val selfNickname: String) : TransportListener {
             // 快照后被 retainAll 移除的路，其解码结果本轮仍会被混入，可接受（至多多播一帧）。
             val streams = synchronized(remotes) { remotes.values.toList() }
             val frames = ArrayList<ShortArray>(streams.size)
+            var activeStreams = 0
             for (r in streams) {
                 val packet = r.jitter.poll()
                 // 必须无条件调用 poll()——started 只在 poll 内部翻转，
                 // 把 hasStarted() 当前置条件会自锁（见 M1 P0 修复记录）。
                 if (packet == null && !r.jitter.hasStarted()) continue
+                activeStreams += 1
+                if (packet == null) qualityMonitor.recordConcealment() else qualityMonitor.recordReceived()
                 val pcm = r.decoder.decode(packet)
                 r.speaking.feed(pcm)
                 frames.add(pcm)
             }
+            if (activeStreams > 0 && frames.isEmpty()) qualityMonitor.recordUnderrun()
             try {
                 engine?.playPcm(if (frames.isEmpty()) silence else Mixer.mix(frames))
             } catch (e: Exception) {
@@ -304,6 +312,7 @@ class RoomSession(private val selfNickname: String) : TransportListener {
             audioFocusInterrupted = micGate.focusInterrupted,
             endedReason = _state.value.endedReason,
             hostTransfer = _state.value.hostTransfer,
+            audioQuality = qualityMonitor.snapshot(),
         )
     }
 

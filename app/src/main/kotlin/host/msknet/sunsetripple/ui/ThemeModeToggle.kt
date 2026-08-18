@@ -39,12 +39,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import host.msknet.sunsetripple.R
 
 private const val HINT_VISIBLE_MILLIS = 1_400L
 
@@ -75,15 +77,23 @@ fun ThemeModeToggle(
         label = "theme-mode-hint-alpha",
     )
     val interactionSource = remember { MutableInteractionSource() }
+    val modeLabel = stringResource(
+        when (mode) {
+            ThemeMode.FOLLOW_SYSTEM -> R.string.theme_system
+            ThemeMode.LIGHT -> R.string.theme_light
+            ThemeMode.DARK -> R.string.theme_dark
+        },
+    )
+    val themeDescription = stringResource(R.string.theme_description, modeLabel)
 
     Column(modifier = modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .background(Color.White.copy(alpha = 0.14f), CircleShape)
                 .border(1.dp, Color.White.copy(alpha = 0.30f), CircleShape)
                 .semantics {
-                    contentDescription = "配色：${ThemeModeResolver.label(mode)}，点击切换"
+                    contentDescription = themeDescription
                     role = Role.Button
                 }
                 .clickable(
@@ -102,7 +112,7 @@ fun ThemeModeToggle(
         // 高度写死，让浮字的进出不推动头图里的其他内容。
         Box(Modifier.height(18.dp), contentAlignment = Alignment.Center) {
             Text(
-                text = ThemeModeResolver.label(mode),
+                text = modeLabel,
                 modifier = Modifier.alpha(hintAlpha),
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 14.sp),
                 color = Color.White.copy(alpha = 0.88f),

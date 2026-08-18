@@ -21,7 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import host.msknet.sunsetripple.R
 
 @Composable
 fun ScanScreen(
@@ -34,12 +36,12 @@ fun ScanScreen(
         SunsetBrandHeader(height = 170.dp) {
             Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
                 Text(
-                    "寻找附近房间",
+                    stringResource(R.string.scan_wifi_title),
                     style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
                     color = androidx.compose.ui.graphics.Color.White,
                 )
                 Text(
-                    "对方需要先创建 WiFi 房",
+                    stringResource(R.string.scan_wifi_subtitle),
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.82f),
                 )
@@ -56,7 +58,7 @@ fun ScanScreen(
         LazyColumn(Modifier.weight(1f).padding(horizontal = 20.dp)) {
             item {
                 Text(
-                    if (peers.isEmpty()) "等待发现" else "附近设备 · ${peers.size}",
+                if (peers.isEmpty()) stringResource(R.string.scan_waiting) else stringResource(R.string.nearby_device_count, peers.size),
                     modifier = Modifier.padding(top = 22.dp, bottom = 10.dp),
                     style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
                     color = SunsetColors.Muted,
@@ -70,7 +72,7 @@ fun ScanScreen(
                     RippleStatusMark(active = true, Modifier.size(38.dp))
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
                         Text(
-                            device.deviceName.orEmpty().ifBlank { "未命名设备" },
+                            device.deviceName.orEmpty().ifBlank { stringResource(R.string.unnamed_device) },
                             fontWeight = FontWeight.SemiBold,
                             color = SunsetColors.Ink,
                         )
@@ -80,7 +82,7 @@ fun ScanScreen(
                             color = SunsetColors.Muted,
                         )
                     }
-                    Text("加入", color = SunsetColors.Coral, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.join), color = SunsetColors.Coral, fontWeight = FontWeight.SemiBold)
                 }
                 HorizontalDivider(color = SunsetColors.Line.copy(alpha = 0.65f))
             }
@@ -90,7 +92,7 @@ fun ScanScreen(
             onClick = onBack,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(50.dp),
             shape = RoundedCornerShape(8.dp),
-        ) { Text("返回首页") }
+        ) { Text(stringResource(R.string.back_home)) }
         Spacer(Modifier.height(20.dp))
     }
 }

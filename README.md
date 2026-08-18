@@ -50,7 +50,7 @@
 <br>
 
 - **两种可用房型**——WiFi Direct 全双工房与蓝牙按住说话（PTT）房，均支持最多 6 台设备。
-- **零基础设施**——无路由器、无互联网、无账号、无服务器；语音只在设备之间点对点传输。
+- **零语音基础设施**——无路由器、无账号、无服务器；语音只在设备之间点对点传输，检查更新时会访问 GitHub。
 - **网状音频，不经中转**——WiFi 房中每台设备把音频 UDP 直发给其他成员，组主不做转发也不是瓶颈。
 - **断线自动重连**——1 / 2 / 4 秒三次退避重试，重连后凭令牌恢复原成员身份与入房顺序。
 - **房主自动接管**——房主主动离房、进程崩溃、被系统杀死或链路中断时，房间会自动选出继任者并重建，而不是直接解散。
@@ -60,6 +60,9 @@
 - **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除、音频焦点协商、抖动缓冲与 Opus 丢包补偿。
 - **前台保活**——麦克风类型前台服务 + WakeLock + WifiLock，通知栏可直接静音或离开。
 - **只听模式**——被其他应用抢占音频焦点时自动降级为只听，不会静默掉线。
+- **安全更新**——依次验证 ECDSA 清单、APK 哈希、包名和签名证书，再交给 Android 安装确认。
+- **系统中英文**——简体中文与英语自动跟随系统，不保存应用内语言偏好。
+- **诊断与质量状态**——显示低频网络质量，主动导出的报告不含音频、昵称、地址和密钥。
 - **253 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、权限分级、界面动效与主题档位决策全部有覆盖，且全部是纯 JVM 测试。
 
 <br>
@@ -142,7 +145,7 @@ flowchart TD
 - **帧协议固定 6 字节头**——`[类型 1B][发送者 1B][序号 2B][长度 2B]`，负载上限 512 字节，8 种帧类型覆盖音频、入房、花名册、PTT、心跳、离开与两种房主转移帧。
 - **音频与信令分离**——WiFi 房把可靠的信令放 TCP，把可丢的音频放 UDP，并且音频直接网状发送，组主不承担转发负载。
 - **房主不信任客户端身份**——蓝牙房主会用自己分配的成员 ID 重写收到的帧头，客户端伪造 `senderId` 无效。
-- **纯 JVM 的决策层**——权限分级、房间流转、房主选举、混音计划、界面动效和主题档位决策都抽成了不依赖 Android 的对象，因此 253 个测试全部能在普通 JVM 上运行，无需模拟器。
+- **纯 JVM 的决策层**——权限分级、应用与导航状态、房间生命周期、房主选举、混音计划、界面动效、主题档位和系统语言策略都抽成了不依赖 Android UI 的对象，可在普通 JVM 上验证，无需模拟器。
 - **真实界面参与转场**——`MainActivity` 同时绘制首页与实际 `RoomScreen`，圆形揭示只负责裁剪可见区域；动画状态读取收敛在绘制层，避免逐帧重组整棵 Compose 页面。
 - **Opus 走纯 JVM 实现**（Concentus），构建不需要 NDK，产物不含 `.so`。
 
@@ -170,13 +173,51 @@ export JAVA_HOME=/path/to/jdk-17
 
 发布签名、密钥管理与出包流程见 [构建与发布](https://github.com/Starlordzz/sunsetripple/wiki/构建与发布)。
 
+GitHub 更新验签公钥通过 `-PsunsetRipple.updatePublicKey=<Base64 X.509 EC public key>` 注入。未配置时应用会拒绝更新检查，不会降级为未签名下载。
+
+### GitHub Actions 自动发版
+
+仓库的 `Release` workflow 在推送 `v*` Tag 时自动执行单元测试和 Release lint，构建签名 APK/AAB，生成 ECDSA 签名的 `update.json`，创建 GitHub Release，并更新固定的 `updates-prerelease` 或 `updates-stable` 更新通道。Tag 必须与 `app/build.gradle.kts` 的 `versionName` 完全一致。
+
+在仓库 Settings → Secrets and variables → Actions 中配置以下 Secrets：
+
+| 名称 | 内容 |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | Android 发布 keystore 文件的 Base64 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
+| `ANDROID_KEY_ALIAS` | Android 发布密钥别名 |
+| `ANDROID_KEY_PASSWORD` | Android 发布密钥密码 |
+| `UPDATE_PRIVATE_KEY_PKCS8_BASE64` | `.update-signing/update-private-key.pk8` 的 Base64 |
+
+再配置一个非敏感 Repository variable：
+
+| 名称 | 内容 |
+| --- | --- |
+| `UPDATE_PUBLIC_KEY_BASE64` | `.update-signing/gradle-public-key.properties` 中等号后的 X.509 EC 公钥 |
+
+Windows PowerShell 可用以下命令准备 Base64 值：
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('release/sunset-ripple-release.p12'))
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('.update-signing/update-private-key.pk8'))
+```
+
+更新版本号和 CHANGELOG 后创建并推送 Tag 即可发版：
+
+```powershell
+git tag -a v0.1.0-alpha.5 -m "Release v0.1.0-alpha.5"
+git push origin v0.1.0-alpha.5
+```
+
+也可在 GitHub Actions 页面手动运行 `Release`，但输入的 Tag 必须已经存在并指向待发布提交。更新私钥和 Android keystore 必须长期备份；丢失任意一项都会破坏后续升级链。
+
 <br>
 
 ## 项目状态
 
 <br>
 
-当前版本 **`0.1.0-alpha.4`**，属于早期公开测试阶段：核心链路已跑通并有较厚的单元测试，但多机真机验收还没做完。
+当前开发版本为 **`0.1.0-alpha.5`**（versionCode 6）。阶段 0、1、2、5、6 的软件实现已落地；阶段 3 已完成持久身份、签名握手、AEAD 密封帧和指纹 UI 核心。阶段 4 真机矩阵按本轮范围跳过，因此 Alpha 5 仍是测试版本。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -189,7 +230,10 @@ export JAVA_HOME=/path/to/jdk-17
 | Nearby 房 | ⏸ 已实现，入口隐藏 |
 | 锁屏通知交互 | ⏸ 已搁置 |
 | 昼夜双配色与三档切换 | ✅ 可用 |
-| 多语言 | ❌ 暂无计划 |
+| 系统自动中英文 | ✅ 已实现 |
+| 签名更新与系统安装确认 | ✅ 已实现，发布需配置公钥 |
+| 诊断导出与 Issue 预填 | ✅ 已实现 |
+| AEAD 会话安全核心 | ✅ 已实现，传输强制启用待兼容验证 |
 
 <br>
 
@@ -203,6 +247,7 @@ export JAVA_HOME=/path/to/jdk-17
 - **锁屏通知未保证**——通知展示与按钮交互已搁置；屏幕关闭后的后台音频保活代码仍保留。
 - **夜间配色未上真机**——仅在模拟器上完成视觉核对，尚未在真机屏幕上验收。
 - **无真机矩阵验证**——三机连续转移、WiFi 系统确认弹窗、语音恢复耗时仍待验收，因此本版本仅作为 alpha 发布。
+- **无真机性能数值**——Macrobenchmark 与 Baseline Profile 已接入，但帧时间和端到端延迟仍需目标设备实测。
 
 <br>
 

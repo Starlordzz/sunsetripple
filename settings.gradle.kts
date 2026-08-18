@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "SunsetRipple"
 include(":app")
+include(":benchmark")

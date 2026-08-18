@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.0-alpha.5 - 2026-08-18
+
+### 新功能
+
+- 首页新增“关于与更新”入口，展示版本和 GitHub 项目，并可展开查看 CHANGELOG、许可证和隐私说明。
+- 新增签名更新清单、APK 哈希/包名/证书校验、GitHub 下载和系统安装确认。
+- 新增系统自动中英文、设备指纹、安全握手与 AES-GCM 密封帧核心。
+- 新增网络质量指标、诊断导出、GitHub Issue 预填、Macrobenchmark 与 Baseline Profile。
+
+### 变更
+
+- 启动应用编排拆分：关于页更新状态和适配器失败事件由纯 Kotlin coordinator 统一管理，Compose 只收集不可变状态并转发事件。
+- 导航状态统一交给纯 Kotlin coordinator；Activity 重建时恢复关于页，房间、扫描和回环等瞬态页面安全回到首页。
+- 应用昵称、提示、主客意图和扬声器选择改由不可变 `AppUiState` 管理；主题状态、系统语言策略和权限等待动作均有独立纯 Kotlin 模块。
+- 三类房间的会话所有权与释放顺序收口到 `RoomLifecycleCoordinator`，WiFi 房主转移保留组网和客户端连接身份守卫保持不变。
+- 更新模块的 `check/download/install` 契约已由 GitHub adapter 实现；通话期间禁止检查和下载。
+- 四类权限与蓝牙可发现性 launcher 移入独立 Android adapter；Activity/进程重建遇到房间、扫描或回环等瞬态页面时安全回首页并提示连接已结束。
+
+### 已知限制
+
+- 阶段 4 的三机以上真机矩阵按本轮范围跳过，连续交接和锁屏恢复仍未验收。
+- 安全核心已有测试；三套传输的强制加密切换仍需兼容性验证后启用。
+- Macrobenchmark 可编译，真实帧时间与端到端延迟必须在目标真机运行后记录。
+- 发布构建必须通过 `sunsetRipple.updatePublicKey` 注入更新验签公钥。
+
 ## 0.1.0-alpha.4 - 2026-08-17
 
 ### 新功能
