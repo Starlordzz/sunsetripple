@@ -16,7 +16,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import host.msknet.sunsetripple.R
 
 @Composable
 fun LoopbackScreen(onStop: () -> Unit) {
@@ -24,12 +26,12 @@ fun LoopbackScreen(onStop: () -> Unit) {
         SunsetBrandHeader(height = 230.dp) {
             Column(Modifier.align(Alignment.BottomStart).padding(22.dp, 28.dp)) {
                 Text(
-                    "声音回环",
+                    stringResource(R.string.loopback_title),
                     style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
                     color = androidx.compose.ui.graphics.Color.White,
                 )
                 Text(
-                    "测试麦克风、编码与播放链路",
+                    stringResource(R.string.loopback_subtitle),
                     color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.82f),
                 )
             }
@@ -42,13 +44,13 @@ fun LoopbackScreen(onStop: () -> Unit) {
             RippleStatusMark(active = true, Modifier.size(104.dp))
             Spacer(Modifier.height(24.dp))
             Text(
-                "正在聆听",
+                stringResource(R.string.loopback_listening),
                 style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
                 color = SunsetColors.Ink,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "对麦克风说话，片刻后会听到自己的声音。使用耳机可避免啸叫。",
+                stringResource(R.string.loopback_instructions),
                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                 color = SunsetColors.Muted,
             )
@@ -59,7 +61,7 @@ fun LoopbackScreen(onStop: () -> Unit) {
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.CoralDark),
             ) {
-                Text("结束测试", fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.end_test), fontWeight = FontWeight.SemiBold)
             }
         }
     }

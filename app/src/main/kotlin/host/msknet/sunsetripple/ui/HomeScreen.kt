@@ -33,7 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import host.msknet.sunsetripple.R
 
 @Composable
 fun HomeScreen(
@@ -81,13 +83,13 @@ fun HomeScreen(
             ) {
                 Column {
                     Text(
-                        text = "落日后残波",
+                        text = stringResource(R.string.app_name),
                         style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
                         color = Color.White,
                     )
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        text = "近场语音房",
+                        text = stringResource(R.string.tagline),
                         style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.82f),
                     )
@@ -99,7 +101,7 @@ fun HomeScreen(
             SunsetReveal(delayMillis = 100) {
                 Column {
                     Text(
-                        text = "你的称呼",
+                        text = stringResource(R.string.nickname_label),
                         style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
                         color = SunsetColors.Muted,
                     )
@@ -108,7 +110,7 @@ fun HomeScreen(
                         value = nickname,
                         onValueChange = onNicknameChange,
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("输入昵称") },
+                        placeholder = { Text(stringResource(R.string.nickname_placeholder)) },
                         singleLine = true,
                     )
                 }
@@ -118,14 +120,14 @@ fun HomeScreen(
             SunsetReveal(delayMillis = 170) {
                 Column {
                     RoomModeHeading(
-                        title = "WiFi 直连",
-                        description = "无需路由器，适合多人同时通话",
+                        title = stringResource(R.string.wifi_direct),
+                        description = stringResource(R.string.wifi_description),
                         accent = SunsetColors.Coral,
                     )
                     Spacer(Modifier.height(16.dp))
                     RoomActionRow(
-                        createSupportingText = "发起频道",
-                        joinSupportingText = "搜索频道",
+                        createSupportingText = stringResource(R.string.start_channel),
+                        joinSupportingText = stringResource(R.string.search_channel),
                         createColor = SunsetColors.Coral,
                         onCreate = onCreateWifiRoom,
                         onJoin = onJoinWifiRoom,
@@ -137,14 +139,14 @@ fun HomeScreen(
             SunsetReveal(delayMillis = 240) {
                 Column {
                     RoomModeHeading(
-                        title = "蓝牙房",
-                        description = "按住说话，适合无网络的近距离协作",
+                        title = stringResource(R.string.bluetooth_room),
+                        description = stringResource(R.string.bluetooth_description),
                         accent = SunsetColors.Gold,
                     )
                     Spacer(Modifier.height(16.dp))
                     RoomActionRow(
-                        createSupportingText = "发起频道",
-                        joinSupportingText = "搜索频道",
+                        createSupportingText = stringResource(R.string.start_channel),
+                        joinSupportingText = stringResource(R.string.search_channel),
                         createColor = SunsetColors.CoralDark,
                         onCreate = onCreateBluetoothRoom,
                         onJoin = onJoinBluetoothRoom,
@@ -155,13 +157,13 @@ fun HomeScreen(
             if (HomeRoomAvailability.isVisible(RoomKind.NEARBY)) {
                 Spacer(Modifier.height(28.dp))
                 Text(
-                    text = "Nearby 房",
+                    text = stringResource(R.string.nearby_room),
                     style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
                     color = SunsetColors.Ink,
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "全双工语音，需要 Google Play 服务",
+                    text = stringResource(R.string.nearby_description),
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     color = SunsetColors.Muted,
                 )
@@ -172,13 +174,13 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f).height(54.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = SunsetColors.Orange),
                     ) {
-                        Text("创建 Nearby 房")
+                        Text(stringResource(R.string.create_nearby_room))
                     }
                     SunsetOutlinedButton(
                         onClick = onJoinNearbyRoom,
                         modifier = Modifier.weight(1f).height(54.dp),
                     ) {
-                        Text("加入 Nearby 房")
+                        Text(stringResource(R.string.join_nearby_room))
                     }
                 }
             }
@@ -195,7 +197,7 @@ fun HomeScreen(
                     ) {
                         RippleStatusMark(active = true, modifier = Modifier.width(28.dp).height(28.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("检查麦克风与耳机")
+                        Text(stringResource(R.string.check_microphone))
                     }
 
                     AnimatedVisibility(
@@ -225,7 +227,7 @@ fun HomeScreen(
                     }
                     Spacer(Modifier.height(18.dp))
                     Text(
-                        text = "v$versionName · 关于与更新",
+                        text = stringResource(R.string.about_footer, versionName),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp),
@@ -236,7 +238,7 @@ fun HomeScreen(
                         onClick = onAboutUpdate,
                         modifier = Modifier.fillMaxWidth().height(46.dp),
                     ) {
-                        Text("查看关于与更新")
+                        Text(stringResource(R.string.open_about))
                     }
                 }
             }
@@ -262,14 +264,14 @@ private fun RoomActionRow(
             horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
         ) {
             SunsetActionOrb(
-                label = "建房",
+                label = stringResource(R.string.create_room),
                 supportingText = createSupportingText,
                 onClick = onCreate,
                 modifier = Modifier.size(orbSize),
                 containerColor = createColor,
             )
             SunsetActionOrb(
-                label = "进房",
+                label = stringResource(R.string.join_room),
                 supportingText = joinSupportingText,
                 onClick = onJoin,
                 modifier = Modifier.size(orbSize),

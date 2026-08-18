@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.app.Activity
+import host.msknet.sunsetripple.R
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -50,14 +51,14 @@ fun rememberPermissionLaunchers(
         val action = roomActions.take()
         val denied = RoomPermissions.blockingDenied(result, sdkInt)
         if (denied.isEmpty()) action?.let(runWhenLocationReady)
-        else onDenied(RoomPermissions.deniedMessage(denied))
+        else onDenied(localizedPermissionMessage(context, denied))
     }
     val micLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         val action = micActions.take()
         if (granted) action?.invoke()
-        else onDenied("缺少麦克风权限，无法录音")
+        else onDenied(context.getString(R.string.microphone_permission_denied))
     }
     val bluetoothLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -65,7 +66,7 @@ fun rememberPermissionLaunchers(
         val (role, action) = bluetoothActions.take() ?: return@rememberLauncherForActivityResult
         val denied = BluetoothPermissions.blockingDenied(result, sdkInt, role)
         if (denied.isEmpty()) action()
-        else onDenied(BluetoothPermissions.deniedMessage(denied))
+        else onDenied(localizedPermissionMessage(context, denied))
     }
     val nearbyLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -73,7 +74,7 @@ fun rememberPermissionLaunchers(
         val action = nearbyActions.take()
         val denied = NearbyPermissions.blockingDenied(result, sdkInt)
         if (denied.isEmpty()) action?.invoke()
-        else onDenied(NearbyPermissions.deniedMessage(denied))
+        else onDenied(localizedPermissionMessage(context, denied))
     }
 
     return PermissionLaunchers(
@@ -123,4 +124,21 @@ fun rememberPermissionLaunchers(
             }
         },
     )
+}
+
+private fun localizedPermissionMessage(context: Context, denied: List<String>): String {
+    val names = denied.map { permission ->
+        context.getString(
+            when (permission) {
+                Manifest.permission.RECORD_AUDIO -> R.string.permission_microphone
+                Manifest.permission.BLUETOOTH_SCAN -> R.string.permission_bluetooth_scan
+                Manifest.permission.BLUETOOTH_ADVERTISE -> R.string.permission_bluetooth_advertise
+                Manifest.permission.ACCESS_FINE_LOCATION -> R.string.permission_location
+                Manifest.permission.NEARBY_WIFI_DEVICES -> R.string.permission_nearby_wifi
+                Manifest.permission.POST_NOTIFICATIONS -> R.string.permission_notifications
+                else -> R.string.permission_nearby_devices
+            },
+        )
+    }
+    return context.getString(R.string.permissions_required, names.joinToString())
 }

@@ -1,6 +1,8 @@
 # Alpha 4 之后的软件升级计划
 
-> **状态：执行中。** 本计划基于 `0.1.0-alpha.4`，优先改善 Android 单平台的产品完整性、可靠性和可维护性；iOS 与 HarmonyOS NEXT 仍按《多平台设想》单独评估，不作为本计划前置条件。
+> **状态：Alpha 5 软件阶段已实施，真机验收待办。** 阶段 0、1、2、5、6 已实现；阶段 3 的身份、签名握手、AEAD 编解码与指纹 UI 已实现，传输强制启用仍需兼容验证；阶段 4 按 2026-08-18 本轮范围明确跳过。
+
+截至 2026-08-18，签名更新下载/安装、中英文资源、资源一致性测试、持久设备身份、安全帧核心、网络质量指标、诊断导出、Issue 预填、Macrobenchmark 与 Baseline Profile 已进入代码库。阶段 4 未执行，真实多机可靠性、帧时间和端到端音频延迟不得视为已验收。
 
 截至 2026-08-17，阶段 0 已完成：`AppCoordinator`、`AppNavigationCoordinator`、`ThemeCoordinator`、`LanguagePolicy`、权限 adapter 和 `AboutUpdateCoordinator` 已把主要状态、权限结果归约与事件移出 Compose；`RoomLifecycleCoordinator` 统一拥有三类会话、房型和幂等释放顺序；更新模块已暴露 `check/download/install` 服务契约，未实现动作会明确返回不支持。Activity `SavedState` 可恢复稳定的关于页；依赖活跃连接的房间、扫描和回环页面在 Activity 或进程重建后安全回首页并给出连接已结束提示。`MainActivity` 只保留 Android 资源适配、传输构造和根 Compose 接线，不再直接持有权限 launcher 或可变业务 UI 状态。阶段 1 的“关于与更新”首个垂直切片已落地，但签名更新清单、下载与安装仍未开始；阶段 2、3、5 尚未开始，阶段 4、6 只有既有基础能力。
 

@@ -50,6 +50,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import host.msknet.sunsetripple.audio.LoopbackController
 import host.msknet.sunsetripple.audio.AudioFocusController
 import host.msknet.sunsetripple.audio.AudioFocusRequestState
+import host.msknet.sunsetripple.diagnostics.DiagnosticExporter
+import host.msknet.sunsetripple.diagnostics.DiagnosticReport
 import host.msknet.sunsetripple.service.CallForegroundService
 import host.msknet.sunsetripple.service.ActiveCallControls
 import host.msknet.sunsetripple.service.CallMode
@@ -58,6 +60,7 @@ import host.msknet.sunsetripple.session.RoomSession
 import host.msknet.sunsetripple.session.RoomUiState
 import host.msknet.sunsetripple.session.BluetoothRoomSession
 import host.msknet.sunsetripple.session.RoomLifecycleCoordinator
+import host.msknet.sunsetripple.security.DeviceIdentityStore
 import host.msknet.sunsetripple.transport.TransportLog
 import host.msknet.sunsetripple.transport.HostTransferSeed
 import host.msknet.sunsetripple.transport.bluetooth.BluetoothClientTransport
@@ -103,8 +106,9 @@ import host.msknet.sunsetripple.ui.ThemeModeStore
 import host.msknet.sunsetripple.ui.SunsetColors
 import host.msknet.sunsetripple.ui.SunsetMotion
 import host.msknet.sunsetripple.update.AboutUpdateCoordinator
-import host.msknet.sunsetripple.update.CheckOnlyUpdateService
-import host.msknet.sunsetripple.update.UpdateChecker
+import host.msknet.sunsetripple.update.GithubUpdateService
+import host.msknet.sunsetripple.update.UpdateChannel
+import host.msknet.sunsetripple.update.UpdateState
 import host.msknet.sunsetripple.ui.sunsetCircularReveal
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
@@ -131,9 +135,24 @@ class MainActivity : ComponentActivity() {
     private lateinit var bluetooth: BluetoothRoomManager
     private lateinit var audioFocus: AudioFocusController
     private val loopback = LoopbackController()
-    private val aboutUpdateCoordinator = AboutUpdateCoordinator(
-        CheckOnlyUpdateService(UpdateChecker { Result.success(null) }),
-    )
+    private val deviceIdentity by lazy { DeviceIdentityStore(applicationContext).loadOrCreate() }
+    private val aboutUpdateCoordinator by lazy {
+        AboutUpdateCoordinator(
+            updateService = GithubUpdateService(
+                context = applicationContext,
+                manifestUrl = BuildConfig.UPDATE_MANIFEST_URL,
+                publicKeyBase64 = BuildConfig.UPDATE_PUBLIC_KEY,
+                channel = UpdateChannel.PRERELEASE,
+            ),
+            execute = { task ->
+                activityScope.launch(Dispatchers.IO) { task() }
+                Unit
+            },
+            isCallActive = {
+                ::roomLifecycle.isInitialized && roomLifecycle.roomKind.value != null
+            },
+        )
+    }
     private lateinit var navigation: AppNavigationCoordinator
     private lateinit var appCoordinator: AppCoordinator
 
@@ -162,7 +181,7 @@ class MainActivity : ComponentActivity() {
         val restoredState = ScreenRestoration.restoreState(savedInstanceState?.getString(STATE_SCREEN))
         navigation = AppNavigationCoordinator(restoredState.screen)
         appCoordinator = AppCoordinator(
-            Build.MODEL?.take(8)?.trim().orEmpty().ifEmpty { "我" },
+            Build.MODEL?.take(8)?.trim().orEmpty().ifEmpty { getString(R.string.me) },
             initialStatus = restoredState.message,
         )
         if (AppWindowPolicy.keepScreenOn) {
@@ -219,6 +238,13 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleLeaveIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::roomLifecycle.isInitialized && aboutUpdateCoordinator.state.value == UpdateState.InstallConfirmationOpened) {
+            aboutUpdateCoordinator.reportInstallCancelled()
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -479,8 +505,8 @@ class MainActivity : ComponentActivity() {
                 action()
                 return
             }
-            appCoordinator.setStatus(RoomPermissions.LOCATION_SERVICE_OFF_HINT)
-            Toast.makeText(context, RoomPermissions.LOCATION_SERVICE_OFF_HINT, Toast.LENGTH_LONG).show()
+            appCoordinator.setStatus(getString(R.string.location_service_off))
+            Toast.makeText(context, getString(R.string.location_service_off), Toast.LENGTH_LONG).show()
         }
 
         val permissionLaunchers = rememberPermissionLaunchers(
@@ -508,7 +534,7 @@ class MainActivity : ComponentActivity() {
             )
             roomLifecycle.publishBluetoothSession(newSession)
             appCoordinator.setHost(true)
-            beginCall(BLUETOOTH_HOST_LABEL, speakerOn)
+            beginCall(bluetoothHostLabel, speakerOn)
             runCatching { newSession.start(transport) }
                 .onSuccess {
                     appCoordinator.setStatus(null)
@@ -516,15 +542,15 @@ class MainActivity : ComponentActivity() {
                 }
                 .onFailure { error ->
                     TransportLog.w("蓝牙建房失败: ${error.message}", error)
-                    Toast.makeText(context, "蓝牙建房失败：${error.message}", Toast.LENGTH_LONG).show()
-                    goHome("蓝牙建房失败：${error.message}")
+            Toast.makeText(context, getString(R.string.bluetooth_create_failed, error.message.orEmpty()), Toast.LENGTH_LONG).show()
+            goHome(getString(R.string.bluetooth_create_failed, error.message.orEmpty()))
                 }
         }
 
         val launchDiscoverable = rememberDiscoverableLauncher(
             onCanceled = {
                 pendingBluetoothEntryOrigin = null
-                appCoordinator.setStatus("需要允许蓝牙可发现才能创建房间")
+            appCoordinator.setStatus(getString(R.string.bluetooth_discoverable_required))
             },
             onAllowed = {
             val origin = pendingBluetoothEntryOrigin
@@ -533,7 +559,7 @@ class MainActivity : ComponentActivity() {
                 runEntryTransition(origin) {
                     roomLifecycle.setRoomKind(RoomKind.BLUETOOTH)
                     appCoordinator.setHost(true)
-                    appCoordinator.setStatus("正在建立蓝牙频道……")
+            appCoordinator.setStatus(getString(R.string.establishing_bluetooth))
                     startBluetoothHost()
                 }
             }
@@ -555,7 +581,7 @@ class MainActivity : ComponentActivity() {
             val transport = NearbyRoomTransport.host(nickname, newSession, port)
             roomLifecycle.publishSession(newSession, RoomKind.NEARBY)
             appCoordinator.setHost(true)
-            beginCall(NEARBY_HOST_LABEL, speakerOn)
+            beginCall(nearbyHostLabel, speakerOn)
             runCatching {
                 newSession.start(transport)
                 transport.start()
@@ -564,7 +590,7 @@ class MainActivity : ComponentActivity() {
                 navigation.navigateTo(Screen.ROOM)
             }.onFailure { error ->
                 TransportLog.w("Nearby 建房失败: ${error.message}", error)
-                goHome("Nearby 建房失败：${error.message}")
+            goHome(getString(R.string.nearby_create_failed, error.message.orEmpty()))
             }
         }
 
@@ -586,7 +612,7 @@ class MainActivity : ComponentActivity() {
         fun startNearbyGuest(endpoint: NearbyEndpoint) {
             val manager = nearbyManagerFlow.value ?: return
             val port = runCatching { manager.handoffPort() }.getOrElse { error ->
-                appCoordinator.setStatus("Nearby 连接准备失败：${error.message}")
+            appCoordinator.setStatus(getString(R.string.nearby_prepare_failed, error.message.orEmpty()))
                 return
             }
             roomLifecycle.publishNearbyManager(null)
@@ -600,16 +626,16 @@ class MainActivity : ComponentActivity() {
             )
             roomLifecycle.publishSession(newSession, RoomKind.NEARBY)
             appCoordinator.setHost(false)
-            beginCall(NEARBY_GUEST_LABEL, speakerOn)
+            beginCall(nearbyGuestLabel, speakerOn)
             runCatching {
                 newSession.start(transport)
                 transport.start()
             }.onSuccess {
-                appCoordinator.setStatus("正在连接 ${endpoint.name}……")
+            appCoordinator.setStatus(getString(R.string.connecting_device, endpoint.name))
                 navigation.navigateTo(Screen.ROOM)
             }.onFailure { error ->
                 TransportLog.w("Nearby 入房失败: ${error.message}", error)
-                goHome("Nearby 入房失败：${error.message}")
+            goHome(getString(R.string.nearby_join_failed, error.message.orEmpty()))
             }
         }
 
@@ -617,17 +643,17 @@ class MainActivity : ComponentActivity() {
             val newSession = BluetoothRoomSession(nickname)
             roomLifecycle.publishBluetoothSession(newSession)
             appCoordinator.setHost(false)
-            appCoordinator.setStatus("正在连接 ${device.name.orEmpty().ifBlank { device.address }}……")
+            appCoordinator.setStatus(getString(R.string.connecting_device, device.name.orEmpty().ifBlank { device.address }))
             val nick = nickname
             val speaker = speakerOn
-            beginCall(BLUETOOTH_GUEST_LABEL, speaker)
+            beginCall(bluetoothGuestLabel, speaker)
             thread(name = "bluetooth-join") {
                 val transport = BluetoothClientTransport(nick, newSession, device, secure = secure)
                 try {
                     newSession.start(transport)
                 } catch (error: Exception) {
                     TransportLog.w("蓝牙入房失败: ${error.message}", error)
-                    runOnUiThread { goHome("蓝牙入房失败：${error.message}") }
+            runOnUiThread { goHome(getString(R.string.bluetooth_join_failed, error.message.orEmpty())) }
                     return@thread
                 }
                 runOnUiThread {
@@ -648,21 +674,21 @@ class MainActivity : ComponentActivity() {
                 WifiHostTransport(nickname, newSession, hostIp, transferSeed = transferSeed)
             } catch (e: Exception) {
                 TransportLog.w("建房失败: ${e.message}", e)
-                Toast.makeText(context, "建房失败：${e.message}", Toast.LENGTH_LONG).show()
-                goHome("建房失败：${e.message}")
+            Toast.makeText(context, getString(R.string.room_create_failed, e.message.orEmpty()), Toast.LENGTH_LONG).show()
+            goHome(getString(R.string.room_create_failed, e.message.orEmpty()))
                 return
             }
             roomLifecycle.publishSession(newSession, RoomKind.WIFI)
             appCoordinator.setHost(true)
-            beginCall(HOST_LABEL, speakerOn)
+            beginCall(wifiHostLabel, speakerOn)
             try {
                 newSession.start(transport)
                 transport.start()
             } catch (e: Exception) {
                 TransportLog.w("房间启动失败: ${e.message}", e)
                 runCatching { transport.close() }
-                Toast.makeText(context, "房间启动失败：${e.message}", Toast.LENGTH_LONG).show()
-                goHome("房间启动失败：${e.message}")
+            Toast.makeText(context, getString(R.string.room_start_failed, e.message.orEmpty()), Toast.LENGTH_LONG).show()
+            goHome(getString(R.string.room_start_failed, e.message.orEmpty()))
                 return
             }
             appCoordinator.setStatus(null)
@@ -674,7 +700,7 @@ class MainActivity : ComponentActivity() {
             val newSession = RoomSession(nickname)
             roomLifecycle.publishSession(newSession, RoomKind.WIFI)
             appCoordinator.setHost(false)
-            appCoordinator.setStatus("正在入房……")
+            appCoordinator.setStatus(getString(R.string.joining_room))
             val nick = nickname
             val speaker = speakerOn
             // TCP 连接是阻塞的（5s 超时），不能占主线程。
@@ -690,8 +716,8 @@ class MainActivity : ComponentActivity() {
                 } catch (e: Exception) {
                     TransportLog.w("入房失败: ${e.message}", e)
                     runOnUiThread {
-                        Toast.makeText(context, "入房失败：${e.message}", Toast.LENGTH_LONG).show()
-                        goHome("入房失败：${e.message}")
+            Toast.makeText(context, getString(R.string.room_join_failed, e.message.orEmpty()), Toast.LENGTH_LONG).show()
+            goHome(getString(R.string.room_join_failed, e.message.orEmpty()))
                     }
                     return@thread
                 }
@@ -701,14 +727,14 @@ class MainActivity : ComponentActivity() {
                         runCatching { transport.close() }
                         return@runOnUiThread
                     }
-                    beginCall(GUEST_LABEL, speaker)
+            beginCall(wifiGuestLabel, speaker)
                     try {
                         newSession.start(transport)
                     } catch (e: Exception) {
                         TransportLog.w("房间启动失败: ${e.message}", e)
                         runCatching { transport.close() }
-                        Toast.makeText(context, "房间启动失败：${e.message}", Toast.LENGTH_LONG).show()
-                        goHome("房间启动失败：${e.message}")
+            Toast.makeText(context, getString(R.string.room_start_failed, e.message.orEmpty()), Toast.LENGTH_LONG).show()
+            goHome(getString(R.string.room_start_failed, e.message.orEmpty()))
                         return@runOnUiThread
                     }
                     appCoordinator.setStatus(null)
@@ -723,7 +749,7 @@ class MainActivity : ComponentActivity() {
             when (val start = RoomFlow.decide(group, role, session != null)) {
                 RoomStart.Idle -> Unit
                 RoomStart.AwaitingAddress -> {
-                    appCoordinator.setStatus("组已建立，正在获取组主地址……")
+            appCoordinator.setStatus(getString(R.string.waiting_group_owner))
                     delay(RoomFlow.ADDRESS_WAIT_TIMEOUT_MILLIS)
                     val reason =
                         RoomFlow.addressTimeoutReason(
@@ -752,10 +778,10 @@ class MainActivity : ComponentActivity() {
                     it.deviceAddress.equals(target, ignoreCase = true)
                 }
                 if (peer == null) {
-                    appCoordinator.setStatus("房主交接中，正在发现新房主……")
+                appCoordinator.setStatus(getString(R.string.host_transfer_discovering))
                     wifi.discoverPeers()
                 } else {
-                    appCoordinator.setStatus("房主交接中，正在连接新房主……")
+                appCoordinator.setStatus(getString(R.string.host_transfer_connecting))
                     wifi.connect(peer)
                 }
                 delay(HOST_TRANSFER_DISCOVERY_INTERVAL_MS)
@@ -763,7 +789,7 @@ class MainActivity : ComponentActivity() {
                     wifiTransferTarget == target &&
                     wifi.connection.value?.groupFormed != true
                 ) {
-                    goHome("房主交接失败，请重新加入房间")
+            goHome(getString(R.string.host_transfer_failed))
                 }
             }
         }
@@ -773,7 +799,7 @@ class MainActivity : ComponentActivity() {
             val selfId = roomState.members.firstOrNull { it.isSelf }?.id ?: return@LaunchedEffect
             val action = HostTransferFlow.decide(plan, selfId)
             val previousKind = roomKind
-            appCoordinator.setStatus("房主交接中……")
+            appCoordinator.setStatus(getString(R.string.host_transfer_in_progress))
             releaseRoom(keepWifiGroup = previousKind == RoomKind.WIFI)
             when (previousKind) {
                 RoomKind.BLUETOOTH -> when (action) {
@@ -782,12 +808,12 @@ class MainActivity : ComponentActivity() {
                     is HostTransferAction.JoinHost -> {
                         val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
                         val device = runCatching { adapter.getRemoteDevice(action.endpoint) }.getOrElse { error ->
-                            goHome("房主交接失败：${error.message}")
+                        goHome(getString(R.string.host_transfer_failed_detail, error.message.orEmpty()))
                             return@LaunchedEffect
                         }
                         startBluetoothGuest(device, secure = false)
                     }
-                    HostTransferAction.Ignore -> goHome("房主交接信息已失效")
+                    HostTransferAction.Ignore -> goHome(getString(R.string.host_transfer_expired))
                 }
                 RoomKind.WIFI -> when (action) {
                     is HostTransferAction.BecomeHost -> {
@@ -808,9 +834,9 @@ class MainActivity : ComponentActivity() {
                         wifi.disconnectAndDiscoverPeers()
                         navigation.navigateTo(Screen.ROOM)
                     }
-                    HostTransferAction.Ignore -> goHome("房主交接信息已失效")
+                    HostTransferAction.Ignore -> goHome(getString(R.string.host_transfer_expired))
                 }
-                RoomKind.NEARBY, null -> goHome("当前房型不支持房主交接")
+                RoomKind.NEARBY, null -> goHome(getString(R.string.host_transfer_unsupported))
             }
         }
 
@@ -875,7 +901,7 @@ class MainActivity : ComponentActivity() {
                             appCoordinator.setRoomRole(RoomRole.HOST)
                             appCoordinator.setHost(true)
                             roomLifecycle.setRoomKind(RoomKind.WIFI)
-                            appCoordinator.setStatus("正在建立 WiFi 频道……")
+                            appCoordinator.setStatus(getString(R.string.establishing_wifi))
                             wifi.createGroup()
                         }
                     }
@@ -922,8 +948,8 @@ class MainActivity : ComponentActivity() {
                                 navigation.navigateTo(Screen.LOOPBACK)
                             }
                             .onFailure {
-                                appCoordinator.setStatus("回环启动失败：${it.message}")
-                                Toast.makeText(context, "回环启动失败：${it.message}", Toast.LENGTH_LONG).show()
+                                appCoordinator.setStatus(getString(R.string.loopback_failed, it.message.orEmpty()))
+                                Toast.makeText(context, getString(R.string.loopback_failed, it.message.orEmpty()), Toast.LENGTH_LONG).show()
                             }
                     }
                  },
@@ -938,6 +964,42 @@ class MainActivity : ComponentActivity() {
                 versionName = versionName,
                 updateState = updateState,
                 onCheckUpdate = aboutUpdateCoordinator::check,
+                onDownloadUpdate = aboutUpdateCoordinator::download,
+                onInstallUpdate = aboutUpdateCoordinator::install,
+                onExportDiagnostics = {
+                    runCatching {
+                        DiagnosticExporter(context).share(
+                            DiagnosticReport.create(
+                                appVersion = versionName,
+                                androidApi = Build.VERSION.SDK_INT,
+                                roomType = roomKind?.name ?: "NONE",
+                                connected = roomState.connected,
+                                memberCount = roomState.members.size,
+                                audioQuality = roomState.audioQuality,
+                                recentErrors = listOfNotNull(status, wifiError, nearbyError),
+                            ),
+                        )
+                    }.onFailure {
+                        aboutUpdateCoordinator.reportFailure(getString(R.string.diagnostics_failed, it.message.orEmpty()))
+                    }
+                },
+                onReportIssue = {
+                    runCatching {
+                        DiagnosticExporter(context).openIssue(
+                            DiagnosticReport.create(
+                                appVersion = versionName,
+                                androidApi = Build.VERSION.SDK_INT,
+                                roomType = roomKind?.name ?: "NONE",
+                                connected = roomState.connected,
+                                memberCount = roomState.members.size,
+                                audioQuality = roomState.audioQuality,
+                                recentErrors = listOfNotNull(status, wifiError, nearbyError),
+                            ),
+                        )
+                    }.onFailure {
+                        aboutUpdateCoordinator.reportFailure(getString(R.string.browser_unavailable))
+                    }
+                },
                 onOpenGithub = {
                     runCatching {
                         context.startActivity(
@@ -947,7 +1009,7 @@ class MainActivity : ComponentActivity() {
                             ),
                         )
                     }.onFailure {
-                        aboutUpdateCoordinator.reportFailure("没有可用的浏览器")
+                        aboutUpdateCoordinator.reportFailure(getString(R.string.browser_unavailable))
                     }
                 },
                 onClose = { navigation.navigateTo(Screen.HOME) },
@@ -955,9 +1017,9 @@ class MainActivity : ComponentActivity() {
 
             Screen.SCAN -> ScanScreen(
                 peers = peers,
-                status = status ?: wifiError ?: "扫描中……选择对方后手机会弹出连接确认",
+                status = status ?: wifiError ?: getString(R.string.wifi_scan_hint),
                 onPick = { device ->
-                    appCoordinator.setStatus("正在连接 ${device.deviceName.orEmpty().ifBlank { device.deviceAddress }}……")
+                    appCoordinator.setStatus(getString(R.string.connecting_device, device.deviceName.orEmpty().ifBlank { device.deviceAddress }))
                     wifi.connect(device)
                 },
                 onBack = {
@@ -978,9 +1040,9 @@ class MainActivity : ComponentActivity() {
                         bluetooth.close()
                         startBluetoothGuest(device)
                     } else {
-                        appCoordinator.setStatus("请在系统配对弹窗中确认")
+                    appCoordinator.setStatus(getString(R.string.confirm_system_pairing))
                         runCatching { device.createBond() }
-                            .onFailure { appCoordinator.setStatus("发起配对失败：${it.message}") }
+                        .onFailure { appCoordinator.setStatus(getString(R.string.pair_failed, it.message.orEmpty())) }
                     }
                 },
                 onScanAgain = { bluetooth.discoverDevices() },
@@ -1002,10 +1064,11 @@ class MainActivity : ComponentActivity() {
 
             Screen.ROOM -> RoomScreen(
                 state = roomState,
+                securityCode = deviceIdentity.shortCode,
                 roomLabel = when (roomKind) {
-                    RoomKind.BLUETOOTH -> if (isHost) BLUETOOTH_HOST_LABEL else BLUETOOTH_GUEST_LABEL
-                    RoomKind.NEARBY -> if (isHost) NEARBY_HOST_LABEL else NEARBY_GUEST_LABEL
-                    else -> if (isHost) HOST_LABEL else GUEST_LABEL
+                    RoomKind.BLUETOOTH -> if (isHost) bluetoothHostLabel else bluetoothGuestLabel
+                    RoomKind.NEARBY -> if (isHost) nearbyHostLabel else nearbyGuestLabel
+                    else -> if (isHost) wifiHostLabel else wifiGuestLabel
                 },
                 speakerOn = speakerOn,
                 onToggleMute = {
@@ -1051,10 +1114,11 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     state = roomState,
+                    securityCode = deviceIdentity.shortCode,
                     roomLabel = when (roomKind) {
-                        RoomKind.BLUETOOTH -> if (isHost) BLUETOOTH_HOST_LABEL else BLUETOOTH_GUEST_LABEL
-                        RoomKind.NEARBY -> if (isHost) NEARBY_HOST_LABEL else NEARBY_GUEST_LABEL
-                        else -> if (isHost) HOST_LABEL else GUEST_LABEL
+                        RoomKind.BLUETOOTH -> if (isHost) bluetoothHostLabel else bluetoothGuestLabel
+                        RoomKind.NEARBY -> if (isHost) nearbyHostLabel else nearbyGuestLabel
+                        else -> if (isHost) wifiHostLabel else wifiGuestLabel
                     },
                     speakerOn = speakerOn,
                     onToggleMute = {},
@@ -1068,14 +1132,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val wifiHostLabel get() = getString(R.string.room_wifi_host)
+    private val wifiGuestLabel get() = getString(R.string.room_wifi_guest)
+    private val bluetoothHostLabel get() = getString(R.string.room_bluetooth_host)
+    private val bluetoothGuestLabel get() = getString(R.string.room_bluetooth_guest)
+    private val nearbyHostLabel get() = getString(R.string.room_nearby_host)
+    private val nearbyGuestLabel get() = getString(R.string.room_nearby_guest)
+
     private companion object {
         const val STATE_SCREEN = "screen"
-        const val HOST_LABEL = "WiFi 房（我是房主）"
-        const val GUEST_LABEL = "WiFi 房"
-        const val BLUETOOTH_HOST_LABEL = "蓝牙房（我是房主）"
-        const val BLUETOOTH_GUEST_LABEL = "蓝牙房"
-        const val NEARBY_HOST_LABEL = "Nearby 房（我是房主）"
-        const val NEARBY_GUEST_LABEL = "Nearby 房"
         const val UNKNOWN_P2P_ADDRESS = "02:00:00:00:00:00"
         const val HOST_TRANSFER_DISCOVERY_ATTEMPTS = 10
         const val HOST_TRANSFER_DISCOVERY_INTERVAL_MS = 3_000L

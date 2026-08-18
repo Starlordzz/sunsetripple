@@ -52,22 +52,29 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import host.msknet.sunsetripple.session.MemberPresence
 import host.msknet.sunsetripple.session.MemberUi
 import host.msknet.sunsetripple.session.RoomUiState
+import host.msknet.sunsetripple.audio.NetworkQuality
+import host.msknet.sunsetripple.R
 
 @Composable
 fun RoomScreen(
     modifier: Modifier = Modifier,
     state: RoomUiState,
     roomLabel: String,
+    securityCode: String,
     speakerOn: Boolean,
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
@@ -77,14 +84,22 @@ fun RoomScreen(
     headerPhase: State<Float>? = null,
 ) {
     val roomSubtitle = when {
-        state.audioFocusInterrupted -> "只听模式 · 麦克风暂不可用"
-        state.connected -> "频道已连接"
-        else -> "正在建立频道"
+            state.audioFocusInterrupted -> stringResource(R.string.room_listen_only_detail)
+            state.connected -> stringResource(R.string.room_connected)
+            else -> stringResource(R.string.room_connecting)
     }
     val speaking = state.members.any {
         it.speaking && it.presence == MemberPresence.CONNECTED
     }
     val pushToTalk = onPttChanged != null
+    val networkQuality = stringResource(
+        when (state.audioQuality.networkQuality) {
+            NetworkQuality.UNKNOWN -> R.string.network_quality_unknown
+            NetworkQuality.GOOD -> R.string.network_quality_good
+            NetworkQuality.FAIR -> R.string.network_quality_fair
+            NetworkQuality.POOR -> R.string.network_quality_poor
+        },
+    )
     val toolbarItems = remember(pushToTalk, state.micMuted, speakerOn) {
         roomToolbarItems(
             pushToTalk = pushToTalk,
@@ -101,6 +116,8 @@ fun RoomScreen(
         RoomHeader(
             roomLabel = roomLabel,
             roomSubtitle = roomSubtitle,
+            securityCode = securityCode,
+            networkQuality = networkQuality,
             entryProgress = entryProgress,
             headerPhase = headerPhase,
         )
@@ -146,6 +163,8 @@ fun RoomScreen(
 private fun RoomHeader(
     roomLabel: String,
     roomSubtitle: String,
+    securityCode: String,
+    networkQuality: String,
     entryProgress: State<Float>?,
     headerPhase: State<Float>?,
 ) {
@@ -174,10 +193,21 @@ private fun RoomHeader(
                 ) { subtitle ->
                     Text(
                         subtitle,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.82f),
                     )
                 }
+                Text(
+                    stringResource(R.string.room_device_code, securityCode),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.68f),
+                )
+                Text(
+                    networkQuality,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.62f),
+                )
             }
         }
     }
@@ -195,13 +225,13 @@ private fun MemberChannelStrip(state: RoomUiState) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "频道成员",
+                stringResource(R.string.room_members),
                 style = MaterialTheme.typography.labelLarge,
                 color = Color.White.copy(alpha = 0.78f),
             )
             Spacer(Modifier.weight(1f))
             Text(
-                "${state.members.size} 人在线",
+                stringResource(R.string.room_online_count, state.members.size),
                 style = MaterialTheme.typography.bodyMedium,
                 color = SunsetColors.Sun.copy(alpha = 0.84f),
             )
@@ -213,7 +243,7 @@ private fun MemberChannelStrip(state: RoomUiState) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "等待频道信号",
+                    stringResource(R.string.room_waiting_signal),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.68f),
                 )
@@ -236,12 +266,12 @@ private fun MemberChannelStrip(state: RoomUiState) {
 private fun MemberSignal(member: MemberUi, state: RoomUiState) {
     val active = member.speaking && member.presence == MemberPresence.CONNECTED
     val status = when {
-        member.presence == MemberPresence.RECONNECTING -> "重连中"
-        member.isSelf && state.audioFocusInterrupted -> "只听"
-        member.isSelf && state.micMuted -> "静音"
-        active -> "说话中"
-        member.isSelf -> "我"
-        else -> "在线"
+        member.presence == MemberPresence.RECONNECTING -> stringResource(R.string.member_reconnecting)
+        member.isSelf && state.audioFocusInterrupted -> stringResource(R.string.listen_only)
+        member.isSelf && state.micMuted -> stringResource(R.string.muted)
+        active -> stringResource(R.string.speaking)
+        member.isSelf -> stringResource(R.string.me)
+        else -> stringResource(R.string.online)
     }
     val statusColor by animateColorAsState(
         targetValue = if (active) SunsetColors.Sun else Color.White.copy(alpha = 0.68f),
@@ -305,12 +335,12 @@ private fun FullDuplexCore(
         centerColor = centerColor,
         foreground = foreground,
         title = when {
-            audioFocusInterrupted -> "只听"
-            micMuted -> "已静音"
-            connected -> "全双工"
-            else -> "连接中"
+            audioFocusInterrupted -> stringResource(R.string.listen_only)
+            micMuted -> stringResource(R.string.already_muted)
+            connected -> stringResource(R.string.full_duplex)
+            else -> stringResource(R.string.connecting)
         },
-        subtitle = if (speaking) "频道有声音" else "频道保持在线",
+        subtitle = stringResource(if (speaking) R.string.channel_has_audio else R.string.channel_online),
         modifier = Modifier.size(206.dp),
     )
 }
@@ -339,13 +369,20 @@ private fun PushToTalkCore(
         animationSpec = tween(160),
         label = "ptt-core-color",
     )
+    val pttDescription = stringResource(if (audioFocusInterrupted) R.string.listen_only_mode else R.string.hold_to_talk)
 
     Box(
         modifier = Modifier
             .size(206.dp)
             .semantics(mergeDescendants = true) {
-                contentDescription = if (audioFocusInterrupted) "只听模式" else "按住说话"
+                contentDescription = pttDescription
                 role = Role.Button
+                onClick(label = pttDescription) {
+                    if (audioFocusInterrupted) return@onClick false
+                    pressed = !pressed
+                    onPttChanged(pressed)
+                    true
+                }
             }
             .pointerInput(onPttChanged, audioFocusInterrupted) {
                 if (!audioFocusInterrupted) {
@@ -378,11 +415,11 @@ private fun PushToTalkCore(
             centerColor = centerColor,
             foreground = Color.White,
             title = when {
-                audioFocusInterrupted -> "只听"
-                pressed -> "正在发射"
-                else -> "按住说话"
+                audioFocusInterrupted -> stringResource(R.string.listen_only)
+                pressed -> stringResource(R.string.transmitting)
+                else -> stringResource(R.string.hold_to_talk)
             },
-            subtitle = if (pressed) "松开结束" else "PTT",
+            subtitle = if (pressed) stringResource(R.string.release_to_stop) else "PTT",
             modifier = Modifier.fillMaxSize(),
         )
     }
@@ -502,6 +539,13 @@ private fun RoomToolbarButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val localizedLabel = stringResource(
+        when (item.action) {
+            RoomAction.MUTE -> R.string.call_action_mute
+            RoomAction.SPEAKER -> R.string.speaker
+            RoomAction.LEAVE -> R.string.call_action_leave
+        },
+    )
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -545,7 +589,7 @@ private fun RoomToolbarButton(
                 .background(containerColor, CircleShape)
                 .border(1.dp, borderColor, CircleShape)
                 .semantics {
-                    contentDescription = item.label
+                    contentDescription = localizedLabel
                     role = Role.Button
                 }
                 .clickable(
@@ -565,7 +609,7 @@ private fun RoomToolbarButton(
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            text = item.label,
+            text = localizedLabel,
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 14.sp),
             color = labelColor,
             maxLines = 1,

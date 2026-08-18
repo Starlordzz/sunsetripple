@@ -23,7 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import host.msknet.sunsetripple.R
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -41,12 +43,12 @@ fun BluetoothScanScreen(
         SunsetBrandHeader(height = 170.dp) {
             Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
                 Text(
-                    "寻找蓝牙房",
+                    stringResource(R.string.scan_bluetooth_title),
                     style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
                     color = Color.White,
                 )
                 Text(
-                    "选择已配对设备，或让系统完成新设备配对",
+                    stringResource(R.string.scan_bluetooth_subtitle),
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.82f),
                 )
@@ -64,9 +66,9 @@ fun BluetoothScanScreen(
             item {
                 Text(
                     when {
-                        discovering -> "正在扫描 · ${devices.size}"
-                        devices.isEmpty() -> "尚未发现设备"
-                        else -> "可用设备 · ${devices.size}"
+                discovering -> stringResource(R.string.scanning_count, devices.size)
+                devices.isEmpty() -> stringResource(R.string.no_devices)
+                else -> stringResource(R.string.available_device_count, devices.size)
                     },
                     modifier = Modifier.padding(top = 22.dp, bottom = 10.dp),
                     style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
@@ -82,17 +84,17 @@ fun BluetoothScanScreen(
                     RippleStatusMark(active = bonded, Modifier.size(38.dp))
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
                         Text(
-                            device.name.orEmpty().ifBlank { "未命名蓝牙设备" },
+                            device.name.orEmpty().ifBlank { stringResource(R.string.unnamed_bluetooth_device) },
                             fontWeight = FontWeight.SemiBold,
                             color = SunsetColors.Ink,
                         )
                         Text(
-                            if (bonded) "已配对 · ${device.address}" else "需要配对 · ${device.address}",
+                            stringResource(if (bonded) R.string.paired_device else R.string.pair_required, device.address),
                             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                             color = SunsetColors.Muted,
                         )
                     }
-                    Text(if (bonded) "加入" else "配对", color = SunsetColors.Coral, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(if (bonded) R.string.join else R.string.pair), color = SunsetColors.Coral, fontWeight = FontWeight.SemiBold)
                 }
                 HorizontalDivider(color = SunsetColors.Line.copy(alpha = 0.65f))
             }
@@ -102,13 +104,13 @@ fun BluetoothScanScreen(
             enabled = !discovering,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(50.dp),
             shape = RoundedCornerShape(8.dp),
-        ) { Text(if (discovering) "正在扫描" else "重新扫描") }
+            ) { Text(stringResource(if (discovering) R.string.scanning else R.string.scan_again)) }
         Spacer(Modifier.height(10.dp))
         OutlinedButton(
             onClick = onBack,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(50.dp),
             shape = RoundedCornerShape(8.dp),
-        ) { Text("返回首页") }
+        ) { Text(stringResource(R.string.back_home)) }
         Spacer(Modifier.height(20.dp))
     }
 }

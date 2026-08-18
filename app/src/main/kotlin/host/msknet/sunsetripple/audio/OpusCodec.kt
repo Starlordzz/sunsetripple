@@ -15,6 +15,11 @@ class OpusCodec(bitrateBps: Int = 24_000) {
     private val decoder = OpusDecoder(AudioConfig.SAMPLE_RATE, 1)
     private val encBuf = ByteArray(512)
 
+    fun setBitrate(bitrateBps: Int) {
+        require(bitrateBps in 6_000..64_000)
+        encoder.bitrate = bitrateBps
+    }
+
     /** 编码一帧（320 样本）PCM，返回 Opus 包。 */
     fun encode(pcm: ShortArray): ByteArray {
         val n = encoder.encode(pcm, 0, AudioConfig.FRAME_SAMPLES, encBuf, 0, encBuf.size)

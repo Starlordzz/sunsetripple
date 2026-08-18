@@ -4,7 +4,12 @@ sealed interface UpdateState {
     data object Idle : UpdateState
     data object Checking : UpdateState
     data object UpToDate : UpdateState
-    data class Available(val versionName: String) : UpdateState
+    data class Available(val versionName: String, val summary: String = "") : UpdateState
+    data class Downloading(val versionName: String) : UpdateState
+    data class ReadyToInstall(val versionName: String) : UpdateState
+    data object InstallPermissionRequired : UpdateState
+    data object InstallConfirmationOpened : UpdateState
+    data object InstallCancelled : UpdateState
     data class Failed(val message: String) : UpdateState
 }
 
@@ -14,6 +19,9 @@ fun interface UpdateSource {
 
 sealed interface UpdateActionResult {
     data object Started : UpdateActionResult
+    data class Completed(val versionName: String) : UpdateActionResult
+    data object PermissionRequired : UpdateActionResult
+    data object ConfirmationOpened : UpdateActionResult
     data class Unsupported(val reason: String) : UpdateActionResult
     data class Failed(val message: String) : UpdateActionResult
 }

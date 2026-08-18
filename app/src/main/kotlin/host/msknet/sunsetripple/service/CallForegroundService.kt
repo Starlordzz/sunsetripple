@@ -21,6 +21,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import host.msknet.sunsetripple.MainActivity
+import host.msknet.sunsetripple.R
 import host.msknet.sunsetripple.transport.TransportLog
 
 /**
@@ -55,7 +56,7 @@ class CallForegroundService : Service() {
             }
         }
         val fallback = intent?.toNotificationState()
-            ?: CallNotificationState(DEFAULT_LABEL, CallMode.FULL_DUPLEX)
+            ?: CallNotificationState(getString(R.string.call_default_label), CallMode.FULL_DUPLEX)
         val state = initialNotificationState(ActiveCallControls.currentState(), fallback)
         ensureChannel()
         try {
@@ -92,8 +93,8 @@ class CallForegroundService : Service() {
 
     private fun ensureChannel() {
         val channel = NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
-            .setName("通话中")
-            .setDescription("对讲进行中的常驻通知")
+            .setName(getString(R.string.call_channel_name))
+            .setDescription(getString(R.string.call_channel_description))
             .setShowBadge(false)
             .build()
         NotificationManagerCompat.from(this).createNotificationChannel(channel)
@@ -121,14 +122,14 @@ class CallForegroundService : Service() {
             flags,
         )
         val content = when {
-            state.audioFocusInterrupted -> "只听模式 · ${state.label}"
-            state.mode == CallMode.PUSH_TO_TALK && state.pttActive -> "正在说话 · ${state.label}"
-            state.mode == CallMode.FULL_DUPLEX && state.micMuted -> "麦克风已静音 · ${state.label}"
+            state.audioFocusInterrupted -> getString(R.string.call_listen_only, state.label)
+            state.mode == CallMode.PUSH_TO_TALK && state.pttActive -> getString(R.string.call_speaking, state.label)
+            state.mode == CallMode.FULL_DUPLEX && state.micMuted -> getString(R.string.call_muted, state.label)
             else -> state.label
         }
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle(APP_NAME)
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(content)
             .setOngoing(true)
             .setSilent(true)
@@ -137,8 +138,15 @@ class CallForegroundService : Service() {
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(open)
-        state.controlLabel()?.let { builder.addAction(0, it, control) }
-        return builder.addAction(0, "离开", leave).build()
+        val controlLabel = when {
+            state.audioFocusInterrupted -> null
+            state.mode == CallMode.FULL_DUPLEX && state.micMuted -> getString(R.string.call_action_unmute)
+            state.mode == CallMode.FULL_DUPLEX -> getString(R.string.call_action_mute)
+            state.pttActive -> getString(R.string.call_action_stop_talking)
+            else -> getString(R.string.call_action_start_talking)
+        }
+        controlLabel?.let { builder.addAction(0, it, control) }
+        return builder.addAction(0, getString(R.string.call_action_leave), leave).build()
     }
 
     private fun refreshNotification(state: CallNotificationState) {
@@ -215,8 +223,6 @@ class CallForegroundService : Service() {
         const val ACTION_LEAVE = "host.msknet.sunsetripple.action.LEAVE_ROOM"
         private const val ACTION_CONTROL = "host.msknet.sunsetripple.action.TOGGLE_CALL_CONTROL"
 
-        private const val APP_NAME = "落日后残波"
-        private const val DEFAULT_LABEL = "通话中"
         private const val EXTRA_LABEL = "room_label"
         private const val EXTRA_MODE = "call_mode"
         private const val CHANNEL_ID = "room_call"

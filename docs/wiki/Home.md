@@ -8,7 +8,7 @@
 
 ## 这是什么
 
-一个 Android 近场语音对讲应用：不联网、不过服务器，用手机自带的 WiFi Direct 与经典蓝牙，在最多 6 台设备之间拉起临时语音房。
+一个 Android 近场语音对讲应用：语音不过服务器，用手机自带的 WiFi Direct 与经典蓝牙，在最多 6 台设备之间拉起临时语音房；版本检查按用户操作访问 GitHub。
 
 ## 按需求找页面
 
@@ -38,7 +38,7 @@
 | 项 | 值 |
 | --- | --- |
 | 包名 | `host.msknet.sunsetripple` |
-| 当前版本 | `0.1.0-alpha.4`（versionCode 5） |
+| 当前版本 | `0.1.0-alpha.5`（versionCode 6） |
 | 最低系统 | Android 8.0 / API 26 |
 | 目标 / 编译 SDK | 35 |
 | 语言与 UI | Kotlin 2.0.20 + Jetpack Compose |
@@ -50,7 +50,9 @@
 
 ## 项目约定
 
-- **界面文案全部为简体中文**，且硬编码在 Kotlin 中——项目没有 `strings.xml`，也没有做多语言（`res/` 下只有主题、图标一类的非文案资源）。
+- **界面自动跟随系统中文或英文**，资源测试校验两套 key 与格式占位符一致。
+- **更新默认拒绝未签名内容**：清单、APK 哈希、包名和证书依次校验，安装交给 Android 确认。
+- **诊断必须由用户主动导出**，且不包含音频、昵称原文、设备地址和密钥材料。
 - **没有依赖注入框架、没有数据库、没有网络库**——传输层直接用 `java.net` 与 `android.bluetooth`。
 - **测试不使用 Robolectric / MockK / Mockito**，全部是手写 fake，因此可在纯 JVM 上秒跑。
 - **纯决策逻辑一律抽成不依赖 Android 的对象**（如 `HostElection`、`RoomFlow`、`RoomPermissions`、`BluetoothMixPlanner`），这是测试覆盖率能做厚的根本原因。
