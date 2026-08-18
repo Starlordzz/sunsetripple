@@ -1,0 +1,242 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v0.1.0-alpha.5
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      UPDATE_PRIVATE_KEY_PKCS8_BASE64: ${{ secrets.UPDATE_PRIVATE_KEY_PKCS8_BASE64 }}
+      UPDATE_PUBLIC_KEY_BASE64: ${{ vars.UPDATE_PUBLIC_KEY_BASE64 }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore signing material
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD \
+            UPDATE_PRIVATE_KEY_PKCS8_BASE64 \
+            UPDATE_PUBLIC_KEY_BASE64; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing GitHub Actions secret or variable: $name" >&2
+              exit 1
+            fi
+          done
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.p12"
+          printf '%s' "$UPDATE_PRIVATE_KEY_PKCS8_BASE64" | base64 --decode > "$RUNNER_TEMP/update-private-key.pk8"
+          cat > "$RUNNER_TEMP/keystore.properties" <<EOF
+          storeFile=$RUNNER_TEMP/release-keystore.p12
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          chmod 600 \
+            "$RUNNER_TEMP/release-keystore.p12" \
+            "$RUNNER_TEMP/update-private-key.pk8" \
+            "$RUNNER_TEMP/keystore.properties"
+
+      - name: Read and validate release metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon -q :app:writeReleaseMetadata
+          source app/build/release/release-metadata.properties
+
+          tag="${{ inputs.tag || github.ref_name }}"
+          if [[ "$tag" != "v$versionName" ]]; then
+            echo "Tag $tag does not match Android version v$versionName" >&2
+            exit 1
+          fi
+          git rev-parse --verify "refs/tags/$tag" >/dev/null
+          if ! git tag --points-at HEAD | grep -Fxq "$tag"; then
+            echo "Checked-out commit is not tagged with $tag" >&2
+            exit 1
+          fi
+
+          if [[ "$versionName" == *-* ]]; then
+            channel="prerelease"
+            channel_tag="updates-prerelease"
+          else
+            channel="stable"
+            channel_tag="updates-stable"
+          fi
+          manifest_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${channel_tag}/update.json"
+
+          {
+            echo "tag=$tag"
+            echo "version_name=$versionName"
+            echo "version_code=$versionCode"
+            echo "application_id=$applicationId"
+            echo "channel=$channel"
+            echo "channel_tag=$channel_tag"
+            echo "manifest_url=$manifest_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Test and build signed release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon \
+            -PsunsetRipple.signingProperties="$RUNNER_TEMP/keystore.properties" \
+            -PsunsetRipple.updatePublicKey="$UPDATE_PUBLIC_KEY_BASE64" \
+            -PsunsetRipple.updateManifestUrl="${{ steps.metadata.outputs.manifest_url }}" \
+            :app:testDebugUnitTest \
+            :app:lintRelease \
+            :app:assembleRelease \
+            :app:bundleRelease
+
+      - name: Prepare signed update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.metadata.outputs.tag }}"
+          version_name="${{ steps.metadata.outputs.version_name }}"
+          apk_name="SunsetRipple-${tag}.apk"
+          aab_name="SunsetRipple-${tag}.aab"
+          mkdir -p release-artifacts
+          cp app/build/outputs/apk/release/app-release.apk "release-artifacts/$apk_name"
+          cp app/build/outputs/bundle/release/app-release.aab "release-artifacts/$aab_name"
+
+          awk -v heading="## $version_name - " '
+            index($0, heading) == 1 { found = 1 }
+            found && /^## / && index($0, heading) != 1 { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-artifacts/release-notes.md
+          awk '/^- / { sub(/^- /, ""); print; exit }' \
+            release-artifacts/release-notes.md > release-artifacts/summary.txt
+          if [[ ! -s release-artifacts/summary.txt ]]; then
+            echo "No release summary found in CHANGELOG.md" >&2
+            exit 1
+          fi
+
+          keytool -exportcert \
+            -keystore "$RUNNER_TEMP/release-keystore.p12" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -file "$RUNNER_TEMP/release-certificate.der"
+          certificate_sha256="$(sha256sum "$RUNNER_TEMP/release-certificate.der" | awk '{print $1}')"
+          apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${apk_name}"
+
+          java scripts/SignUpdateManifest.java \
+            --version-code "${{ steps.metadata.outputs.version_code }}" \
+            --version-name "$version_name" \
+            --channel "${{ steps.metadata.outputs.channel }}" \
+            --minimum-version-code 1 \
+            --package-name "${{ steps.metadata.outputs.application_id }}" \
+            --apk "release-artifacts/$apk_name" \
+            --apk-url "$apk_url" \
+            --certificate-sha256 "$certificate_sha256" \
+            --summary-file release-artifacts/summary.txt \
+            --private-key "$RUNNER_TEMP/update-private-key.pk8" \
+            --public-key-base64 "$UPDATE_PUBLIC_KEY_BASE64" \
+            --output release-artifacts/update.json
+
+      - name: Publish versioned GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.metadata.outputs.tag }}"
+          version_name="${{ steps.metadata.outputs.version_name }}"
+          prerelease_args=()
+          if [[ "$version_name" == *-* ]]; then
+            prerelease_args+=(--prerelease)
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              "release-artifacts/SunsetRipple-${tag}.apk" \
+              "release-artifacts/SunsetRipple-${tag}.aab" \
+              release-artifacts/update.json \
+              --clobber
+            gh release edit "$tag" \
+              --title "$tag" \
+              --notes-file release-artifacts/release-notes.md \
+              "${prerelease_args[@]}"
+          else
+            gh release create "$tag" \
+              "release-artifacts/SunsetRipple-${tag}.apk" \
+              "release-artifacts/SunsetRipple-${tag}.aab" \
+              release-artifacts/update.json \
+              --verify-tag \
+              --title "$tag" \
+              --notes-file release-artifacts/release-notes.md \
+              "${prerelease_args[@]}"
+          fi
+
+      - name: Update rolling update channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel_tag="${{ steps.metadata.outputs.channel_tag }}"
+          channel="${{ steps.metadata.outputs.channel }}"
+          notes="Latest ${channel} update manifest: ${{ steps.metadata.outputs.tag }}"
+
+          if gh release view "$channel_tag" >/dev/null 2>&1; then
+            gh release upload "$channel_tag" release-artifacts/update.json --clobber
+            gh release edit "$channel_tag" --title "SunsetRipple ${channel} update channel" --notes "$notes"
+          else
+            channel_args=()
+            if [[ "$channel" == "prerelease" ]]; then
+              channel_args+=(--prerelease)
+            fi
+            gh release create "$channel_tag" release-artifacts/update.json \
+              --target "$GITHUB_SHA" \
+              --title "SunsetRipple ${channel} update channel" \
+              --notes "$notes" \
+              "${channel_args[@]}"
+          fi
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SunsetRipple-${{ steps.metadata.outputs.tag }}
+          path: |
+            release-artifacts/SunsetRipple-${{ steps.metadata.outputs.tag }}.apk
+            release-artifacts/SunsetRipple-${{ steps.metadata.outputs.tag }}.aab
+            release-artifacts/update.json
+          if-no-files-found: error

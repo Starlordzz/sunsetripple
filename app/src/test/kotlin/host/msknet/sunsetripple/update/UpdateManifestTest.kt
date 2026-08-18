@@ -10,6 +10,14 @@ import org.junit.Test
 
 class UpdateManifestTest {
     @Test
+    fun signingPayloadUsesStableFieldOrderAndOmitsEmptySignature() {
+        assertEquals(
+            """{"versionCode":6,"versionName":"0.1.0-alpha.5","channel":"prerelease","minimumVersionCode":5,"packageName":"host.msknet.sunsetripple","apkUrl":"https://example.invalid/app.apk","apkSha256":"${UpdateManifestVerifier.sha256("apk".toByteArray())}","certificateSha256":"${UpdateManifestVerifier.sha256("certificate".toByteArray())}","summary":"Alpha 5"}""",
+            UpdateManifestCodec.signingPayload(sampleManifest()).toString(Charsets.UTF_8),
+        )
+    }
+
+    @Test
     fun signedManifestAndApkHashAreVerified() {
         val keys = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         val unsigned = sampleManifest()

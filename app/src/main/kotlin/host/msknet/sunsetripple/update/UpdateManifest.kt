@@ -33,7 +33,11 @@ sealed interface ManifestVerification {
 }
 
 object UpdateManifestCodec {
-    private val json = Json { ignoreUnknownKeys = false; explicitNulls = false }
+    private val json = Json {
+        ignoreUnknownKeys = false
+        explicitNulls = false
+        encodeDefaults = false
+    }
 
     fun decode(raw: String): UpdateManifest = json.decodeFromString(raw)
     fun encode(manifest: UpdateManifest): String = json.encodeToString(manifest)

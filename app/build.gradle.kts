@@ -22,7 +22,7 @@ val missingReleaseSigningKeys = releaseSigningKeys.filter {
 }
 val releaseSigningReady = releaseSigningFile.isFile && missingReleaseSigningKeys.isEmpty()
 val updateManifestUrl = providers.gradleProperty("sunsetRipple.updateManifestUrl")
-    .orElse("https://github.com/Starlordzz/sunsetripple/releases/latest/download/update.json")
+    .orElse("https://github.com/Starlordzz/sunsetripple/releases/download/updates-prerelease/update.json")
     .get()
 val updatePublicKey = providers.gradleProperty("sunsetRipple.updatePublicKey").orElse("").get()
 
@@ -92,6 +92,23 @@ val verifyReleaseSigning by tasks.registering {
 
 tasks.matching { it.name == "packageRelease" || it.name == "bundleRelease" }.configureEach {
     dependsOn(verifyReleaseSigning)
+}
+
+val writeReleaseMetadata by tasks.registering {
+    val outputFile = layout.buildDirectory.file("release/release-metadata.properties")
+    outputs.file(outputFile)
+    doLast {
+        val versionName = android.defaultConfig.versionName ?: error("versionName 未配置")
+        val versionCode = android.defaultConfig.versionCode ?: error("versionCode 未配置")
+        outputFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                "versionName=$versionName\n" +
+                    "versionCode=$versionCode\n" +
+                    "applicationId=${android.defaultConfig.applicationId}\n",
+            )
+        }
+    }
 }
 
 dependencies {
