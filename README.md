@@ -12,7 +12,7 @@
 <br>
 
 <p align="center">
-  落日之后，波纹仍在替我们说着那天没说完的话。
+  夕阳已远，涟漪未散，犹诉未尽之言。
   <br>
   <sub><em>The sun has gone; the ripple hasn't.</em></sub>
 </p>
