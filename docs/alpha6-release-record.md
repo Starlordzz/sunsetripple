@@ -7,8 +7,9 @@
 - 版本：`0.1.0-alpha.6`（versionCode 7）
 - Tag：`v0.1.0-alpha.6`
 - 发布页：https://github.com/Starlordzz/sunsetripple/releases/tag/v0.1.0-alpha.6
-- 主分支提交：`f7a17d2`
-- GitHub Actions：自动触发 `.github/workflows/release.yml`
+- 主分支提交：`4cb3504`
+- 发布工作流：https://github.com/Starlordzz/sunsetripple/actions/runs/32388038782
+- 工作流结果：成功（耗时 5 分 14 秒，已覆盖最新发布附件）
 
 发布附件：
 
@@ -28,7 +29,10 @@
    - `ScanScreen` 增加「重新扫描」按钮并在扫描中显示禁用态与文案切换，解决系统发现窗口超时后页面定格的缺陷（与蓝牙搜房页拉齐）。
 3. **A5-03 房内「离开」按钮对比度过低修复**：
    - 将房内离开按钮从主题槽位 `SoftCoral` 改为固定浅珊瑚红配色，消除深色背景下被误判为 disabled 禁用态的问题。
-4. **工程与文档治理**：
+4. **底层传输层稳定性与离房竞争修复**：
+   - 修复 `BluetoothHostTransport` 与 `WifiHostTransport` 中 `dropClient` 在写线程先报错时静默丢弃读线程主动离房（`FrameType.LEAVE`）导致成员被误判为重连中、占用 ID 的竞争问题。
+   - 消除多客户端测试套件中的并发握手竞态，保障 CI 高负载下的确定性验证。
+5. **工程与文档治理**：
    - 脱敏公开文档中的开发机绝对路径，补齐 `.gitignore` 中的 `*.hprof` 堆转储忽略规则，防止签名私钥泄露。
    - 同步更新 `README.md` 与 Wiki（`Home.md`、`构建与发布.md`）中的版本号与发版指引。
 
