@@ -115,7 +115,8 @@ class BluetoothTransportContractTest {
     @Test
     fun `第二位成员获得 ID 2`() {
         val room = room()
-        room.client("成员一")
+        val first = room.client("成员一")
+        await("首位成员入房") { first.recorder.rosters.isNotEmpty() }
         val second = room.client("成员二")
 
         await("第二位成员收到三人成员表") { second.recorder.rosters.lastOrNull()?.members?.size == 3 }
@@ -128,7 +129,8 @@ class BluetoothTransportContractTest {
     fun `成员离开后复用最小空闲 ID`() {
         val room = room()
         val first = room.client("成员一")
-        room.client("成员二")
+        await("首位成员入房") { first.recorder.rosters.isNotEmpty() }
+        val second = room.client("成员二")
         await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
 
         first.transport.broadcastSignal(Frame(FrameType.LEAVE, 1, 0, ByteArray(0)))
@@ -345,12 +347,14 @@ class BluetoothTransportContractTest {
     fun `sendTo 只把帧发给目标成员`() {
         val room = room()
         val first = room.client("成员一")
+        await("首位成员入房") { first.recorder.rosters.isNotEmpty() }
         val second = room.client("成员二")
         await("三人入房") { second.recorder.rosters.lastOrNull()?.members?.size == 3 }
         first.recorder.frames.clear()
         second.recorder.frames.clear()
 
-        room.host.sendTo(2, Frame(FrameType.AUDIO, 0, 7, byteArrayOf(1)))
+        val secondId = second.recorder.rosters.last().yourId
+        room.host.sendTo(secondId, Frame(FrameType.AUDIO, 0, 7, byteArrayOf(1)))
         await("目标成员收到定向帧") { second.recorder.frames.any { it.seq == 7 } }
 
         assertTrue(first.recorder.frames.none { it.seq == 7 })
@@ -371,7 +375,12 @@ class BluetoothTransportContractTest {
     @Test
     fun `主机异常关闭后所有客户端使用最后快照触发接管`() {
         val room = room()
-        val clients = List(3) { room.client("成员$it") }
+        val clients = mutableListOf<ClientHandle>()
+        for (i in 0 until 3) {
+            val c = room.client("成员$i")
+            await("成员 $i 入房") { c.recorder.rosters.isNotEmpty() }
+            clients += c
+        }
         await("四人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 4 }
         await("所有客户端已缓存故障接管快照") {
             clients.all { it.recorder.hostSnapshots.isNotEmpty() }
@@ -387,6 +396,7 @@ class BluetoothTransportContractTest {
     fun `主机主动交接给仍在线且最早入房的成员`() {
         val room = room()
         val first = room.client("成员一")
+        await("首位成员入房") { first.recorder.rosters.isNotEmpty() }
         val second = room.client("成员二")
         await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
 
@@ -405,6 +415,7 @@ class BluetoothTransportContractTest {
     fun `成员表更新后所有蓝牙成员收到故障接管快照`() {
         val room = room()
         val first = room.client("成员一")
+        await("首位成员入房") { first.recorder.rosters.isNotEmpty() }
         val second = room.client("成员二")
         await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
         await("所有成员收到故障快照") {
@@ -421,6 +432,7 @@ class BluetoothTransportContractTest {
     fun `交接跳过正在重连的最早成员`() {
         val room = room(reconnectGraceMs = 2_000)
         val first = room.client("成员一")
+        await("首位成员入房") { first.recorder.rosters.isNotEmpty() }
         val second = room.client("成员二")
         await("三人入房") { room.hostRecorder.rosters.lastOrNull()?.members?.size == 3 }
         first.transport.close()
