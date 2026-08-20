@@ -30,6 +30,14 @@ class WifiDirectManager(context: Context) {
     val lastError = MutableStateFlow<String?>(null)
 
     /**
+     * 系统的 P2P 发现是否正在进行。
+     *
+     * 必须以系统广播为准而不是"调用过 discoverPeers 就算在扫"：框架的发现窗口有限，
+     * 到点自行停止且不通知调用方，搜房页据此才能把按钮从"正在扫描"放回"重新扫描"。
+     */
+    val discovering = MutableStateFlow(false)
+
+    /**
      * 框架侧 P2P channel 已断开（WiFi 被关、系统 P2P 服务重启等）。
      *
      * 这是组主侧仅有的两个房间死亡信号之一（另一个是组解散的连接广播）：主机的传输层
@@ -48,6 +56,7 @@ class WifiDirectManager(context: Context) {
             channelLost.value = true
             connection.value = null
             peers.value = emptyList()
+            discovering.value = false
         }
 
     /**
@@ -72,6 +81,11 @@ class WifiDirectManager(context: Context) {
                     manager.requestPeers(channel) { list -> peers.value = list.deviceList.toList() }
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION ->
                     manager.requestConnectionInfo(channel) { info -> connection.value = info }
+                WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION ->
+                    discovering.value = intent.getIntExtra(
+                        WifiP2pManager.EXTRA_DISCOVERY_STATE,
+                        WifiP2pManager.WIFI_P2P_DISCOVERY_STOPPED,
+                    ) == WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED
                 WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION -> {
                     thisDevice.value = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         intent.getParcelableExtra(
@@ -92,6 +106,7 @@ class WifiDirectManager(context: Context) {
         val filter = IntentFilter().apply {
             addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
             addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+            addAction(WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION)
             addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
         }
         // P2P 广播是系统发出的受保护广播；Android 13+ 要求显式声明导出属性，否则注册被拒。
@@ -107,6 +122,8 @@ class WifiDirectManager(context: Context) {
     fun unregister() {
         if (!registered) return
         registered = false
+        // 广播一停就再也收不到发现结束的通知，留着 true 会让搜房页永远卡在"正在扫描"。
+        discovering.value = false
         runCatching { appContext.unregisterReceiver(receiver) }
             .onFailure { TransportLog.w("注销 WiFi Direct 广播失败: ${it.message}", it) }
     }
@@ -130,7 +147,18 @@ class WifiDirectManager(context: Context) {
     fun discoverPeers() {
         ensureChannel()
         peers.value = emptyList()
-        manager.discoverPeers(channel, actionListener("扫描"))
+        lastError.value = null
+        // 乐观置位：发现广播要晚一拍才到，中间这段空窗不能让按钮看起来没反应。
+        // 真实状态随后由 WIFI_P2P_DISCOVERY_CHANGED_ACTION 纠正，失败则立刻回落。
+        discovering.value = true
+        manager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() = Unit
+            override fun onFailure(reason: Int) {
+                discovering.value = false
+                lastError.value = "扫描 失败（code=$reason）"
+                TransportLog.w("WiFi Direct 扫描失败（code=$reason）")
+            }
+        })
     }
 
     @SuppressLint("MissingPermission")

@@ -464,6 +464,7 @@ class MainActivity : ComponentActivity() {
 
         val connection by wifi.connection.collectAsStateWithLifecycle()
         val peers by wifi.peers.collectAsStateWithLifecycle()
+        val wifiDiscovering by wifi.discovering.collectAsStateWithLifecycle()
         val wifiError by wifi.lastError.collectAsStateWithLifecycle()
         val session by sessionFlow.collectAsStateWithLifecycle()
         val bluetoothSession by bluetoothSessionFlow.collectAsStateWithLifecycle()
@@ -1017,10 +1018,17 @@ class MainActivity : ComponentActivity() {
 
             Screen.SCAN -> ScanScreen(
                 peers = peers,
-                status = status ?: wifiError ?: getString(R.string.wifi_scan_hint),
+                discovering = wifiDiscovering,
+                // 发现停了还挂着"扫描中"的提示条，正是让人以为还在搜的那半句。
+                status = status ?: wifiError
+                    ?: getString(R.string.wifi_scan_hint).takeIf { wifiDiscovering },
                 onPick = { device ->
                     appCoordinator.setStatus(getString(R.string.connecting_device, device.deviceName.orEmpty().ifBlank { device.deviceAddress }))
                     wifi.connect(device)
+                },
+                onScanAgain = {
+                    appCoordinator.setStatus(null)
+                    wifi.discoverPeers()
                 },
                 onBack = {
                     appCoordinator.setRoomRole(RoomRole.NONE)

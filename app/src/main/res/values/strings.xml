@@ -83,6 +83,7 @@
     <string name="scan_wifi_title">寻找附近房间</string>
     <string name="scan_wifi_subtitle">对方需要先创建 WiFi 房</string>
     <string name="scan_waiting">等待发现</string>
+    <string name="scan_stopped">扫描已停止 · 点下方重新扫描</string>
     <string name="nearby_device_count">附近设备 · %1$d</string>
     <string name="unnamed_device">未命名设备</string>
     <string name="scan_bluetooth_title">寻找蓝牙房</string>
