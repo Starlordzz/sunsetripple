@@ -331,7 +331,8 @@ class WifiHostTransport(
     }
 
     private fun dropClient(c: Client, link: ClientLink, activeLeave: Boolean, notify: Boolean) {
-        if (!link.dropped.compareAndSet(false, true)) return
+        val firstDrop = link.dropped.compareAndSet(false, true)
+        if (!firstDrop && !activeLeave) return
         var reconnecting = false
         var removed = false
         var shouldNotify = notify
@@ -339,14 +340,20 @@ class WifiHostTransport(
             if (c.link !== link) return
             shouldNotify = notify && running && !closed.get() && !scheduler.isShutdown
             if (activeLeave || !shouldNotify) {
+                c.expiry?.cancel(false)
+                c.expiry = null
                 removed = clients.remove(c.id) === c
-            } else if (!c.reconnecting) {
+            } else if (firstDrop && !c.reconnecting) {
                 c.reconnecting = true
                 reconnecting = true
-                c.expiry = scheduler.schedule({ expireClient(c) }, reconnectGraceMs, TimeUnit.MILLISECONDS)
+                c.expiry = runCatching {
+                    scheduler.schedule({ expireClient(c) }, reconnectGraceMs, TimeUnit.MILLISECONDS)
+                }.getOrNull()
             }
         }
-        runCatching { link.socket.close() }
+        if (firstDrop) {
+            runCatching { link.socket.close() }
+        }
         when {
             removed && shouldNotify -> {
                 listener.onFrame(Frame(FrameType.LEAVE, c.id, 0, ByteArray(0)))

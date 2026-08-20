@@ -315,7 +315,8 @@ class BluetoothHostTransport internal constructor(
         activeLeave: Boolean,
         notify: Boolean,
     ) {
-        if (!link.dropped.compareAndSet(false, true)) return
+        val firstDrop = link.dropped.compareAndSet(false, true)
+        if (!firstDrop && !activeLeave) return
         var reconnecting = false
         var removed = false
         var shouldNotify = notify
@@ -324,18 +325,24 @@ class BluetoothHostTransport internal constructor(
             link.queue.close()
             shouldNotify = notify && running && !closed.get() && !scheduler.isShutdown
             if (activeLeave || !shouldNotify) {
+                client.expiry?.cancel(false)
+                client.expiry = null
                 removed = clients.remove(client.id) === client
-            } else if (!client.reconnecting) {
+            } else if (firstDrop && !client.reconnecting) {
                 client.reconnecting = true
                 reconnecting = true
-                client.expiry = scheduler.schedule(
-                    { expireClient(client) },
-                    reconnectGraceMs,
-                    TimeUnit.MILLISECONDS,
-                )
+                client.expiry = runCatching {
+                    scheduler.schedule(
+                        { expireClient(client) },
+                        reconnectGraceMs,
+                        TimeUnit.MILLISECONDS,
+                    )
+                }.getOrNull()
             }
         }
-        runCatching { link.connection.close() }
+        if (firstDrop) {
+            runCatching { link.connection.close() }
+        }
         if (removed && shouldNotify) {
             listener.onFrame(Frame(FrameType.LEAVE, client.id, 0, ByteArray(0)))
             pushRosterToAll()
