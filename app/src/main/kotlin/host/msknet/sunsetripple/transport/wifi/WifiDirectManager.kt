@@ -73,14 +73,29 @@ class WifiDirectManager(context: Context) {
     /** register/unregister 幂等：重复注册同一 receiver 会导致 unregister 后仍有回调残留。 */
     @Volatile private var registered = false
 
+    private fun p2pReasonText(reason: Int): String = when (reason) {
+        WifiP2pManager.ERROR -> "系统错误 (ERROR=0)"
+        WifiP2pManager.P2P_UNSUPPORTED -> "设备不支持 WiFi Direct (P2P_UNSUPPORTED=1)"
+        WifiP2pManager.BUSY -> "系统繁忙 (BUSY=2)"
+        WifiP2pManager.NO_SERVICE_REQUESTS -> "无可用服务请求 (NO_SERVICE_REQUESTS=3)"
+        else -> "code=$reason"
+    }
+
     @SuppressLint("MissingPermission")
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             when (intent.action) {
                 WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION ->
-                    manager.requestPeers(channel) { list -> peers.value = list.deviceList.toList() }
+                    manager.requestPeers(channel) { list ->
+                        val peerList = list.deviceList.toList()
+                        peers.value = peerList
+                        TransportLog.w("WiFi Direct 对端列表变更: 发现 ${peerList.size} 台设备 [${peerList.joinToString { "${it.deviceName}(${it.deviceAddress}, status=${it.status})" }}]")
+                    }
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION ->
-                    manager.requestConnectionInfo(channel) { info -> connection.value = info }
+                    manager.requestConnectionInfo(channel) { info ->
+                        connection.value = info
+                        TransportLog.w("WiFi Direct 连接状态变更: groupFormed=${info?.groupFormed}, isGroupOwner=${info?.isGroupOwner}, hostIp=${info?.groupOwnerAddress?.hostAddress}")
+                    }
                 WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION ->
                     discovering.value = intent.getIntExtra(
                         WifiP2pManager.EXTRA_DISCOVERY_STATE,
@@ -131,16 +146,50 @@ class WifiDirectManager(context: Context) {
     private fun actionListener(what: String) = object : WifiP2pManager.ActionListener {
         override fun onSuccess() = Unit
         override fun onFailure(reason: Int) {
-            lastError.value = "$what 失败（code=$reason）"
-            TransportLog.w("WiFi Direct $what 失败（code=$reason）")
+            val reasonText = p2pReasonText(reason)
+            lastError.value = "$what 失败（$reasonText）"
+            TransportLog.w("WiFi Direct $what 失败（$reasonText）")
         }
     }
 
-    /** 建 WiFi Direct 组并成为组主。先清掉可能残留的旧组，成功与否都继续建组。 */
+    /** 建 WiFi Direct 组并成为组主。建组成功后启动对等发现，使组主在社交信道上对其他扫描设备保持可见。 */
     @SuppressLint("MissingPermission")
     fun createGroup() {
         ensureChannel()
-        removeGroupThen { manager.createGroup(channel, actionListener("建房")) }
+        removeGroupThen {
+            manager.createGroup(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    TransportLog.w("WiFi Direct 建房成功（已成为 Group Owner）")
+                    startHostDiscovery()
+                }
+
+                override fun onFailure(reason: Int) {
+                    val reasonText = p2pReasonText(reason)
+                    lastError.value = "建房 失败（$reasonText）"
+                    TransportLog.w("WiFi Direct 建房失败（$reasonText）")
+                }
+            })
+        }
+    }
+
+    /**
+     * 房主启动对等发现以保持可被搜索。
+     *
+     * 部分设备（如华为/鸿蒙与定制 ROM）要求组主（GO）必须同时处于 discoverPeers 发现态，
+     * 射频芯片才会持续监听社交信道（1/6/11）并应答扫描端的 Probe Request。
+     */
+    @SuppressLint("MissingPermission")
+    fun startHostDiscovery() {
+        ensureChannel()
+        manager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                TransportLog.w("WiFi Direct 房主发现广播已启动（保持可被对端搜寻）")
+            }
+
+            override fun onFailure(reason: Int) {
+                TransportLog.w("WiFi Direct 房主启动发现失败（${p2pReasonText(reason)}，非致命）")
+            }
+        })
     }
 
     @SuppressLint("MissingPermission")
@@ -155,8 +204,9 @@ class WifiDirectManager(context: Context) {
             override fun onSuccess() = Unit
             override fun onFailure(reason: Int) {
                 discovering.value = false
-                lastError.value = "扫描 失败（code=$reason）"
-                TransportLog.w("WiFi Direct 扫描失败（code=$reason）")
+                val reasonText = p2pReasonText(reason)
+                lastError.value = "扫描 失败（$reasonText）"
+                TransportLog.w("WiFi Direct 扫描失败（$reasonText）")
             }
         })
     }

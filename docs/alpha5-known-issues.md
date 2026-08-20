@@ -6,7 +6,7 @@
 
 | 编号 | 概述 | 类型 | 影响 | 状态 |
 | --- | --- | --- | --- | --- |
-| A5-01 | 安卓与鸿蒙 4（NEXT 之前）手机在 WiFi 房互相搜不到 | 兼容性 | 阻断 | 待定位 |
+| A5-01 | 安卓与鸿蒙 4（NEXT 之前）手机在 WiFi 房互相搜不到 | 兼容性 | 阻断 | 已修复（待真机验收） |
 | A5-02 | WiFi 搜房界面缺少「重新扫描」按钮 | 功能缺失 | 高 | 已修复（未发版） |
 | A5-03 | 房内「离开」按钮视觉过暗，像不可点击 | 视觉 | 中 | 已修复（未发版） |
 
@@ -36,27 +36,23 @@
 
 ### 代码位置
 
-- `app/src/main/kotlin/host/msknet/sunsetripple/transport/wifi/WifiDirectManager.kt:124` `createGroup()` — 房主侧建自治组（autonomous GO），建组后**不再调用 `discoverPeers()`**。
-- `app/src/main/kotlin/host/msknet/sunsetripple/transport/wifi/WifiDirectManager.kt:130` `discoverPeers()` — 成员侧发起扫描，无参数、无 channel/listen channel 指定。
-- `app/src/main/kotlin/host/msknet/sunsetripple/MainActivity.kt:913` — 点「加入 WiFi 房」时**只调用一次** `discoverPeers()`。
-- `app/src/main/kotlin/host/msknet/sunsetripple/transport/wifi/WifiDirectManager.kt:71` — 对端列表完全由 `WIFI_P2P_PEERS_CHANGED_ACTION` 广播驱动，系统不广播就永远是空列表。
+- `app/src/main/kotlin/host/msknet/sunsetripple/transport/wifi/WifiDirectManager.kt:141` `createGroup()` — 房主侧建自治组（autonomous GO），建组后此前**从未调用 `discoverPeers()`**。
+- `app/src/main/kotlin/host/msknet/sunsetripple/transport/wifi/WifiDirectManager.kt:173` `discoverPeers()` — 成员侧发起扫描，无参数、无 channel/listen channel 指定。
+- `app/src/main/kotlin/host/msknet/sunsetripple/MainActivity.kt:914` — 点「加入 WiFi 房」时发起扫描。
+- `app/src/main/kotlin/host/msknet/sunsetripple/transport/wifi/WifiDirectManager.kt:82` — 对端列表由 `WIFI_P2P_PEERS_CHANGED_ACTION` 广播驱动。
 
 ### 可疑成因（均未验证，需真机日志确认）
 
-1. **房主侧不参与发现。** 现在房主只 `createGroup()` 建自治组，从不 `discoverPeers()`。原生安卓的 GO 会应答 probe request，所以安卓↔安卓能搜到；部分厂商 P2P 栈要求两端同时处于发现状态才互相可见。这是最省事、也最值得先试的一条。
+1. **房主侧不参与发现。** 此前房主只 `createGroup()` 建自治组，从不 `discoverPeers()`。原生安卓的 GO 会应答 probe request，所以安卓↔安卓能搜到；部分厂商 P2P 栈（如华为/荣耀 EMUI/鸿蒙 4）要求组主也必须处于 `discoverPeers` 状态，射频芯片才会持续监听社交信道（1/6/11）并应答扫描端的 Probe Request。
 2. **信道不匹配。** `createGroup()` 未指定工作信道，系统可能落在 5GHz 或某个非社交信道上，而对端扫描只覆盖 2.4GHz 社交信道（1/6/11）。
 3. **P2P MAC 随机化 / 设备名策略。** 华为系对 P2P 接口 MAC 与设备名有自己的处理，可能导致 `deviceAddress` 不稳定或设备根本不上报。
 4. **鸿蒙侧后台扫描限制。** 系统可能对非系统应用的 P2P 发现有额外的省电或权限限制，需要检查是否被静默拒绝（`ActionListener.onFailure` 的 code）。
 
-### 定位手段
+### 已实施的修复（2026-08-20）
 
-- 两端同时抓 `TransportLog`，看 `discoverPeers` 的 `onFailure(code)` 是否被静默拒（`BUSY=2` / `ERROR=0` / `P2P_UNSUPPORTED=1`）。
-- 用系统自带的「WLAN 直连」页面互测：如果系统级也互相搜不到，问题在设备/系统层，不在 App；如果系统能搜到而 App 搜不到，问题在本 App 的发现调用方式。
-- 房内「诊断导出」（`diagnostics/DiagnosticExporter.kt`）在进不了房时用不上，只能靠 logcat。
-
-### 修复方向
-
-先做成本最低的一条：房主 `createGroup()` 成功后也周期性 `discoverPeers()`，同时给成员侧加重试（与 A5-02 的「重新扫描」按钮天然合流）。若仍不通，再排查信道与厂商策略。
+1. **房主建组后启动对等发现**：`WifiDirectManager.createGroup()` 建组成功后立即触发 `startHostDiscovery()`（执行 `discoverPeers()`），确保房主在社交信道上保持活跃并应答 Probe Request。
+2. **详细 P2P 错误码转译与日志**：补充 `p2pReasonText()`，将 `BUSY(2)`、`ERROR(0)`、`P2P_UNSUPPORTED(1)` 等转为人类可读文本并输出到 `TransportLog`。
+3. **对端列表与连接变更日志增强**：在 `WIFI_P2P_PEERS_CHANGED_ACTION` 和 `WIFI_P2P_CONNECTION_CHANGED_ACTION` 广播中打印详细设备列表、状态码（`status`）和 GO 拓扑信息，便于真机 logcat 抓取定位。
 
 ---
 

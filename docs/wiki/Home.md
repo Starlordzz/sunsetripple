@@ -38,7 +38,7 @@
 | 项 | 值 |
 | --- | --- |
 | 包名 | `host.msknet.sunsetripple` |
-| 当前版本 | `0.1.0-alpha.5`（versionCode 6） |
+| 当前版本 | `0.1.0-alpha.6`（versionCode 7） |
 | 最低系统 | Android 8.0 / API 26 |
 | 目标 / 编译 SDK | 35 |
 | 语言与 UI | Kotlin 2.0.20 + Jetpack Compose |

@@ -38,8 +38,8 @@ android {
         applicationId = "host.msknet.sunsetripple"
         minSdk = 26
         targetSdk = 35
-        versionName = "0.1.0-alpha.5"
-        versionCode = 6
+        versionName = "0.1.0-alpha.6"
+        versionCode = 7
         buildConfigField("String", "UPDATE_MANIFEST_URL", buildConfigString(updateManifestUrl))
         buildConfigField("String", "UPDATE_PUBLIC_KEY", buildConfigString(updatePublicKey))
     }
