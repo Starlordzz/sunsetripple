@@ -28,8 +28,10 @@ import host.msknet.sunsetripple.R
 @Composable
 fun ScanScreen(
     peers: List<WifiP2pDevice>,
+    discovering: Boolean,
     status: String?,
     onPick: (WifiP2pDevice) -> Unit,
+    onScanAgain: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().background(SunsetColors.Canvas)) {
@@ -58,7 +60,12 @@ fun ScanScreen(
         LazyColumn(Modifier.weight(1f).padding(horizontal = 20.dp)) {
             item {
                 Text(
-                if (peers.isEmpty()) stringResource(R.string.scan_waiting) else stringResource(R.string.nearby_device_count, peers.size),
+                    when {
+                        discovering && peers.isEmpty() -> stringResource(R.string.scan_waiting)
+                        discovering -> stringResource(R.string.scanning_count, peers.size)
+                        peers.isEmpty() -> stringResource(R.string.scan_stopped)
+                        else -> stringResource(R.string.nearby_device_count, peers.size)
+                    },
                     modifier = Modifier.padding(top = 22.dp, bottom = 10.dp),
                     style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
                     color = SunsetColors.Muted,
@@ -88,6 +95,13 @@ fun ScanScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onScanAgain,
+            enabled = !discovering,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(50.dp),
+            shape = RoundedCornerShape(8.dp),
+        ) { Text(stringResource(if (discovering) R.string.scanning else R.string.scan_again)) }
+        Spacer(Modifier.height(10.dp))
         OutlinedButton(
             onClick = onBack,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(50.dp),

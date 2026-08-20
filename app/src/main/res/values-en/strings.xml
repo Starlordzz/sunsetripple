@@ -83,6 +83,7 @@
     <string name="scan_wifi_title">Find nearby rooms</string>
     <string name="scan_wifi_subtitle">The other device must create a WiFi room first</string>
     <string name="scan_waiting">Waiting for devices</string>
+    <string name="scan_stopped">Scan stopped · tap Scan again below</string>
     <string name="nearby_device_count">Nearby devices · %1$d</string>
     <string name="unnamed_device">Unnamed device</string>
     <string name="scan_bluetooth_title">Find Bluetooth rooms</string>
