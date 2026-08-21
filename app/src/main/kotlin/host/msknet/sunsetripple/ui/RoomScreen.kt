@@ -534,13 +534,12 @@ private fun RoomCommandBar(
 }
 
 /**
- * 房内工具栏「离开」的前景色，固定值而非取自调色板。
- *
- * 工具栏永远画在 backdrop 渐变的深色一端，昼夜皆然——旁边的普通按钮同样是写死的白色透明度。
- * 这里原先取 `SoftCoral`，那是个底色槽位（搜房页提示条的背景就是它），夜间是深藏蓝 #22344F，
- * 于是深色画在近黑上，对比度约 1.4:1，看着就是个禁用按钮。
+ * 房内工具栏「离开」的前景色：
+ * - 日间：深褐底色上采用暖珊瑚粉橙（#FF9E90）
+ * - 夜间：深海蓝黑底色上采用冷调月夜玫瑰粉（#FF7B92），保持清晰度（对比度 > 7:1）且与夜间冷色系相衬
  */
-private val RoomDestructive = Color(0xFFFF9E90)
+private val RoomDestructiveDay = Color(0xFFFF9E90)
+private val RoomDestructiveNight = Color(0xFFFF7B92)
 
 @Composable
 private fun RoomToolbarButton(
@@ -562,25 +561,26 @@ private fun RoomToolbarButton(
         animationSpec = tween(120),
         label = "room-toolbar-button-scale",
     )
+    val destructiveColor = if (SunsetColors.Current.night) RoomDestructiveNight else RoomDestructiveDay
     val contentColor = when {
-        item.destructive -> RoomDestructive
+        item.destructive -> destructiveColor
         // 选中态的底色就是 Sun，前景得用配套的压色，不能跟着正文走。
         item.selected -> SunsetColors.OnSun
         else -> Color.White.copy(alpha = 0.88f)
     }
     val labelColor = when {
-        item.destructive -> RoomDestructive
+        item.destructive -> destructiveColor
         item.selected -> SunsetColors.Sun.copy(alpha = 0.92f)
         else -> Color.White.copy(alpha = 0.70f)
     }
     val containerColor = when {
         // 底色不能比普通按钮更淡，否则同时压低底色与前景饱和度，正好凑齐 disabled 的两个特征。
-        item.destructive -> RoomDestructive.copy(alpha = 0.15f)
+        item.destructive -> destructiveColor.copy(alpha = 0.15f)
         item.selected -> SunsetColors.Sun
         else -> Color.White.copy(alpha = 0.07f)
     }
     val borderColor = when {
-        item.destructive -> RoomDestructive.copy(alpha = 0.62f)
+        item.destructive -> destructiveColor.copy(alpha = 0.62f)
         item.selected -> SunsetColors.Sun.copy(alpha = 0.62f)
         else -> Color.White.copy(alpha = 0.16f)
     }
