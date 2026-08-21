@@ -9,14 +9,6 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 
-/** 音频设备接缝：生产包装 [AudioEngine]，会话测试可替换为纯 JVM 实现。 */
-internal interface AudioIo {
-    var micMuted: Boolean
-    fun start()
-    fun playPcm(pcm: ShortArray)
-    fun stop()
-}
-
 internal class EngineAudioIo(private val engine: AudioEngine) : AudioIo {
     override var micMuted: Boolean
         get() = engine.micMuted
