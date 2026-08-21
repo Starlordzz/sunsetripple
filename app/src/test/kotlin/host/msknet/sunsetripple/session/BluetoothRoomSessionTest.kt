@@ -164,7 +164,7 @@ class BluetoothRoomSessionTest {
     }
 
     @Test
-    fun `客户端按住 PTT 时不播放主机下行`() {
+    fun `客户端按住 PTT 时依然正常播放主机下行`() {
         val h = harness(isHost = false, selfId = 1, memberIds = intArrayOf(0, 1))
         h.session.setPttPressed(true)
         h.audio.played.clear()
@@ -172,10 +172,10 @@ class BluetoothRoomSessionTest {
         repeat(3) { seq ->
             h.session.onFrame(Frame(FrameType.AUDIO, 0, seq, MarkerCodec().encode(pcm(500))))
         }
-        await("按住期间播放静音节拍") { h.audio.played.isNotEmpty() }
+        await("按住期间正常播放主机下行") { h.audio.played.isNotEmpty() }
 
         assertTrue(h.audio.played.isNotEmpty())
-        assertTrue(h.audio.played.all { it.all { sample -> sample == 0.toShort() } })
+        assertTrue(h.audio.played.any { it.any { sample -> sample == 500.toShort() } })
     }
 
     @Test
@@ -447,3 +447,4 @@ class BluetoothRoomSessionTest {
         throw AssertionError("等待超时：$what")
     }
 }
+

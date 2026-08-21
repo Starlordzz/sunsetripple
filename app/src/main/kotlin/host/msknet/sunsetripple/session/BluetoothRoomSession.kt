@@ -165,7 +165,7 @@ class BluetoothRoomSession(
             hostPcm = hostPcm,
             frameSamples = AudioConfig.FRAME_SAMPLES,
         )
-        audio?.playPcm(if (pttPressed) silence else plan.hostPlayback)
+        audio?.playPcm(plan.hostPlayback)
         for ((memberId, pcm) in plan.downlinks) {
             if (hostPcm == null && remotePcm.keys.none { it != memberId }) continue
             val encoder = synchronized(lock) {
@@ -182,7 +182,6 @@ class BluetoothRoomSession(
         val host = synchronized(lock) { remotes[HOST_ID] }
         val packet = host?.jitter?.poll()
         val pcm = when {
-            pttPressed -> silence
             host == null -> silence
             packet == null && !host.jitter.hasStarted() -> silence
             else -> host.decoder.decode(packet)
