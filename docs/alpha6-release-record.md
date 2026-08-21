@@ -52,6 +52,12 @@ $env:JAVA_HOME='D:\LEARNING\tools\jdk-17'
 
 ## 后续待办与已知限制
 
-- 在 Android ↔ 鸿蒙 4 真机组合上进行 WiFi 房互搜与连接建链现场验收。
-- 连续 A→B→C 房主转移与锁屏状态下后台语音保活真机验证。
-- 传输层强制 AEAD 端到端加密在完成兼容性测试后评估开启。
+- **规划项 1：自动更新下载进度条与大小指示**：
+  - 扩展 `UpdateState.Downloading`（包含 `progress: Float`、`downloadedBytes: Long`、`totalBytes: Long`）。
+  - `AndroidUpdateService` 下载循环中按字节流读取进度计算百分比并向 `AboutUpdateCoordinator` 回调。
+  - `AboutUpdateScreen` 增加 `LinearProgressIndicator`、已下载/总大小（MB）与百分比展示，并在未知总大小时回退至不定进度动画。
+- **规划项 2：真机矩阵与互搜验证**：
+  - 在 Android ↔ 鸿蒙 4 真机组合上进行 WiFi 房互搜与连接建链现场验收。
+  - 连续 A→B→C 房主转移与锁屏状态下后台语音保活真机验证。
+- **规划项 3：传输层安全加固**：
+  - 传输层强制 AEAD 端到端加密在完成多机与交接兼容性测试后评估开启。
