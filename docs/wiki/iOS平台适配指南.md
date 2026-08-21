@@ -140,3 +140,4 @@ public final class MultipeerTransport: NSObject, MCNearbyServiceAdvertiserDelega
     public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {}
 }
 ```
+

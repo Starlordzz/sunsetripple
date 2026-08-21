@@ -1,0 +1,49 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "SunsetRipple HarmonyOS Native Intercom Module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "SunsetRipple Peer to Peer Intercom"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "SunsetRipple"
+    },
+    {
+      "name": "perm_microphone_reason",
+      "value": "Used to record your voice for peer-to-peer intercom"
+    },
+    {
+      "name": "create_room",
+      "value": "Create Room"
+    },
+    {
+      "name": "join_room",
+      "value": "Join Room"
+    },
+    {
+      "name": "ptt_hold_to_talk",
+      "value": "Hold to Talk"
+    },
+    {
+      "name": "ptt_release_to_listen",
+      "value": "Release to Listen"
+    },
+    {
+      "name": "mute",
+      "value": "Mute"
+    },
+    {
+      "name": "speaker",
+      "value": "Speaker"
+    },
+    {
+      "name": "leave",
+      "value": "Leave"
+    }
+  ]
+}
+

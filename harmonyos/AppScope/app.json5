@@ -1,0 +1,11 @@
+{
+  "app": {
+    "bundleName": "host.msknet.sunsetripple",
+    "vendor": "sunsetripple",
+    "versionCode": 1000000,
+    "versionName": "0.1.0-alpha.6",
+    "icon": "$media:app_icon",
+    "label": "$string:app_name"
+  }
+}
+

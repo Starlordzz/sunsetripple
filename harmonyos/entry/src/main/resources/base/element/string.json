@@ -1,0 +1,49 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "落日后残波鸿蒙原生对讲模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "落日后残波近场对讲"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "落日后残波"
+    },
+    {
+      "name": "perm_microphone_reason",
+      "value": "用于近场语音对讲采集您的说话声音"
+    },
+    {
+      "name": "create_room",
+      "value": "创建房间"
+    },
+    {
+      "name": "join_room",
+      "value": "加入房间"
+    },
+    {
+      "name": "ptt_hold_to_talk",
+      "value": "按住说话"
+    },
+    {
+      "name": "ptt_release_to_listen",
+      "value": "松手收听"
+    },
+    {
+      "name": "mute",
+      "value": "静音"
+    },
+    {
+      "name": "speaker",
+      "value": "扬声器"
+    },
+    {
+      "name": "leave",
+      "value": "离开"
+    }
+  ]
+}
+

@@ -1,0 +1,10 @@
+{
+  "name": "entry",
+  "version": "0.1.0",
+  "description": "SunsetRipple HarmonyOS Entry Module",
+  "main": "",
+  "author": "Starlordzz",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}
+

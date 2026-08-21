@@ -1,0 +1,14 @@
+{
+  "name": "sunsetripple",
+  "version": "0.1.0",
+  "description": "SunsetRipple - Peer to Peer Intercom for HarmonyOS NEXT",
+  "main": "",
+  "author": "Starlordzz",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19",
+    "@ohos/hvigor-ohos-plugin": "5.0.0"
+  }
+}
+

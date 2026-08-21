@@ -1,0 +1,49 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#F4F1EC"
+    },
+    {
+      "name": "sunset_coral",
+      "value": "#9B4A52"
+    },
+    {
+      "name": "sunset_orange",
+      "value": "#C97C66"
+    },
+    {
+      "name": "sunset_gold",
+      "value": "#C9A163"
+    },
+    {
+      "name": "sunset_sun",
+      "value": "#F3DCAA"
+    },
+    {
+      "name": "sunset_canvas",
+      "value": "#F4F1EC"
+    },
+    {
+      "name": "sunset_surface",
+      "value": "#FCFAF7"
+    },
+    {
+      "name": "sunset_ink",
+      "value": "#2A2225"
+    },
+    {
+      "name": "sunset_muted",
+      "value": "#6E625E"
+    },
+    {
+      "name": "sunset_destructive_day",
+      "value": "#FF9E90"
+    },
+    {
+      "name": "sunset_destructive_night",
+      "value": "#FF7B92"
+    }
+  ]
+}
+

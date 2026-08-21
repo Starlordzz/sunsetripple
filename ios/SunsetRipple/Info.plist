@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>SunsetRipple</string>
+    <key>CFBundleIdentifier</key>
+    <string>host.msknet.sunsetripple</string>
+    <key>CFBundleName</key>
+    <string>落日后残波</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>落日后残波需要使用您的麦克风进行近场语音对讲通话</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>落日后残波需要访问本地网络以发现并加入附近的对讲房间</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>落日后残波需要使用蓝牙进行近场 P2P 对讲自组网</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>落日后残波需要使用蓝牙进行近场 P2P 对讲自组网</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+        <string>bluetooth-central</string>
+        <string>bluetooth-peripheral</string>
+    </array>
+</dict>
+</plist>
+
