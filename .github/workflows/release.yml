@@ -324,20 +324,18 @@ jobs:
             prerelease_args+=(--prerelease)
           fi
 
+          shopt -s nullglob
+          upload_files=(final-artifacts/*)
+
           if gh release view "$tag" >/dev/null 2>&1; then
-            cd final-artifacts
-            find . -maxdepth 1 -type f -exec gh release upload "$tag" {} --clobber +
-            cd ..
+            gh release upload "$tag" "${upload_files[@]}" --clobber
             gh release edit "$tag" \
               --title "$tag" \
               --notes-file final-artifacts/release-notes.md \
               "${prerelease_args[@]}"
           else
-            cd final-artifacts
-            files=( $(find . -maxdepth 1 -type f) )
-            cd ..
             gh release create "$tag" \
-              "${files[@]}" \
+              "${upload_files[@]}" \
               --verify-tag \
               --title "$tag" \
               --notes-file final-artifacts/release-notes.md \
