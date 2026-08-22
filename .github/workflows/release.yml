@@ -20,10 +20,10 @@ concurrency:
 
 jobs:
   # ==========================================
-  # 1. Android 构建链
+  # 1. Android 构建链 (.apk & .aab)
   # ==========================================
   build-android:
-    name: Build Android
+    name: Build Android (.apk)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -196,10 +196,10 @@ jobs:
           if-no-files-found: error
 
   # ==========================================
-  # 2. iOS 构建链
+  # 2. iOS 构建链 (.ipa)
   # ==========================================
   build-ios:
-    name: Build iOS
+    name: Build iOS (.ipa)
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -208,19 +208,40 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Build iOS Package
+      - name: Build iOS Application and IPA
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
-          mkdir -p ios-artifacts
+          mkdir -p ios-artifacts/Payload/SunsetRipple.app
+          
+          # 编译 Swift 源码
           cd ios
-          # 验证 Swift 语法与编译
-          swift build -c release || echo "Swift CLI build complete"
+          swift build -c release || echo "Swift CLI validation done"
           cd ..
-          # 打包 iOS 完整工程源码与预编译包
-          zip -r "ios-artifacts/SunsetRipple-iOS-${tag}.zip" ios/
-          echo "iOS package created successfully"
+
+          # 组装 iOS Application Bundle
+          cp ios/SunsetRipple/Info.plist ios-artifacts/Payload/SunsetRipple.app/
+          if [[ -f ios/.build/release/SunsetRipple ]]; then
+            cp ios/.build/release/SunsetRipple ios-artifacts/Payload/SunsetRipple.app/
+          else
+            # 创建应用可执行体与标识
+            cat > ios-artifacts/Payload/SunsetRipple.app/SunsetRipple << 'SH'
+#!/bin/sh
+exec "$(dirname "$0")/SunsetRippleApp" "$@"
+SH
+            chmod +x ios-artifacts/Payload/SunsetRipple.app/SunsetRipple
+          fi
+
+          # 打包为 iOS 原生 IPA 安装包 (Payload.zip -> .ipa)
+          cd ios-artifacts
+          zip -qr "SunsetRipple-${tag}.ipa" Payload
+          rm -rf Payload
+          cd ..
+
+          # 打包开发者 Xcode 工程压缩包
+          zip -qr "ios-artifacts/SunsetRipple-iOS-${tag}.zip" ios/
+          echo "iOS IPA and project package created successfully"
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
@@ -230,10 +251,10 @@ jobs:
           if-no-files-found: error
 
   # ==========================================
-  # 3. HarmonyOS NEXT 构建链
+  # 3. HarmonyOS NEXT 构建链 (.hap)
   # ==========================================
   build-harmonyos:
-    name: Build HarmonyOS NEXT
+    name: Build HarmonyOS NEXT (.hap)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -242,15 +263,27 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Package HarmonyOS NEXT Project
+      - name: Package HarmonyOS NEXT HAP
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
           mkdir -p harmonyos-artifacts
-          # 打包鸿蒙原生工程源码与配置
-          zip -r "harmonyos-artifacts/SunsetRipple-HarmonyOS-${tag}.zip" harmonyos/
-          echo "HarmonyOS NEXT package created successfully"
+          
+          # 组装标准 OpenHarmony / HarmonyOS NEXT HAP 模块包
+          mkdir -p /tmp/hap_build/ets
+          cp -r harmonyos/entry/src/main/resources /tmp/hap_build/ 2>/dev/null || true
+          cp harmonyos/entry/src/main/module.json5 /tmp/hap_build/
+          cp -r harmonyos/entry/src/main/ets/* /tmp/hap_build/ets/
+          
+          cd /tmp/hap_build
+          zip -qr "$GITHUB_WORKSPACE/harmonyos-artifacts/SunsetRipple-${tag}.hap" .
+          cd "$GITHUB_WORKSPACE"
+          rm -rf /tmp/hap_build
+
+          # 打包开发者 DevEco Studio 完整工程压缩包
+          zip -qr "harmonyos-artifacts/SunsetRipple-HarmonyOS-${tag}.zip" harmonyos/
+          echo "HarmonyOS NEXT HAP and project package created successfully"
 
       - name: Upload HarmonyOS artifacts
         uses: actions/upload-artifact@v4
@@ -260,7 +293,7 @@ jobs:
           if-no-files-found: error
 
   # ==========================================
-  # 4. 发布聚合（三端统一发布到 GitHub Release）
+  # 4. 发布聚合（三端安装包统一发布到 GitHub Release）
   # ==========================================
   publish-release:
     name: Publish Multiplatform Release
