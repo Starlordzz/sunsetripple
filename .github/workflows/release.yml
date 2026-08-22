@@ -78,12 +78,11 @@ jobs:
 
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.p12"
           printf '%s' "$UPDATE_PRIVATE_KEY_PKCS8_BASE64" | base64 --decode > "$RUNNER_TEMP/update-private-key.pk8"
-          cat > "$RUNNER_TEMP/keystore.properties" << 'EOF'
-          storeFile=$RUNNER_TEMP/release-keystore.p12
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          keyPassword=$ANDROID_KEY_PASSWORD
-          EOF
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/release-keystore.p12" \
+            "$ANDROID_KEYSTORE_PASSWORD" \
+            "$ANDROID_KEY_ALIAS" \
+            "$ANDROID_KEY_PASSWORD" > "$RUNNER_TEMP/keystore.properties"
           chmod 600 \
             "$RUNNER_TEMP/release-keystore.p12" \
             "$RUNNER_TEMP/update-private-key.pk8" \
