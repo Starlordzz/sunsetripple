@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <br>
   <img src="docs/assets/mark.svg" width="96" alt="落日后残波">
   <br>
@@ -99,9 +99,9 @@ Nearby 房的代码与单元测试都在仓库里，但因为它依赖 Google Pl
 <br>
 
 从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新版本的安装包：
-- **Android**：下载 `SunsetRipple-*.apk` 直接安装。
-- **HarmonyOS NEXT**：下载 `SunsetRipple-HarmonyOS-*.zip`，在 DevEco Studio 中打开并构建。
-- **iOS**：下载 `SunsetRipple-iOS-*.zip`，在 Xcode 中打开并运行。
+- **Android**：下载 `SunsetRipple-*.apk` 直接安装（体积约 10MB，含自带 Opus 引擎）。
+- **iOS**：下载 `SunsetRipple-*.ipa`。这是真正纯原生编译的 ARM64 可执行二进制包（得益于 SwiftUI 零外部依赖与 Swift 运行时内置，极致精简不到 100KB），可通过 TrollStore (巨魔) 或 AltStore 等工具安装；或下载 `SunsetRipple-iOS-*.zip` Xcode 工程源码调试。
+- **HarmonyOS NEXT**：由于云端 CI 暂未接入华为 ArkTS 编译器，Release 中的 `.hap` 仅为源码打包占位。**请下载 `SunsetRipple-HarmonyOS-*.zip` 源码，在您本地的 DevEco Studio 中打开并构建出真正的 `.hap` 安装包。**
 
 > Android 端需要 Android 8.0（API 26）及以上。
 > 若装过包名为 `com.wt.intercom` 的旧测试版，**必须先卸载**——包名已改为 `host.msknet.sunsetripple`，无法覆盖升级。

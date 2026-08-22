@@ -65,6 +65,6 @@
 
 ## 相关链接
 
-- [Releases](https://github.com/Starlordzz/sunsetripple/releases) —— 已签名 APK 下载
+- [Releases](https://github.com/Starlordzz/sunsetripple/releases) —— 三端安装包与工程源码下载（注：iOS 提供纯原生 ARM64 极小体积极速安装包；HarmonyOS `.hap` 暂为占位，请下载完整源码工程使用 DevEco Studio 本地编译）
 - [CHANGELOG](../../CHANGELOG.md) —— 版本变更记录
 - [LICENSE](../../LICENSE) —— Apache-2.0
