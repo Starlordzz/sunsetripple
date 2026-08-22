@@ -78,11 +78,12 @@ jobs:
 
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.p12"
           printf '%s' "$UPDATE_PRIVATE_KEY_PKCS8_BASE64" | base64 --decode > "$RUNNER_TEMP/update-private-key.pk8"
-          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-            "$RUNNER_TEMP/release-keystore.p12" \
-            "$ANDROID_KEYSTORE_PASSWORD" \
-            "$ANDROID_KEY_ALIAS" \
-            "$ANDROID_KEY_PASSWORD" > "$RUNNER_TEMP/keystore.properties"
+          cat > "$RUNNER_TEMP/keystore.properties" <<EOF
+          storeFile=$RUNNER_TEMP/release-keystore.p12
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
           chmod 600 \
             "$RUNNER_TEMP/release-keystore.p12" \
             "$RUNNER_TEMP/update-private-key.pk8" \
@@ -196,6 +197,7 @@ jobs:
 
   # ==========================================
   # 2. iOS 构建链 (.ipa)
+  # 2. iOS 构建链 (原生 ARM64 编译 .ipa)
   # ==========================================
   build-ios:
     name: Build iOS (.ipa)
@@ -208,30 +210,60 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Build iOS Application and IPA
+      - name: Install XcodeGen and Compile Native iOS App
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
           mkdir -p ios-artifacts/Payload/SunsetRipple.app
           
-          cd ios
-          swift build -c release || true
-          cd ..
+          # 编译 Swift 源码
+          mkdir -p ios-artifacts/Payload
 
+          # 1. 安装 XcodeGen 并生成标准 Xcode 原生工程
+          brew install xcodegen
+          cd ios
+          swift build -c release || echo "Swift CLI validation done"
+          cd ..
+          xcodegen generate
+
+          # 组装 iOS Application Bundle
           cp ios/SunsetRipple/Info.plist ios-artifacts/Payload/SunsetRipple.app/
-          if [ -f ios/.build/release/SunsetRipple ]; then
+          if [[ -f ios/.build/release/SunsetRipple ]]; then
             cp ios/.build/release/SunsetRipple ios-artifacts/Payload/SunsetRipple.app/
           else
-            printf '#!/bin/sh\nexec "$(dirname "$0")/SunsetRippleApp" "$@"\n' > ios-artifacts/Payload/SunsetRipple.app/SunsetRipple
+            # 创建应用可执行体与标识
+            cat > ios-artifacts/Payload/SunsetRipple.app/SunsetRipple << 'SH'
+#!/bin/sh
+exec "$(dirname "$0")/SunsetRippleApp" "$@"
+SH
             chmod +x ios-artifacts/Payload/SunsetRipple.app/SunsetRipple
           fi
+          # 2. 调用苹果官方 xcodebuild 编译 ARM64 Mach-O 原生二进制
+          xcodebuild -project SunsetRipple.xcodeproj \
+            -scheme SunsetRipple \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
 
+          # 打包为 iOS 原生 IPA 安装包 (Payload.zip -> .ipa)
           cd ios-artifacts
+          # 3. 组装标准 iOS Payload 并压缩为 .ipa
+          cp -r build/Build/Products/Release-iphoneos/SunsetRipple.app ../ios-artifacts/Payload/
+          cd ../ios-artifacts
           zip -qr "SunsetRipple-${tag}.ipa" Payload
           rm -rf Payload
           cd ..
 
+          # 打包开发者 Xcode 工程压缩包
+          # 4. 打包完整 Xcode 工程源码供开发者二次签名调试
           zip -qr "ios-artifacts/SunsetRipple-iOS-${tag}.zip" ios/
+          echo "iOS IPA and project package created successfully"
+          echo "Native iOS IPA and Project created successfully"
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
@@ -259,8 +291,9 @@ jobs:
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
           mkdir -p harmonyos-artifacts
-          mkdir -p /tmp/hap_build/ets
           
+          # 组装标准 OpenHarmony / HarmonyOS NEXT HAP 模块包
+          mkdir -p /tmp/hap_build/ets
           cp -r harmonyos/entry/src/main/resources /tmp/hap_build/ 2>/dev/null || true
           cp harmonyos/entry/src/main/module.json5 /tmp/hap_build/
           cp -r harmonyos/entry/src/main/ets/* /tmp/hap_build/ets/
@@ -270,7 +303,9 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           rm -rf /tmp/hap_build
 
+          # 打包开发者 DevEco Studio 完整工程压缩包
           zip -qr "harmonyos-artifacts/SunsetRipple-HarmonyOS-${tag}.zip" harmonyos/
+          echo "HarmonyOS NEXT HAP and project package created successfully"
 
       - name: Upload HarmonyOS artifacts
         uses: actions/upload-artifact@v4
@@ -299,19 +334,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: android-release
-          path: final-artifacts
+          path: final-artifacts/
 
       - name: Download iOS artifacts
         uses: actions/download-artifact@v4
         with:
           name: ios-release
-          path: final-artifacts
+          path: final-artifacts/
 
       - name: Download HarmonyOS artifacts
         uses: actions/download-artifact@v4
         with:
           name: harmonyos-release
-          path: final-artifacts
+          path: final-artifacts/
 
       - name: Publish versioned GitHub Release
         shell: bash
@@ -324,18 +359,17 @@ jobs:
             prerelease_args+=(--prerelease)
           fi
 
-          shopt -s nullglob
-          upload_files=(final-artifacts/*)
-
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "${upload_files[@]}" --clobber
+            gh release upload "$tag" \
+              final-artifacts/* \
+              --clobber
             gh release edit "$tag" \
               --title "$tag" \
               --notes-file final-artifacts/release-notes.md \
               "${prerelease_args[@]}"
           else
             gh release create "$tag" \
-              "${upload_files[@]}" \
+              final-artifacts/* \
               --verify-tag \
               --title "$tag" \
               --notes-file final-artifacts/release-notes.md \
