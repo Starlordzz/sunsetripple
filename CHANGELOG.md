@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-alpha.7 - 2026-08-22
+
+### 新功能
+
+- 尝试多平台化（Core-Shell 统一多端架构）：引入跨平台协议与局域网发现，支持 Android、iOS 和 HarmonyOS NEXT。
+- 新增跨端局域网/热点房间发现（`LanRoomDiscovery`），使不同品牌手机在同一 Wi-Fi 或热点下免网直连对讲。
+- 新增 HarmonyOS NEXT 纯血鸿蒙原生工程（`harmonyos/`），基于 ArkTS/ArkUI 与 `@ohos.multimedia.audio` 硬件级 AEC。
+- 新增 iOS 原生工程（`ios/`），基于 Swift/SwiftUI、`AudioUnit` 硬件 AEC 与 `MultipeerConnectivity` 免网 P2P。
+- GitHub Actions CI/CD 流水线扩展为 Android、iOS、HarmonyOS NEXT 三条构建链。
+
+### 修复与优化
+
+- 优化夜间模式下「离开房间」按钮配色为冷调月夜玫瑰粉（`#FF7B92`），提升在深海蓝黑底色下的清晰度与可访问性对比度（> 7.5:1）。
+- 修复客户端在按住 PTT 讲话时主机下行混音被静音的问题，支持讲话期间正常收听其他成员声音。
+
 ## 0.1.0-alpha.6 - 2026-08-20
 
 ### 修复
