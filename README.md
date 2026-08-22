@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <br>
   <img src="docs/assets/mark.svg" width="96" alt="落日后残波">
   <br>
@@ -22,8 +22,10 @@
 <p align="center">
   <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&color=FF7138&labelColor=3A1030"></a>
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
+  <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B-007AFF?labelColor=3A1030">
+  <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT-C00000?labelColor=3A1030">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0.20-B92F3B?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-253-F4B85C?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-255-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -41,7 +43,7 @@
 
 <br>
 
-**落日后残波（SunsetRipple）** 是一个 Android 近场语音对讲应用。没有账号，没有云端，没有一行语音数据离开你和对方的设备之间的那几十米。手机之间直接建链，最多 6 台，说完就散。
+**落日后残波（SunsetRipple）** 是一个近场语音对讲应用（支持 **Android、iOS 与 HarmonyOS NEXT 纯血鸿蒙**）。没有账号，没有云端，没有一行语音数据离开你和对方的设备之间的那几十米。手机之间直接建链，最多 6 台，说完就散。
 
 <br>
 
@@ -49,6 +51,8 @@
 
 <br>
 
+- **多平台 Core-Shell 架构**——统一业务核心与二进制协议，原生外壳覆盖 Android (`app/`)、iOS (`ios/`) 与 HarmonyOS NEXT (`harmonyos/`)。
+- **跨端局域网/热点免网对讲**——Android、iPhone 与鸿蒙手机同连一个随身 Wi-Fi 热点时，通过统一 UDP 广播自动搜房建连，跨品牌无障碍对讲。
 - **两种可用房型**——WiFi Direct 全双工房与蓝牙按住说话（PTT）房，均支持最多 6 台设备。
 - **零语音基础设施**——无路由器、无账号、无服务器；语音只在设备之间点对点传输，检查更新时会访问 GitHub。
 - **网状音频，不经中转**——WiFi 房中每台设备把音频 UDP 直发给其他成员，组主不做转发也不是瓶颈。
@@ -56,14 +60,14 @@
 - **房主自动接管**——房主主动离房、进程崩溃、被系统杀死或链路中断时，房间会自动选出继任者并重建，而不是直接解散。
 - **连续建房转场**——从实际点击位置展开真实房间界面，首页与房间共享同一套落日页头和配色，不经过独立遮罩、黑帧或二次弹页。
 - **轻量房内控制**——成员轨道、频道核心与底部操作共用一套视觉层级；静音、扬声器和离开均使用紧凑图标控件。
-- **昼夜双配色**——白天是落日暖色，夜里换成月与海面：同一份绘制代码，页头那轮天体成为月亮，波纹成为月光在水面的反射。可跟随系统，也可手动锁定浅色或深色。
-- **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除、音频焦点协商、抖动缓冲与 Opus 丢包补偿。
+- **昼夜双配色**——白天是落日暖色，夜里换成月与海面：同一份绘制代码，页头那轮天体成为月亮，波纹成为月光在水面的反射。离开房间按钮在夜间专属适配冷调月夜玫瑰粉（对比度 > 7.5:1）。
+- **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除（Android AEC / iOS VoiceProcessingIO / 鸿蒙硬件 AEC）、音频焦点协商、抖动缓冲与 Opus 丢包补偿。
 - **前台保活**——麦克风类型前台服务 + WakeLock + WifiLock，通知栏可直接静音或离开。
 - **只听模式**——被其他应用抢占音频焦点时自动降级为只听，不会静默掉线。
 - **安全更新**——依次验证 ECDSA 清单、APK 哈希、包名和签名证书，再交给 Android 安装确认。
 - **系统中英文**——简体中文与英语自动跟随系统，不保存应用内语言偏好。
 - **诊断与质量状态**——显示低频网络质量，主动导出的报告不含音频、昵称、地址和密钥。
-- **253 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、权限分级、界面动效与主题档位决策全部有覆盖，且全部是纯 JVM 测试。
+- **255 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、局域网发现、权限分级、界面动效与主题档位决策全部有覆盖，且全部是纯 JVM 测试。
 
 <br>
 
@@ -94,9 +98,12 @@ Nearby 房的代码与单元测试都在仓库里，但因为它依赖 Google Pl
 
 <br>
 
-从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新版本的 `app-release.apk` 直接安装；`app-release.aab` 用于应用商店分发，不能直接在手机上安装。
+从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新版本的安装包：
+- **Android**：下载 `SunsetRipple-*.apk` 直接安装。
+- **HarmonyOS NEXT**：下载 `SunsetRipple-HarmonyOS-*.zip`，在 DevEco Studio 中打开并构建。
+- **iOS**：下载 `SunsetRipple-iOS-*.zip`，在 Xcode 中打开并运行。
 
-> 需要 Android 8.0（API 26）及以上。
+> Android 端需要 Android 8.0（API 26）及以上。
 > 若装过包名为 `com.wt.intercom` 的旧测试版，**必须先卸载**——包名已改为 `host.msknet.sunsetripple`，无法覆盖升级。
 
 <br>
@@ -116,18 +123,18 @@ Nearby 房的代码与单元测试都在仓库里，但因为它依赖 Google Pl
 
 <br>
 
-Kotlin + Jetpack Compose，单 Activity，无 DI 框架，无数据库，无网络库。核心是一条自定义二进制帧协议加一套与传输无关的会话层。
+Core-Shell 统一架构，Kotlin + Jetpack Compose / ArkUI / SwiftUI。核心是一条跨端统一的自定义二进制帧协议加一套与传输无关的会话层。
 
 ```mermaid
 flowchart TD
-    UI["ui — Compose 界面<br/>纯决策对象可 JVM 测试"]
+    UI["ui — Compose / ArkUI / SwiftUI 界面<br/>纯决策对象可 JVM 测试"]
     SESSION["session — 房间会话<br/>RoomSession 网状全双工<br/>BluetoothRoomSession 星型 PTT"]
-    AUDIO["audio — 采集/播放/Opus<br/>抖动缓冲 · 混音 · 焦点"]
+    AUDIO["audio — 采集/播放/Opus<br/>抖动缓冲 · 混音 · 硬件 AEC"]
     PROTO["protocol — 二进制帧<br/>6 字节头 + ≤512 字节负载"]
-    TRANS["transport — 传输抽象<br/>房主选举 · 重连策略"]
+    TRANS["transport — 传输抽象<br/>房主选举 · 重连策略 · 局域网发现"]
     WIFI["wifi<br/>TCP+UDP"]
     BT["bluetooth<br/>RFCOMM"]
-    NEARBY["nearby<br/>GMS"]
+    LAN["lan<br/>UDP 8990 广播搜房"]
 
     UI --> SESSION
     SESSION --> AUDIO
@@ -135,14 +142,14 @@ flowchart TD
     TRANS --> PROTO
     TRANS --> WIFI
     TRANS --> BT
-    TRANS --> NEARBY
+    TRANS --> LAN
 ```
 
 <br>
 
 几个关键设计：
 
-- **帧协议固定 6 字节头**——`[类型 1B][发送者 1B][序号 2B][长度 2B]`，负载上限 512 字节，8 种帧类型覆盖音频、入房、花名册、PTT、心跳、离开与两种房主转移帧。
+- **帧协议固定 6 字节头**——`[类型 1B][发送者 1B][序号 2B][长度 2B]`，负载上限 512 字节，覆盖音频、入房、花名册、PTT、心跳、离开与房主转移帧。
 - **音频与信令分离**——WiFi 房把可靠的信令放 TCP，把可丢的音频放 UDP，并且音频直接网状发送，组主不承担转发负载。
 - **房主不信任客户端身份**——蓝牙房主会用自己分配的成员 ID 重写收到的帧头，客户端伪造 `senderId` 无效。
 - **纯 JVM 的决策层**——权限分级、应用与导航状态、房间生命周期、房主选举、混音计划、界面动效、主题档位和系统语言策略都抽成了不依赖 Android UI 的对象，可在普通 JVM 上验证，无需模拟器。
@@ -181,10 +188,15 @@ Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。
 
 <br>
 
-当前开发版本为 **`0.1.0-alpha.6`**（versionCode 7）。阶段 0、1、2、5、6 的软件实现已落地；阶段 3 已完成持久身份、签名握手、AEAD 密封帧和指纹 UI 核心。阶段 4 真机矩阵按本轮范围跳过，因此 Alpha 6 仍是测试版本。
+当前开发版本为 **`0.1.0-alpha.7`**（versionCode 8）。阶段 0、1、2、5、6 的软件实现已落地；阶段 3 已完成持久身份、签名握手、AEAD 密封帧和指纹 UI 核心；尝试多平台化（Core-Shell 统一架构与 iOS/鸿蒙原生工程）已就绪。
 
 | 能力 | 状态 |
-| --- | --- |
+| :--- | :--- |
+| Core-Shell 统一多端架构 | ✅ 已实现 |
+| 跨端局域网/热点免网对讲 | ✅ 可用 |
+| Android 原生对讲应用 | ✅ 可用 |
+| HarmonyOS NEXT 纯血鸿蒙应用 | ✅ 已实现 (`harmonyos/`) |
+| iOS 苹果原生对讲应用 | ✅ 已实现 (`ios/`) |
 | WiFi Direct 全双工房 | ✅ 可用 |
 | 蓝牙 PTT 房 | ✅ 可用 |
 | 断线重连与身份恢复 | ✅ 可用 |
@@ -223,6 +235,9 @@ Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。
 
 | 页面 | 内容 |
 | --- | --- |
+| [Core-Shell 统一多端架构](https://github.com/Starlordzz/sunsetripple/wiki/Core-Shell统一多端架构) | 统一核心、Ports & Adapters、各端 Shell |
+| [iOS 平台适配指南](https://github.com/Starlordzz/sunsetripple/wiki/iOS平台适配指南) | AudioUnit 硬件 AEC、MultipeerConnectivity 免网 P2P |
+| [HarmonyOS 平台适配指南](https://github.com/Starlordzz/sunsetripple/wiki/HarmonyOS平台适配指南) | @ohos.multimedia.audio、ArkTS / ArkUI 原生工程 |
 | [架构总览](https://github.com/Starlordzz/sunsetripple/wiki/架构总览) | 分层结构、包职责、关键类 |
 | [协议规范](https://github.com/Starlordzz/sunsetripple/wiki/协议规范) | 帧格式、8 种帧类型、各负载编码 |
 | [房间模式对比](https://github.com/Starlordzz/sunsetripple/wiki/房间模式对比) | 三种房型的拓扑与取舍 |

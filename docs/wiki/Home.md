@@ -14,6 +14,9 @@
 
 | 你想做的事 | 去这里 |
 | --- | --- |
+| 跨平台架构与 Core-Shell 设计 | [Core-Shell 统一多端架构](Core-Shell统一多端架构.md) |
+| 适配 iOS 苹果端 (AudioUnit / Multipeer) | [iOS 平台适配指南](iOS平台适配指南.md) |
+| 适配 HarmonyOS NEXT 纯血鸿蒙 | [HarmonyOS 平台适配指南](HarmonyOS平台适配指南.md) |
 | 快速理解整个项目怎么搭的 | [架构总览](架构总览.md) |
 | 实现一个兼容客户端 / 抓包分析 | [协议规范](协议规范.md) |
 | 搞清楚该用 WiFi 房还是蓝牙房 | [房间模式对比](房间模式对比.md) |
@@ -27,24 +30,24 @@
 
 新接手这个代码库，按这个顺序读最省力：
 
-1. **[架构总览](架构总览.md)** —— 先建立分层心智模型：`ui → session → transport → protocol`，以及 `audio` 如何横切。
-2. **[协议规范](协议规范.md)** —— 帧格式是整个系统的中枢，看懂 8 种帧类型就看懂了大半交互。
-3. **[房间模式对比](房间模式对比.md)** —— 理解为什么同一套会话层要长出两种截然不同的房间。
-4. **[音频管线](音频管线.md)** —— 采集、编码、抖动缓冲、混音、播放的完整链路。
-5. **[房主转移机制](房主转移机制.md)** —— 全项目最复杂的部分，建议放在最后读。
+1. **[Core-Shell 统一多端架构](Core-Shell统一多端架构.md)** —— 理解跨平台核心与多端 Shell 之间的分层契约。
+2. **[架构总览](架构总览.md)** —— 先建立分层心智模型：`ui → session → transport → protocol`，以及 `audio` 如何横切。
+3. **[协议规范](协议规范.md)** —— 帧格式是整个系统的中枢，看懂 8 种帧类型就看懂了大半交互。
+4. **[房间模式对比](房间模式对比.md)** —— 理解为什么同一套会话层要长出两种截然不同的房间。
+5. **[音频管线](音频管线.md)** —— 采集、编码、抖动缓冲、混音、播放的完整链路。
+6. **[房主转移机制](房主转移机制.md)** —— 全项目最复杂的部分，建议放在最后读。
 
 ## 关键事实速查
 
 | 项 | 值 |
 | --- | --- |
-| 包名 | `host.msknet.sunsetripple` |
-| 当前版本 | `0.1.0-alpha.6`（versionCode 7） |
-| 最低系统 | Android 8.0 / API 26 |
-| 目标 / 编译 SDK | 35 |
-| 语言与 UI | Kotlin 2.0.20 + Jetpack Compose |
-| 源码规模 | 62 个主源码 Kotlin 文件 |
-| 测试规模 | 38 个测试文件，253 个测试方法，纯 JVM |
-| 音频编码 | Opus（Concentus 纯 JVM）16 kHz 单声道 20 ms |
+| 包名 / BundleID | `host.msknet.sunsetripple` |
+| 当前版本 | `0.1.0-alpha.7`（versionCode 8） |
+| 支持系统 | Android 8.0+ / iOS 15.0+ / HarmonyOS NEXT (API 12+) |
+| 目标 / 编译 SDK | Android 35 / HarmonyOS 5.0(12) / iOS 15.0 |
+| 语言与 UI | Kotlin (Compose) + ArkTS (ArkUI) + Swift (SwiftUI) |
+| 测试规模 | 40 个测试文件，255 个测试方法，纯 JVM |
+| 音频编码 | Opus（Concentus 纯 JVM / 原生 AEC）16 kHz 单声道 20 ms |
 | 房间容量 | 6 台设备（含房主） |
 | 许可证 | Apache-2.0 |
 
