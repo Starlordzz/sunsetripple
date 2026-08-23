@@ -7,7 +7,7 @@ import '../theme/app_theme.dart';
 import '../widgets/celestial_canvas.dart';
 import 'room_page.dart';
 
-/// SunsetRipple Homepage with Full Feature Parity (WiFi Direct & Bluetooth PTT Modes).
+/// SunsetRipple Homepage.
 class HomePage extends StatefulWidget {
   final bool isNight;
   final VoidCallback onToggleTheme;
@@ -27,12 +27,23 @@ class _HomePageState extends State<HomePage> {
   final _lanDiscovery = LanRoomDiscovery();
   late AudioIo _audioIo;
   RoomMode _selectedMode = RoomMode.wifiFullDuplex;
+  bool _isScanning = false;
 
   @override
   void initState() {
     super.initState();
     _audioIo = PlatformAudioChannel();
+    _startScan();
+  }
+
+  void _startScan() {
+    setState(() => _isScanning = true);
     _lanDiscovery.startListening();
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() => _isScanning = false);
+      }
+    });
   }
 
   @override
@@ -129,7 +140,7 @@ class _HomePageState extends State<HomePage> {
 
             const SizedBox(height: 12),
 
-            // 3. Room Mode Selector (WiFi Direct / LAN Full-Duplex vs Bluetooth PTT)
+            // 3. Room Mode Selector (WiFi 房 vs 蓝牙房)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
@@ -137,8 +148,8 @@ class _HomePageState extends State<HomePage> {
                   Expanded(
                     child: _ModeSelectChip(
                       icon: Icons.wifi,
-                      title: "WiFi 全双工房",
-                      subtitle: "同说无限制 · 最多6人",
+                      title: "WiFi 房",
+                      subtitle: "同连WiFi/热点 · 畅聊",
                       isSelected: _selectedMode == RoomMode.wifiFullDuplex,
                       isNight: isNight,
                       onTap: () => setState(() => _selectedMode = RoomMode.wifiFullDuplex),
@@ -148,8 +159,8 @@ class _HomePageState extends State<HomePage> {
                   Expanded(
                     child: _ModeSelectChip(
                       icon: Icons.bluetooth,
-                      title: "蓝牙 PTT 房",
-                      subtitle: "按住说话 · BLE L2CAP",
+                      title: "蓝牙房",
+                      subtitle: "近场免配对 · 按住对讲",
                       isSelected: _selectedMode == RoomMode.bluetoothPtt,
                       isNight: isNight,
                       onTap: () => setState(() => _selectedMode = RoomMode.bluetoothPtt),
@@ -161,27 +172,70 @@ class _HomePageState extends State<HomePage> {
 
             const SizedBox(height: 16),
 
-            // 4. Create Room Button
+            // 4. Action Buttons (创建房间 + 扫描搜房)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _onCreateRoom,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(25),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 6,
+                    child: ElevatedButton(
+                      onPressed: _onCreateRoom,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(25),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        _selectedMode == RoomMode.wifiFullDuplex ? "创建 WiFi 房" : "创建蓝牙房",
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
                     ),
-                    elevation: 0,
                   ),
-                  child: Text(
-                    _selectedMode == RoomMode.wifiFullDuplex ? "创建 WiFi 全双工房" : "创建蓝牙 PTT 房",
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 5,
+                    child: OutlinedButton.icon(
+                      onPressed: _isScanning ? null : _startScan,
+                      icon: _isScanning
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                              ),
+                            )
+                          : Icon(
+                              Icons.radar,
+                              size: 18,
+                              color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                            ),
+                      label: Text(
+                        _isScanning ? "正在扫描" : "扫描房间",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                          width: 1.5,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(25),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
 
@@ -190,16 +244,26 @@ class _HomePageState extends State<HomePage> {
             // 5. Discovered Rooms List Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "附近局域网/热点对讲房间 (UDP 8990)",
-                  style: TextStyle(
-                    color: textSecondary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "附近的对讲房间",
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                  if (_isScanning)
+                    Text(
+                      "正在探测...",
+                      style: TextStyle(
+                        color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
               ),
             ),
 
@@ -215,7 +279,7 @@ class _HomePageState extends State<HomePage> {
                   if (rooms.isEmpty) {
                     return Center(
                       child: Text(
-                        "未发现附近的局域网房间\n同 Wi-Fi 或热点下建房即可自动发现并加入",
+                        "未发现附近的房间\n点击上方「扫描房间」或同连热点/蓝牙即可自动发现",
                         textAlign: TextAlign.center,
                         style: TextStyle(color: textSecondary.withValues(alpha: 0.6), fontSize: 13),
                       ),
@@ -285,7 +349,7 @@ class _HomePageState extends State<HomePage> {
 
   void _onCreateRoom() async {
     final nickname = _nicknameController.text.trim().isEmpty ? "探索者" : _nicknameController.text.trim();
-    final roomName = _selectedMode == RoomMode.wifiFullDuplex ? "$nickname 的 WiFi 全双工房" : "$nickname 的蓝牙对讲房";
+    final roomName = _selectedMode == RoomMode.wifiFullDuplex ? "$nickname 的 WiFi 房" : "$nickname 的蓝牙房";
 
     final session = RoomSession(
       audioIo: _audioIo,

@@ -8,7 +8,7 @@ import '../widgets/member_orbit.dart';
 import '../widgets/ptt_button.dart';
 import 'diagnostics_sheet.dart';
 
-/// Full Feature Parity Intercom Room Screen (Full-Duplex & PTT).
+/// SunsetRipple Intercom Room Screen.
 class RoomPage extends StatefulWidget {
   final RoomSession session;
   final bool isNight;
@@ -73,33 +73,17 @@ class _RoomPageState extends State<RoomPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Text(
-                                widget.roomName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.22),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  isFullDuplex ? "全双工" : "PTT对讲",
-                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ],
+                          Text(
+                            widget.roomName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            widget.session.isHost ? "我是房主 · 局域网广播搜房中" : "已加入房间 · 语音加密互通中",
+                            widget.session.isHost ? "我是房主 · 房间广播中" : "已加入房间 · 语音加密互通中",
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.82),
                               fontSize: 12,
@@ -132,7 +116,7 @@ class _RoomPageState extends State<RoomPage> {
 
             // 3. Central Interactive Element
             if (isFullDuplex)
-              // Full-Duplex Mode: Real-time Audio Wave Glow Indicator
+              // WiFi Mode: Real-time Audio Wave Pulse
               StreamBuilder<double>(
                 stream: widget.session.waveStream,
                 initialData: 0.0,
@@ -170,7 +154,7 @@ class _RoomPageState extends State<RoomPage> {
                           Text(
                             widget.session.isMuted
                                 ? "麦克风已静音"
-                                : (isSpeaking ? "正在实时拾音" : "全双工通话中"),
+                                : (isSpeaking ? "正在说话..." : "通话中"),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 15,
@@ -185,7 +169,7 @@ class _RoomPageState extends State<RoomPage> {
                 },
               )
             else
-              // Bluetooth PTT Mode: Push-To-Talk Disc Button
+              // Bluetooth Mode: Push-To-Talk Button
               PttButton(
                 isNight: isNight,
                 isPressed: widget.session.isPttPressed,
