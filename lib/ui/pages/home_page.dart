@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../core/audio/audio_io.dart';
+import '../../core/platform/platform_audio_channel.dart';
 import '../../core/session/room_session.dart';
 import '../../core/transport/lan_discovery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/celestial_canvas.dart';
 import 'room_page.dart';
 
-/// SunsetRipple Homepage.
+/// SunsetRipple Homepage with Full Feature Parity (WiFi Direct & Bluetooth PTT Modes).
 class HomePage extends StatefulWidget {
   final bool isNight;
   final VoidCallback onToggleTheme;
@@ -24,11 +25,13 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _nicknameController = TextEditingController(text: "探索者");
   final _lanDiscovery = LanRoomDiscovery();
-  final _audioIo = MockAudioIo();
+  late AudioIo _audioIo;
+  RoomMode _selectedMode = RoomMode.wifiFullDuplex;
 
   @override
   void initState() {
     super.initState();
+    _audioIo = PlatformAudioChannel();
     _lanDiscovery.startListening();
   }
 
@@ -51,7 +54,7 @@ class _HomePageState extends State<HomePage> {
         top: false,
         child: Column(
           children: [
-            // 1. Celestial Header
+            // 1. Dynamic Celestial Header
             Stack(
               children: [
                 CelestialCanvas(isNight: isNight),
@@ -59,6 +62,7 @@ class _HomePageState extends State<HomePage> {
                   top: 48,
                   right: 16,
                   child: IconButton(
+                    tooltip: "切换昼夜主题",
                     icon: Icon(
                       isNight ? Icons.nightlight_round : Icons.wb_sunny_rounded,
                       color: Colors.white,
@@ -95,7 +99,7 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
             // 2. Nickname input
             Padding(
@@ -123,59 +127,73 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
-            // 3. Action Buttons
+            // 3. Room Mode Selector (WiFi Direct / LAN Full-Duplex vs Bluetooth PTT)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton(
-                      onPressed: _onCreateRoom,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text("创建房间", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: _ModeSelectChip(
+                      icon: Icons.wifi,
+                      title: "WiFi 全双工房",
+                      subtitle: "同说无限制 · 最多6人",
+                      isSelected: _selectedMode == RoomMode.wifiFullDuplex,
+                      isNight: isNight,
+                      onTap: () => setState(() => _selectedMode = RoomMode.wifiFullDuplex),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {},
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
-                        side: BorderSide(
-                          color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
-                          width: 1.5,
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25),
-                        ),
-                      ),
-                      child: const Text("局域网搜房", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: _ModeSelectChip(
+                      icon: Icons.bluetooth,
+                      title: "蓝牙 PTT 房",
+                      subtitle: "按住说话 · BLE L2CAP",
+                      isSelected: _selectedMode == RoomMode.bluetoothPtt,
+                      isNight: isNight,
+                      onTap: () => setState(() => _selectedMode = RoomMode.bluetoothPtt),
                     ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
 
-            // 4. Discovered Rooms List Header
+            // 4. Create Room Button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _onCreateRoom,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    _selectedMode == RoomMode.wifiFullDuplex ? "创建 WiFi 全双工房" : "创建蓝牙 PTT 房",
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // 5. Discovered Rooms List Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 28),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  "附近局域网/热点房间",
+                  "附近局域网/热点对讲房间 (UDP 8990)",
                   style: TextStyle(
                     color: textSecondary,
                     fontSize: 13,
@@ -187,7 +205,7 @@ class _HomePageState extends State<HomePage> {
 
             const SizedBox(height: 8),
 
-            // 5. Discovered Rooms List
+            // 6. Discovered Rooms List
             Expanded(
               child: StreamBuilder<List<DiscoveredRoom>>(
                 stream: _lanDiscovery.roomsStream,
@@ -197,7 +215,7 @@ class _HomePageState extends State<HomePage> {
                   if (rooms.isEmpty) {
                     return Center(
                       child: Text(
-                        "未发现附近的局域网房间\n同 Wi-Fi 或热点下建房即可自动发现",
+                        "未发现附近的局域网房间\n同 Wi-Fi 或热点下建房即可自动发现并加入",
                         textAlign: TextAlign.center,
                         style: TextStyle(color: textSecondary.withValues(alpha: 0.6), fontSize: 13),
                       ),
@@ -267,15 +285,18 @@ class _HomePageState extends State<HomePage> {
 
   void _onCreateRoom() async {
     final nickname = _nicknameController.text.trim().isEmpty ? "探索者" : _nicknameController.text.trim();
+    final roomName = _selectedMode == RoomMode.wifiFullDuplex ? "$nickname 的 WiFi 全双工房" : "$nickname 的蓝牙对讲房";
+
     final session = RoomSession(
       audioIo: _audioIo,
       selfNickname: nickname,
+      mode: _selectedMode,
     );
     await session.createRoom();
 
     _lanDiscovery.startAdvertising(
       roomId: "room_${DateTime.now().millisecondsSinceEpoch}",
-      roomName: "$nickname 的落日房间",
+      roomName: roomName,
       hostNickname: nickname,
       tcpPort: 8988,
       getMemberCount: () => session.members.length,
@@ -287,7 +308,7 @@ class _HomePageState extends State<HomePage> {
           builder: (context) => RoomPage(
             session: session,
             isNight: widget.isNight,
-            roomName: "$nickname 的落日房间",
+            roomName: roomName,
           ),
         ),
       );
@@ -299,6 +320,7 @@ class _HomePageState extends State<HomePage> {
     final session = RoomSession(
       audioIo: _audioIo,
       selfNickname: nickname,
+      mode: RoomMode.wifiFullDuplex,
     );
     await session.joinRoom();
 
@@ -316,3 +338,71 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+class _ModeSelectChip extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool isSelected;
+  final bool isNight;
+  final VoidCallback onTap;
+
+  const _ModeSelectChip({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.isSelected,
+    required this.isNight,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final activeColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
+    final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
+    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor.withValues(alpha: 0.12) : cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? activeColor : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
+            width: isSelected ? 2.0 : 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 16, color: isSelected ? activeColor : textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: isSelected ? activeColor : textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: textSecondary,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

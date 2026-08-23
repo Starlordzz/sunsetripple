@@ -5,29 +5,36 @@ import '../audio/audio_mixer.dart';
 import '../audio/jitter_buffer.dart';
 import '../protocol/frame.dart';
 import '../protocol/frame_type.dart';
+import '../protocol/payloads/host_handover.dart';
 import '../protocol/payloads/join_request.dart';
 import '../protocol/payloads/leave.dart';
 import '../protocol/payloads/ptt_state.dart';
 import '../protocol/payloads/roster.dart';
+import 'host_election.dart';
 import 'member.dart';
+import 'reconnect_controller.dart';
 
+enum RoomMode { wifiFullDuplex, bluetoothPtt }
 enum RoomState { idle, connecting, inRoom, reconnecting, disconnected }
 
-/// Central Room Session State Machine & Intercom Orchestrator.
+/// Full Feature-Parity Central Room Session Controller.
 class RoomSession {
   final AudioIo audioIo;
   final String selfNickname;
   final Uint8List sessionToken;
+  final RoomMode mode;
 
   RoomState _state = RoomState.idle;
   bool _isHost = false;
   int _selfMemberId = 1;
   int _seq = 0;
+  int _epoch = 1;
 
   final Map<int, Member> _members = {};
   final Map<int, JitterBuffer> _jitterBuffers = {};
   Timer? _playbackLoopTimer;
   Timer? _heartbeatTimer;
+  late ReconnectController _reconnectController;
 
   // UI Reactive Streams
   final _stateController = StreamController<RoomState>.broadcast();
@@ -44,12 +51,21 @@ class RoomSession {
   bool isPttPressed = false;
   int get selfMemberId => _selfMemberId;
   List<Member> get members => _members.values.toList();
+  bool get isFullDuplex => mode == RoomMode.wifiFullDuplex;
 
   RoomSession({
     required this.audioIo,
     required this.selfNickname,
+    this.mode = RoomMode.wifiFullDuplex,
     Uint8List? sessionToken,
-  }) : sessionToken = sessionToken ?? Uint8List(16);
+  }) : sessionToken = sessionToken ?? Uint8List(16) {
+    _reconnectController = ReconnectController(
+      onAttemptReconnect: _attemptReconnect,
+      onMaxRetriesReached: () {
+        _updateState(RoomState.disconnected);
+      },
+    );
+  }
 
   /// Create a new room as Host.
   Future<void> createRoom() async {
@@ -75,12 +91,11 @@ class RoomSession {
   /// Join an existing room as Client.
   Future<void> joinRoom() async {
     _isHost = false;
-    _selfMemberId = 0; // Assigned by host on ROSTER
+    _selfMemberId = 0;
     _members.clear();
 
     _updateState(RoomState.connecting);
 
-    // Send JOIN_REQ frame to host
     final joinPayload = JoinRequestPayload(
       nickname: selfNickname,
       sessionToken: sessionToken,
@@ -97,7 +112,7 @@ class RoomSession {
     _startHeartbeat();
   }
 
-  /// Handle incoming binary frame from network.
+  /// Process incoming binary frames
   void handleIncomingFrame(Frame frame) {
     switch (frame.type) {
       case FrameType.audio:
@@ -119,7 +134,10 @@ class RoomSession {
         _handleLeave(frame);
         break;
       case FrameType.hostHandover:
+        _handleHostHandover(frame);
+        break;
       case FrameType.hostAnnounce:
+        _handleHostAnnounce(frame);
         break;
     }
   }
@@ -145,15 +163,26 @@ class RoomSession {
     final payload = JoinRequestPayload.decode(frame.payload);
     if (payload == null) return;
 
-    // Allocate next available memberId (2..6)
-    int newId = 2;
-    while (_members.containsKey(newId) && newId <= 6) {
-      newId++;
+    // Check if rejoining with existing token
+    int allocatedId = 0;
+    for (final entry in _members.entries) {
+      if (entry.value.nickname == payload.nickname) {
+        allocatedId = entry.key;
+        break;
+      }
     }
-    if (newId > 6) return; // Room full
 
-    _members[newId] = Member(
-      memberId: newId,
+    if (allocatedId == 0) {
+      int newId = 2;
+      while (_members.containsKey(newId) && newId <= 6) {
+        newId++;
+      }
+      if (newId > 6) return; // Room is full (max 6)
+      allocatedId = newId;
+    }
+
+    _members[allocatedId] = Member(
+      memberId: allocatedId,
       nickname: payload.nickname,
       sessionToken: payload.sessionToken,
     );
@@ -214,6 +243,66 @@ class RoomSession {
     }
   }
 
+  void _handleHostHandover(Frame frame) {
+    final payload = HostHandoverPayload.decode(frame.payload);
+    if (payload == null) return;
+
+    _epoch = payload.epoch;
+    if (payload.newHostId == _selfMemberId) {
+      _isHost = true;
+      final self = _members[_selfMemberId];
+      if (self != null) self.isHost = true;
+      _broadcastRoster();
+      _notifyMembers();
+    }
+  }
+
+  void _handleHostAnnounce(Frame frame) {
+    final payload = HostAnnouncePayload.decode(frame.payload);
+    if (payload == null) return;
+
+    _epoch = payload.epoch;
+    for (final m in _members.values) {
+      m.isHost = (m.memberId == payload.hostId);
+    }
+    _notifyMembers();
+  }
+
+  /// Automatic host failover if host disconnects
+  void checkHostFailover() {
+    if (_isHost) return;
+
+    final currentHost = _members.values.cast<Member?>().firstWhere(
+      (m) => m?.isHost == true,
+      orElse: () => null,
+    );
+
+    final now = DateTime.now();
+    if (currentHost == null || now.difference(currentHost.lastActiveAt).inSeconds > 5) {
+      // Host missing/timed out -> trigger election
+      final nextHost = HostElection.electNextHost(
+        _members.values.toList(),
+        excludedHostId: currentHost?.memberId,
+      );
+
+      if (nextHost != null) {
+        if (nextHost.memberId == _selfMemberId) {
+          _isHost = true;
+          _epoch++;
+          final announce = HostAnnouncePayload(hostId: _selfMemberId, epoch: _epoch);
+          final frame = Frame(
+            type: FrameType.hostAnnounce,
+            senderId: _selfMemberId,
+            seq: _nextSeq(),
+            payload: announce.encode(),
+          );
+          sendFrame(frame);
+          _broadcastRoster();
+        }
+      }
+    }
+  }
+
   void _broadcastRoster() {
     final rosterMembers = _members.values.map((m) {
       int flags = 0;
@@ -236,7 +325,10 @@ class RoomSession {
   Future<void> _startAudioPipeline() async {
     // 1. Microphone capture
     await audioIo.startCapture((pcmSamples) {
-      if (audioIo.isMuted || !isPttPressed) return;
+      // In Full-Duplex mode: mic captures as long as not muted
+      // In PTT mode: mic captures only when PTT is pressed
+      final shouldTransmit = isFullDuplex ? !audioIo.isMuted : (!audioIo.isMuted && isPttPressed);
+      if (!shouldTransmit) return;
 
       // Calculate audio amplitude for UI wave
       double sumSquares = 0;
@@ -248,7 +340,7 @@ class RoomSession {
       final normalized = (rms / 32767.0).clamp(0.0, 1.0);
       _waveController.add(normalized);
 
-      // Send audio frame to peers
+      // Send audio frame
       final bytes = AudioMixer.int16ListToBytes(pcmSamples);
       final frame = Frame(
         type: FrameType.audio,
@@ -288,6 +380,9 @@ class RoomSession {
         payload: Uint8List(0),
       );
       sendFrame(frame);
+
+      // Check for host timeouts
+      checkHostFailover();
     });
   }
 
@@ -322,6 +417,17 @@ class RoomSession {
     audioIo.setSpeakerphone(enabled);
   }
 
+  Future<bool> _attemptReconnect() async {
+    _updateState(RoomState.reconnecting);
+    await joinRoom();
+    return _state == RoomState.inRoom;
+  }
+
+  void triggerDisconnect() {
+    _updateState(RoomState.reconnecting);
+    _reconnectController.start();
+  }
+
   /// Hook for network transmission
   void Function(Frame frame)? onSendFrame;
 
@@ -343,6 +449,7 @@ class RoomSession {
     _playbackLoopTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _reconnectController.cancel();
 
     await audioIo.stopCapture();
     await audioIo.stopPlayback();
