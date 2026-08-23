@@ -1,0 +1,128 @@
+import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+
+/// Bottom Audio Controls Bar (Mute, Speakerphone, Leave).
+class AudioControlsBar extends StatelessWidget {
+  final bool isNight;
+  final bool isMuted;
+  final bool isSpeakerOn;
+  final VoidCallback onToggleMute;
+  final VoidCallback onToggleSpeaker;
+  final VoidCallback onLeave;
+
+  const AudioControlsBar({
+    super.key,
+    required this.isNight,
+    required this.isMuted,
+    required this.isSpeakerOn,
+    required this.onToggleMute,
+    required this.onToggleSpeaker,
+    required this.onLeave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final leaveColor = isNight ? AppTheme.darkLeaveRosePink : AppTheme.lightLeaveAccent;
+    final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
+    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // 1. 静音
+          _ActionButton(
+            icon: isMuted ? Icons.mic_off : Icons.mic,
+            label: isMuted ? "已静音" : "麦克风",
+            isActive: !isMuted,
+            isNight: isNight,
+            onTap: onToggleMute,
+            bgColor: cardBg,
+            textColor: textPrimary,
+          ),
+
+          // 2. 扬声器 / 听筒
+          _ActionButton(
+            icon: isSpeakerOn ? Icons.volume_up : Icons.phone_in_talk,
+            label: isSpeakerOn ? "扬声器" : "听筒",
+            isActive: isSpeakerOn,
+            isNight: isNight,
+            onTap: onToggleSpeaker,
+            bgColor: cardBg,
+            textColor: textPrimary,
+          ),
+
+          // 3. 离开房间 (高对比度月夜玫瑰粉)
+          _ActionButton(
+            icon: Icons.call_end,
+            label: "离开",
+            isActive: true,
+            isNight: isNight,
+            onTap: onLeave,
+            bgColor: leaveColor.withValues(alpha: 0.15),
+            borderColor: leaveColor.withValues(alpha: 0.62),
+            textColor: leaveColor,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final bool isNight;
+  final VoidCallback onTap;
+  final Color bgColor;
+  final Color? borderColor;
+  final Color textColor;
+
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.isNight,
+    required this.onTap,
+    required this.bgColor,
+    this.borderColor,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: borderColor ?? (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: textColor),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
