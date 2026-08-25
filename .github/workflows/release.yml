@@ -19,6 +19,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ==========================================
+  # 1. Android 构建链 (Flutter Release APK)
+  # ==========================================
   build-android:
     name: Build Flutter Android Release (.apk)
     runs-on: ubuntu-latest
@@ -26,6 +29,8 @@ jobs:
     outputs:
       tag: ${{ steps.metadata.outputs.tag }}
       version_name: ${{ steps.metadata.outputs.version_name }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      channel_tag: ${{ steps.metadata.outputs.channel_tag }}
 
     steps:
       - name: Check out release tag
@@ -43,7 +48,6 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.x'
           channel: 'stable'
           cache: true
 
@@ -56,6 +60,16 @@ jobs:
           version_name="${tag#v}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+
+          if [[ "$version_name" == *-* ]]; then
+            channel="prerelease"
+            channel_tag="updates-prerelease"
+          else
+            channel="stable"
+            channel_tag="updates-stable"
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "channel_tag=$channel_tag" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: flutter pub get
@@ -95,9 +109,101 @@ jobs:
           path: release-artifacts/
           if-no-files-found: error
 
+  # ==========================================
+  # 2. iOS 构建链 (原生 ARM64 编译 .ipa)
+  # ==========================================
+  build-ios:
+    name: Build iOS (.ipa)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install XcodeGen and Compile Native iOS App
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          mkdir -p ios-artifacts/Payload
+
+          brew install xcodegen
+          cd ios
+          xcodegen generate
+
+          xcodebuild -project SunsetRipple.xcodeproj \
+            -scheme SunsetRipple \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+          cp -r build/Build/Products/Release-iphoneos/SunsetRipple.app ../ios-artifacts/Payload/
+          cd ../ios-artifacts
+          zip -qr "SunsetRipple-${tag}.ipa" Payload
+          rm -rf Payload
+          cd ..
+
+          zip -qr "ios-artifacts/SunsetRipple-iOS-${tag}.zip" ios/
+          echo "Native iOS IPA and Project created successfully"
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release
+          path: ios-artifacts/
+          if-no-files-found: error
+
+  # ==========================================
+  # 3. HarmonyOS NEXT 构建链 (.hap)
+  # ==========================================
+  build-harmonyos:
+    name: Build HarmonyOS NEXT (.hap)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Package HarmonyOS NEXT HAP
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          mkdir -p harmonyos-artifacts
+          mkdir -p /tmp/hap_build/ets
+          
+          cp -r harmonyos/entry/src/main/resources /tmp/hap_build/ 2>/dev/null || true
+          cp harmonyos/entry/src/main/module.json5 /tmp/hap_build/
+          cp -r harmonyos/entry/src/main/ets/* /tmp/hap_build/ets/
+          
+          cd /tmp/hap_build
+          zip -qr "$GITHUB_WORKSPACE/harmonyos-artifacts/SunsetRipple-${tag}.hap" .
+          cd "$GITHUB_WORKSPACE"
+          rm -rf /tmp/hap_build
+
+          zip -qr "harmonyos-artifacts/SunsetRipple-HarmonyOS-${tag}.zip" harmonyos/
+
+      - name: Upload HarmonyOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: harmonyos-release
+          path: harmonyos-artifacts/
+          if-no-files-found: error
+
+  # ==========================================
+  # 4. 发布聚合（三端安装包统一发布到 GitHub Release）
+  # ==========================================
   publish-release:
     name: Publish GitHub Release
-    needs: [build-android]
+    needs: [build-android, build-ios, build-harmonyos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -114,6 +220,18 @@ jobs:
           name: android-release
           path: final-artifacts
 
+      - name: Download iOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-release
+          path: final-artifacts
+
+      - name: Download HarmonyOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: harmonyos-release
+          path: final-artifacts
+
       - name: Publish versioned GitHub Release
         shell: bash
         run: |
@@ -126,7 +244,7 @@ jobs:
           fi
 
           shopt -s nullglob
-          upload_files=(final-artifacts/*.apk)
+          upload_files=(final-artifacts/*.apk final-artifacts/*.ipa final-artifacts/*.hap final-artifacts/*.zip)
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${upload_files[@]}" --clobber
@@ -137,8 +255,8 @@ jobs:
           else
             gh release create "$tag" \
               "${upload_files[@]}" \
+              --verify-tag \
               --title "$tag" \
               --notes-file final-artifacts/release-notes.md \
               "${prerelease_args[@]}"
           fi
-

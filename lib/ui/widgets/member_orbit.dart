@@ -6,13 +6,11 @@ import '../theme/app_theme.dart';
 class MemberOrbit extends StatelessWidget {
   final List<Member> members;
   final bool isNight;
-  final ValueChanged<Member>? onTapMember;
 
   const MemberOrbit({
     super.key,
     required this.members,
     required this.isNight,
-    this.onTapMember,
   });
 
   @override
@@ -26,12 +24,9 @@ class MemberOrbit extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 14),
         itemBuilder: (context, index) {
           final member = members[index];
-          return GestureDetector(
-            onTap: () => onTapMember?.call(member),
-            child: _MemberAvatarChip(
-              member: member,
-              isNight: isNight,
-            ),
+          return _MemberAvatarChip(
+            member: member,
+            isNight: isNight,
           );
         },
       ),
@@ -66,9 +61,7 @@ class _MemberAvatarChip extends StatelessWidget {
             shape: BoxShape.circle,
             color: isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg,
             border: Border.all(
-              color: member.isSpeaking
-                  ? activeBorderColor
-                  : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
+              color: member.isSpeaking ? activeBorderColor : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
               width: member.isSpeaking ? 2.5 : 1.2,
             ),
             boxShadow: member.isSpeaking
@@ -120,3 +113,4 @@ class _MemberAvatarChip extends StatelessWidget {
     );
   }
 }
+
