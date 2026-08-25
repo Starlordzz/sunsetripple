@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'core/ffi/native_core_ffi.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  NativeCoreFfi.initialize();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -44,6 +47,15 @@ class _SunsetRippleAppState extends State<SunsetRippleApp> {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: _themeMode,
+      supportedLocales: const [
+        Locale('zh'),
+        Locale('en'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Builder(
         builder: (context) {
           final isNight = _themeMode == ThemeMode.dark ||
@@ -58,4 +70,3 @@ class _SunsetRippleAppState extends State<SunsetRippleApp> {
     );
   }
 }
-

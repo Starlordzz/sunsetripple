@@ -1,11 +1,11 @@
 import 'dart:typed_data';
-import 'package:test/test.dart';
-import '../lib/core/protocol/frame.dart';
-import '../lib/core/protocol/frame_type.dart';
-import '../lib/core/protocol/payloads/join_request.dart';
-import '../lib/core/protocol/payloads/leave.dart';
-import '../lib/core/protocol/payloads/ptt_state.dart';
-import '../lib/core/protocol/payloads/roster.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sunset_ripple/core/protocol/frame.dart';
+import 'package:sunset_ripple/core/protocol/frame_type.dart';
+import 'package:sunset_ripple/core/protocol/payloads/join_request.dart';
+import 'package:sunset_ripple/core/protocol/payloads/leave.dart';
+import 'package:sunset_ripple/core/protocol/payloads/ptt_state.dart';
+import 'package:sunset_ripple/core/protocol/payloads/roster.dart';
 
 void main() {
   group('SunsetRipple Binary Protocol Tests', () {
@@ -31,7 +31,9 @@ void main() {
 
     test('JoinRequestPayload encode and decode', () {
       final token = Uint8List(16);
-      for (int i = 0; i < 16; i++) token[i] = i;
+      for (int i = 0; i < 16; i++) {
+        token[i] = i;
+      }
 
       final payload = JoinRequestPayload(
         nickname: "落日测试员",

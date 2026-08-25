@@ -15,6 +15,8 @@ extern "C" {
 #endif
 
 #define SUNSET_FRAME_HEADER_SIZE 6
+/* 必须与 Dart 侧 Frame.maxPayloadSize 及 Kotlin 版 Frame.MAX_PAYLOAD 一致。
+   音频走 Opus，一帧几十字节，512 足够。 */
 #define SUNSET_MAX_PAYLOAD_SIZE 512
 
 typedef enum {
@@ -25,7 +27,6 @@ typedef enum {
     SUNSET_FRAME_HEARTBEAT = 0x05,
     SUNSET_FRAME_LEAVE = 0x06,
     SUNSET_FRAME_HOST_HANDOVER = 0x07,
-    SUNSET_FRAME_HOST_ANNOUNCE = 0x08
 } SunsetFrameType;
 
 typedef struct {

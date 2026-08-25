@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../diagnostics/app_log.dart';
 import 'frame_type.dart';
 
 /// SunsetRipple 6-byte Header Binary Frame.
@@ -11,6 +12,11 @@ import 'frame_type.dart';
 /// [6..N]  : Payload (0 ~ 512 bytes)
 class Frame {
   static const int headerSize = 6;
+
+  /// 与已发布的 Kotlin 版 alpha.7 一致（`Frame.MAX_PAYLOAD = 512`）。
+  /// 音频走 Opus 编码后一帧只有几十字节，512 绰绰有余；
+  /// 对方的 `FrameStreamReader` 会把超过 512 的帧当作流错位并断开连接，
+  /// 所以这个值**不能**再调大。
   static const int maxPayloadSize = 512;
   static const int maxTotalSize = headerSize + maxPayloadSize;
 
@@ -24,9 +30,18 @@ class Frame {
     required this.senderId,
     required this.seq,
     required Uint8List payload,
-  }) : payload = payload.length > maxPayloadSize
-            ? payload.sublist(0, maxPayloadSize)
-            : payload;
+  }) : payload = _capPayload(type, payload);
+
+  /// 超长载荷仍然截断（否则 16 位长度字段会溢出），但不再静默——
+  /// 截断意味着音频/名单数据已经损坏，必须留下痕迹。
+  static Uint8List _capPayload(FrameType type, Uint8List payload) {
+    if (payload.length <= maxPayloadSize) return payload;
+    AppLog.error(
+      'Frame',
+      '${type.name} 帧载荷 ${payload.length} 字节超过上限 $maxPayloadSize，已截断（数据将损坏）',
+    );
+    return payload.sublist(0, maxPayloadSize);
+  }
 
   /// Encodes this Frame into a raw byte buffer.
   Uint8List encode() {

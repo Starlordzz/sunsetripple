@@ -24,3 +24,8 @@ scripts/setup-release-signing.sh
 .superpowers/sdd/
 docs/superpowers/
 .vscode/
+.dart_tool/
+docs/ENV_SETUP.md
+native/CMakePresets.json
+native/build_native.bat
+native/build/

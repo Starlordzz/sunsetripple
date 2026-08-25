@@ -2,7 +2,9 @@ name: sunset_ripple
 description: "SunsetRipple - Near-field voice intercom for Android, iOS, Windows, macOS, Linux."
 publish_to: 'none'
 
-version: 0.1.0+8
+# versionName 取 `+` 前半段，versionCode 取后半段。
+# 上一版是 Kotlin 版的 0.1.0-alpha.7 / versionCode 8，这里必须递增。
+version: 0.1.0-alpha.8+9
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -15,6 +17,9 @@ dependencies:
     sdk: flutter
   intl: ^0.19.0
   ffi: ^2.1.2
+  cryptography: ^2.9.0
+  crypto: ^3.0.7
+  pointycastle: ^3.9.1
 
 dev_dependencies:
   flutter_test:

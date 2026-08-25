@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../core/diagnostics/app_log.dart';
+import '../../core/diagnostics/diagnostic_report.dart';
+import '../../l10n/app_strings.dart';
 import '../theme/app_theme.dart';
 
 /// Diagnostics & Connection Quality Sheet.
@@ -18,68 +22,108 @@ class DiagnosticsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final bg = isNight ? AppTheme.darkBg : AppTheme.lightBg;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
     final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final report = DiagnosticReport.create(
+      appVersion: '0.1.0-alpha.8',
+      roomType: 'Intercom Active',
+      connected: true,
+      memberCount: memberCount,
+      receivedFrames: 100,
+      concealedFrames: packetLossRate,
+      networkQuality: packetLossRate > 5 ? s.qualityFair : s.qualityGood,
+      recentErrors: AppLog.recent.map((e) => e.message).toList(),
+    );
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                "网络与音质诊断",
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    s.diagnosticsTitle,
+                    style: TextStyle(
+                      color: textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: textSecondary, size: 20),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
               ),
-              IconButton(
-                icon: Icon(Icons.close, color: textSecondary),
-                onPressed: () => Navigator.of(context).pop(),
+              const SizedBox(height: 10),
+              _MetricRow(
+                title: "Online",
+                value: s.roomOnlineCount(memberCount),
+                cardBg: cardBg,
+                textPrimary: textPrimary,
+              ),
+              const SizedBox(height: 8),
+              _MetricRow(
+                title: "RTT",
+                value: "$roundTripTimeMs ms",
+                cardBg: cardBg,
+                textPrimary: textPrimary,
+              ),
+              const SizedBox(height: 8),
+              _MetricRow(
+                title: "Loss",
+                value: "$packetLossRate %",
+                cardBg: cardBg,
+                textPrimary: textPrimary,
+              ),
+              const SizedBox(height: 8),
+              _MetricRow(
+                title: "Audio Codec",
+                value: "Opus 16kHz Mono 20ms",
+                cardBg: cardBg,
+                textPrimary: textPrimary,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: report.encode()));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(s.reportCopied),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: Text(s.copyReport, style: const TextStyle(fontSize: 13)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.sunsetCoral,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(42),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          _MetricRow(
-            title: "当前在线成员",
-            value: "$memberCount / 6 台",
-            cardBg: cardBg,
-            textPrimary: textPrimary,
-          ),
-          const SizedBox(height: 10),
-          _MetricRow(
-            title: "往返延迟 (RTT)",
-            value: "$roundTripTimeMs ms",
-            cardBg: cardBg,
-            textPrimary: textPrimary,
-          ),
-          const SizedBox(height: 10),
-          _MetricRow(
-            title: "网络丢包率",
-            value: "$packetLossRate %",
-            cardBg: cardBg,
-            textPrimary: textPrimary,
-          ),
-          const SizedBox(height: 10),
-          _MetricRow(
-            title: "音频编码格式",
-            value: "Opus 16kHz Mono 20ms",
-            cardBg: cardBg,
-            textPrimary: textPrimary,
-          ),
-          const SizedBox(height: 24),
-        ],
+        ),
       ),
     );
   }
@@ -101,20 +145,26 @@ class _MetricRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: TextStyle(color: textPrimary, fontSize: 14)),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(color: textPrimary, fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
           Text(
             value,
             style: TextStyle(
               color: textPrimary,
-              fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -123,4 +173,3 @@ class _MetricRow extends StatelessWidget {
     );
   }
 }
-

@@ -1,8 +1,8 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
-import 'package:ffi/ffi.dart';
-import '../audio/audio_mixer.dart';
+import '../diagnostics/app_log.dart';
 
 // Native C structs and function pointers
 final class SunsetRingBufferOpaque extends ffi.Opaque {}
@@ -35,9 +35,6 @@ typedef SunsetRbReadDart = int Function(
   int length,
 );
 
-typedef SunsetRmsNative = ffi.Float Function(ffi.Pointer<ffi.Int16> samples, ffi.Int32 sampleCount);
-typedef SunsetRmsDart = double Function(ffi.Pointer<ffi.Int16> samples, int sampleCount);
-
 /// High-Performance C/C++ FFI Core Engine Wrapper with Pure Dart Fallback.
 class NativeCoreFfi {
   static ffi.DynamicLibrary? _lib;
@@ -47,9 +44,9 @@ class NativeCoreFfi {
   static SunsetRbFreeDart? _rbFree;
   static SunsetRbWriteDart? _rbWrite;
   static SunsetRbReadDart? _rbRead;
-  static SunsetRmsDart? _calculateRms;
 
   static bool get isNativeLoaded => _isLoaded;
+  static ffi.DynamicLibrary? get lib => _lib;
 
   static void initialize({String? customPath}) {
     if (_isLoaded) return;
@@ -70,11 +67,11 @@ class NativeCoreFfi {
         _rbFree = _lib!.lookupFunction<SunsetRbFreeNative, SunsetRbFreeDart>('sunset_ring_buffer_free');
         _rbWrite = _lib!.lookupFunction<SunsetRbWriteNative, SunsetRbWriteDart>('sunset_ring_buffer_write');
         _rbRead = _lib!.lookupFunction<SunsetRbReadNative, SunsetRbReadDart>('sunset_ring_buffer_read');
-        _calculateRms = _lib!.lookupFunction<SunsetRmsNative, SunsetRmsDart>('sunset_calculate_rms');
         _isLoaded = true;
       }
-    } catch (_) {
+    } catch (e) {
       _isLoaded = false;
+      AppLog.warn('FFI', '未能加载原生核心库，已退回纯 Dart 实现', e);
     }
   }
 
@@ -89,18 +86,27 @@ class NativeCoreFfi {
     _rbFree!(rb);
   }
 
-  /// High-performance RMS calculation (uses C++ SIMD or fallback to Dart)
+  static int writeRingBuffer(ffi.Pointer<SunsetRingBufferOpaque> rb, ffi.Pointer<ffi.Uint8> data, int length) {
+    if (!_isLoaded || _rbWrite == null) return 0;
+    return _rbWrite!(rb, data, length);
+  }
+
+  static int readRingBuffer(ffi.Pointer<SunsetRingBufferOpaque> rb, ffi.Pointer<ffi.Uint8> outData, int length) {
+    if (!_isLoaded || _rbRead == null) return 0;
+    return _rbRead!(rb, outData, length);
+  }
+
+  /// 计算一帧 PCM 的归一化响度（0.0 ~ 1.0），用于界面上的波形/音量指示。
   static double calculateRms(Int16List pcmSamples) {
     if (pcmSamples.isEmpty) return 0.0;
 
-    // Fast pure Dart path
     double sumSquares = 0.0;
     for (int i = 0; i < pcmSamples.length; i++) {
-      final sample = pcmSamples[i];
+      final sample = pcmSamples[i].toDouble();
       sumSquares += sample * sample;
     }
-    final rms = sumSquares / pcmSamples.length;
-    return (rms / 32767.0).clamp(0.0, 1.0);
+
+    final rms = math.sqrt(sumSquares / pcmSamples.length);
+    return (rms / 32768.0).clamp(0.0, 1.0);
   }
 }
-

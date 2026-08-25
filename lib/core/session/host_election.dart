@@ -1,26 +1,7 @@
-import 'member.dart';
-
-/// Deterministic Host Election & Succession Algorithm.
+/// 旧的按 [Member.joinedAt] 选举已删除。
 ///
-/// When the current host disconnects:
-/// 1. Prioritize senior members who joined earliest (earliest [Member.joinedAt]).
-/// 2. Tie-break using lowest [Member.memberId].
-class HostElection {
-  /// Elects the next host among remaining active members.
-  /// Returns `null` if no candidate is available.
-  static Member? electNextHost(List<Member> candidates, {int? excludedHostId}) {
-    final eligible = candidates
-        .where((m) => excludedHostId == null || m.memberId != excludedHostId)
-        .toList();
+/// 设备时钟回拨会让「谁更资深」翻转，选举结果必须在所有成员上算出同一个答案，
+/// 所以改成房主分配的单调 [joinOrder]。实现见 [host_transfer.dart]。
+library;
 
-    if (eligible.isEmpty) return null;
-
-    eligible.sort((a, b) {
-      final timeComp = a.joinedAt.compareTo(b.joinedAt);
-      if (timeComp != 0) return timeComp;
-      return a.memberId.compareTo(b.memberId);
-    });
-
-    return eligible.first;
-  }
-}
+export 'host_transfer.dart' show HostElection, TransferCandidate;

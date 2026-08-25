@@ -11,7 +11,7 @@ class AppTheme {
   static const Color lightCardBg = Color(0xFFFCFAF7);
   static const Color lightTextPrimary = Color(0xFF2A2225);
   static const Color lightTextSecondary = Color(0xFF6E625E);
-  static const Color lightLeaveAccent = Color(0xFFFF9E90);
+  static const Color lightLeaveAccent = Color(0xFFE05545);
 
   // Dark (Moonlit Deep Ocean)
   static const Color nightSkyBlue = Color(0xFF3C5A8C);
