@@ -21,11 +21,11 @@
 
 <p align="center">
   <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&color=FF7138&labelColor=3A1030"></a>
+  <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.24%2B-02569B?labelColor=3A1030">
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
   <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B-007AFF?labelColor=3A1030">
   <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT-C00000?labelColor=3A1030">
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0.20-B92F3B?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-255-F4B85C?labelColor=3A1030">
+  <img alt="Dart" src="https://img.shields.io/badge/Dart-3.5%2B-0175C2?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -43,7 +43,7 @@
 
 <br>
 
-**落日后残波（SunsetRipple）** 是一个近场语音对讲应用（支持 **Android、iOS 与 HarmonyOS NEXT 纯血鸿蒙**）。没有账号，没有云端，没有一行语音数据离开你和对方的设备之间的那几十米。手机之间直接建链，最多 6 台，说完就散。
+**落日后残波（SunsetRipple）** 是一个近场语音对讲应用（支持 **Android、iOS 与 HarmonyOS NEXT**）。没有账号，没有云端，没有一行语音数据离开你和对方的设备之间的那几十米。手机之间直接建链，最多 6 台，说完就散。
 
 <br>
 
@@ -51,23 +51,18 @@
 
 <br>
 
-- **多平台 Core-Shell 架构**——统一业务核心与二进制协议，原生外壳覆盖 Android (`app/`)、iOS (`ios/`) 与 HarmonyOS NEXT (`harmonyos/`)。
-- **跨端局域网/热点免网对讲**——Android、iPhone 与鸿蒙手机同连一个随身 Wi-Fi 热点时，通过统一 UDP 广播自动搜房建连，跨品牌无障碍对讲。
-- **两种可用房型**——WiFi Direct 全双工房与蓝牙按住说话（PTT）房，均支持最多 6 台设备。
+- **Flutter 跨平台统一架构**——基于 Flutter 3.24+ 构建统一 Dart 会话核心、二进制协议与高质感天体界面，底层无缝桥接各平台原生音频 HAL 与蓝牙信道。
+- **动态麦克风路由切换**——房内支持一键切换使用「手机自带麦克风」或「外接/蓝牙耳机麦克风」；使用手机麦拾音时自动释放通话 SCO 占用，切回 A2DP 高清媒体声道。
+- **跨端局域网/热点免网对讲**——同一 Wi-Fi 或随身热点下，通过 UDP 8990 广播零配置自动搜房建连，4 秒无响应自动修剪僵尸房间。
+- **两种可用房型**——WiFi 全双工房与 BLE L2CAP CoC 按住说话（PTT）房，均支持最多 6 台设备。
 - **零语音基础设施**——无路由器、无账号、无服务器；语音只在设备之间点对点传输，检查更新时会访问 GitHub。
-- **网状音频，不经中转**——WiFi 房中每台设备把音频 UDP 直发给其他成员，组主不做转发也不是瓶颈。
-- **断线自动重连**——1 / 2 / 4 秒三次退避重试，重连后凭令牌恢复原成员身份与入房顺序。
-- **房主自动接管**——房主主动离房、进程崩溃、被系统杀死或链路中断时，房间会自动选出继任者并重建，而不是直接解散。
-- **连续建房转场**——从实际点击位置展开真实房间界面，首页与房间共享同一套落日页头和配色，不经过独立遮罩、黑帧或二次弹页。
-- **轻量房内控制**——成员轨道、频道核心与底部操作共用一套视觉层级；静音、扬声器和离开均使用紧凑图标控件。
-- **昼夜双配色**——白天是落日暖色，夜里换成月与海面：同一份绘制代码，页头那轮天体成为月亮，波纹成为月光在水面的反射。离开房间按钮在夜间专属适配冷调月夜玫瑰粉（对比度 > 7.5:1）。
-- **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除（Android AEC / iOS VoiceProcessingIO / 鸿蒙硬件 AEC）、音频焦点协商、抖动缓冲与 Opus 丢包补偿。
-- **前台保活**——麦克风类型前台服务 + WakeLock + WifiLock，通知栏可直接静音或离开。
-- **只听模式**——被其他应用抢占音频焦点时自动降级为只听，不会静默掉线。
-- **安全更新**——依次验证 ECDSA 清单、APK 哈希、包名和签名证书，再交给 Android 安装确认。
-- **系统中英文**——简体中文与英语自动跟随系统，不保存应用内语言偏好。
-- **诊断与质量状态**——显示低频网络质量，主动导出的报告不含音频、昵称、地址和密钥。
-- **255 个单元测试**——协议编解码、抖动缓冲、混音、房主选举、重连、局域网发现、权限分级、界面动效与主题档位决策全部有覆盖，且全部是纯 JVM 测试。
+- **WiFi 房无缝房主转移**——支持房内手动转让房主或房主失联自动按快照选举继任者并重构组网，UDP 端口即刻同步登记。
+- **全网静音与说话状态联动**——静音操作全房即时同步标志位，关闭麦克风实时熄灭音频声波动画。
+- **断线自动重连**——多轮指数退避重试，重连后凭令牌恢复原成员身份与入房顺序。
+- **连续建房转场**——从实际点击位置展开真实房间界面，首页与房间共享同一套落日页头和配色，不经过独立遮罩或二次弹页。
+- **昼夜双配色**——白天是落日暖金，夜里换成月与海面（冷月白 + 玫瑰粉离开按钮，对比度 > 7.5:1）。
+- **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除（AEC/NS/AGC）、音频焦点协商、50 周期 HAL 容错缓冲与 Opus 丢包补偿。
+- **脱敏诊断报告**——内置网络与音质诊断面板，一键生成脱敏日志便于提交 GitHub Issue。
 
 <br>
 

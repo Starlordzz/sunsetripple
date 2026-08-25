@@ -42,12 +42,12 @@
 | 项 | 值 |
 | --- | --- |
 | 包名 / BundleID | `host.msknet.sunsetripple` |
-| 当前版本 | `0.1.0-alpha.7`（versionCode 8） |
+| 当前版本 | `0.1.0-alpha.8`（versionCode 9） |
 | 支持系统 | Android 8.0+ / iOS 15.0+ / HarmonyOS NEXT (API 12+) |
 | 目标 / 编译 SDK | Android 35 / HarmonyOS 5.0(12) / iOS 15.0 |
-| 语言与 UI | Kotlin (Compose) + ArkTS (ArkUI) + Swift (SwiftUI) |
-| 测试规模 | 40 个测试文件，255 个测试方法，纯 JVM |
-| 音频编码 | Opus（Concentus 纯 JVM / 原生 AEC）16 kHz 单声道 20 ms |
+| 语言与 UI | Flutter 3.24+ (Dart) + Kotlin / Swift / C 平台原生插件 |
+| 自动化测试 | 58 个测试用例（覆盖全套编解码、安全握手、状态机与房主交接） |
+| 音频编码 | Opus (16 kHz 单声道 20 ms 帧，支持硬件 AEC / NS / AGC) |
 | 房间容量 | 6 台设备（含房主） |
 | 许可证 | Apache-2.0 |
 
