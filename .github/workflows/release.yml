@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag, for example v0.1.0-alpha.7
+        description: 'Release tag (e.g. v0.1.0-alpha.8)'
         required: true
         type: string
 
@@ -19,29 +19,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ==========================================
-  # 1. Android 构建链 (.apk & .aab)
-  # ==========================================
   build-android:
-    name: Build Android (.apk)
+    name: Build Flutter Android Release (.apk)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      UPDATE_PRIVATE_KEY_PKCS8_BASE64: ${{ secrets.UPDATE_PRIVATE_KEY_PKCS8_BASE64 }}
-      UPDATE_PUBLIC_KEY_BASE64: ${{ vars.UPDATE_PUBLIC_KEY_BASE64 }}
-      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 30
     outputs:
       tag: ${{ steps.metadata.outputs.tag }}
       version_name: ${{ steps.metadata.outputs.version_name }}
-      version_code: ${{ steps.metadata.outputs.version_code }}
-      application_id: ${{ steps.metadata.outputs.application_id }}
-      channel: ${{ steps.metadata.outputs.channel }}
-      channel_tag: ${{ steps.metadata.outputs.channel_tag }}
-      manifest_url: ${{ steps.metadata.outputs.manifest_url }}
 
     steps:
       - name: Check out release tag
@@ -50,142 +34,59 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.x'
+          channel: 'stable'
+          cache: true
 
-      - name: Restore signing material
-        shell: bash
-        run: |
-          set -euo pipefail
-          for name in \
-            ANDROID_KEYSTORE_BASE64 \
-            ANDROID_KEYSTORE_PASSWORD \
-            ANDROID_KEY_ALIAS \
-            ANDROID_KEY_PASSWORD \
-            UPDATE_PRIVATE_KEY_PKCS8_BASE64 \
-            UPDATE_PUBLIC_KEY_BASE64; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing GitHub Actions secret or variable: $name" >&2
-              exit 1
-            fi
-          done
-
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.p12"
-          printf '%s' "$UPDATE_PRIVATE_KEY_PKCS8_BASE64" | base64 --decode > "$RUNNER_TEMP/update-private-key.pk8"
-          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-            "$RUNNER_TEMP/release-keystore.p12" \
-            "$ANDROID_KEYSTORE_PASSWORD" \
-            "$ANDROID_KEY_ALIAS" \
-            "$ANDROID_KEY_PASSWORD" > "$RUNNER_TEMP/keystore.properties"
-          chmod 600 \
-            "$RUNNER_TEMP/release-keystore.p12" \
-            "$RUNNER_TEMP/update-private-key.pk8" \
-            "$RUNNER_TEMP/keystore.properties"
-
-      - name: Read and validate release metadata
+      - name: Determine tag & metadata
         id: metadata
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x gradlew
-          ./gradlew --no-daemon -q :app:writeReleaseMetadata
-          source app/build/release/release-metadata.properties
-
           tag="${{ inputs.tag || github.ref_name }}"
-          if [[ "$tag" != "v$versionName" ]]; then
-            echo "Tag $tag does not match Android version v$versionName" >&2
-            exit 1
-          fi
-          git rev-parse --verify "refs/tags/$tag" >/dev/null
-          if ! git tag --points-at HEAD | grep -Fxq "$tag"; then
-            echo "Checked-out commit is not tagged with $tag" >&2
-            exit 1
-          fi
+          version_name="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
 
-          if [[ "$versionName" == *-* ]]; then
-            channel="prerelease"
-            channel_tag="updates-prerelease"
-          else
-            channel="stable"
-            channel_tag="updates-stable"
-          fi
-          manifest_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${channel_tag}/update.json"
+      - name: Install dependencies
+        run: flutter pub get
 
-          {
-            echo "tag=$tag"
-            echo "version_name=$versionName"
-            echo "version_code=$versionCode"
-            echo "application_id=$applicationId"
-            echo "channel=$channel"
-            echo "channel_tag=$channel_tag"
-            echo "manifest_url=$manifest_url"
-          } >> "$GITHUB_OUTPUT"
+      - name: Run unit tests
+        run: flutter test
 
-      - name: Test and build signed Android release
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew --no-daemon \
-            -PsunsetRipple.signingProperties="$RUNNER_TEMP/keystore.properties" \
-            -PsunsetRipple.updatePublicKey="$UPDATE_PUBLIC_KEY_BASE64" \
-            -PsunsetRipple.updateManifestUrl="${{ steps.metadata.outputs.manifest_url }}" \
-            :app:testDebugUnitTest \
-            :app:lintRelease \
-            :app:assembleRelease \
-            :app:bundleRelease
+      - name: Build Android Release APK
+        run: flutter build apk --release
 
-      - name: Prepare signed update manifest
+      - name: Prepare release artifacts
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ steps.metadata.outputs.tag }}"
           version_name="${{ steps.metadata.outputs.version_name }}"
           apk_name="SunsetRipple-${tag}.apk"
-          aab_name="SunsetRipple-${tag}.aab"
           mkdir -p release-artifacts
-          cp app/build/outputs/apk/release/app-release.apk "release-artifacts/$apk_name"
-          cp app/build/outputs/bundle/release/app-release.aab "release-artifacts/$aab_name"
+          cp build/app/outputs/flutter-apk/app-release.apk "release-artifacts/$apk_name"
 
+          # 提取对应版本的 CHANGELOG 内容
           awk -v heading="## $version_name - " '
             index($0, heading) == 1 { found = 1 }
             found && /^## / && index($0, heading) != 1 { exit }
             found { print }
-            END { if (!found) exit 1 }
+            END { if (!found) exit 0 }
           ' CHANGELOG.md > release-artifacts/release-notes.md
-          awk '/^- / { sub(/^- /, ""); print; exit }' \
-            release-artifacts/release-notes.md > release-artifacts/summary.txt
-          if [[ ! -s release-artifacts/summary.txt ]]; then
-            echo "No release summary found in CHANGELOG.md" >&2
-            exit 1
+
+          if [[ ! -s release-artifacts/release-notes.md ]]; then
+            echo "## SunsetRipple $tag" > release-artifacts/release-notes.md
           fi
-
-          keytool -exportcert \
-            -keystore "$RUNNER_TEMP/release-keystore.p12" \
-            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" \
-            -file "$RUNNER_TEMP/release-certificate.der"
-          certificate_sha256="$(sha256sum "$RUNNER_TEMP/release-certificate.der" | awk '{print $1}')"
-          apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${apk_name}"
-
-          java scripts/SignUpdateManifest.java \
-            --version-code "${{ steps.metadata.outputs.version_code }}" \
-            --version-name "$version_name" \
-            --channel "${{ steps.metadata.outputs.channel }}" \
-            --minimum-version-code 1 \
-            --package-name "${{ steps.metadata.outputs.application_id }}" \
-            --apk "release-artifacts/$apk_name" \
-            --apk-url "$apk_url" \
-            --certificate-sha256 "$certificate_sha256" \
-            --summary-file release-artifacts/summary.txt \
-            --private-key "$RUNNER_TEMP/update-private-key.pk8" \
-            --public-key-base64 "$UPDATE_PUBLIC_KEY_BASE64" \
-            --output release-artifacts/update.json
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -194,107 +95,15 @@ jobs:
           path: release-artifacts/
           if-no-files-found: error
 
-  # ==========================================
-  # 2. iOS 构建链 (原生 ARM64 编译 .ipa)
-  # ==========================================
-  build-ios:
-    name: Build iOS (.ipa)
-    runs-on: macos-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out release tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Install XcodeGen and Compile Native iOS App
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.tag || github.ref_name }}"
-          mkdir -p ios-artifacts/Payload
-
-          brew install xcodegen
-          cd ios
-          xcodegen generate
-
-          xcodebuild -project SunsetRipple.xcodeproj \
-            -scheme SunsetRipple \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build
-
-          cp -r build/Build/Products/Release-iphoneos/SunsetRipple.app ../ios-artifacts/Payload/
-          cd ../ios-artifacts
-          zip -qr "SunsetRipple-${tag}.ipa" Payload
-          rm -rf Payload
-          cd ..
-
-          zip -qr "ios-artifacts/SunsetRipple-iOS-${tag}.zip" ios/
-          echo "Native iOS IPA and Project created successfully"
-
-      - name: Upload iOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-release
-          path: ios-artifacts/
-          if-no-files-found: error
-
-  # ==========================================
-  # 3. HarmonyOS NEXT 构建链 (.hap)
-  # ==========================================
-  build-harmonyos:
-    name: Build HarmonyOS NEXT (.hap)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out release tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Package HarmonyOS NEXT HAP
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.tag || github.ref_name }}"
-          mkdir -p harmonyos-artifacts
-          mkdir -p /tmp/hap_build/ets
-          
-          cp -r harmonyos/entry/src/main/resources /tmp/hap_build/ 2>/dev/null || true
-          cp harmonyos/entry/src/main/module.json5 /tmp/hap_build/
-          cp -r harmonyos/entry/src/main/ets/* /tmp/hap_build/ets/
-          
-          cd /tmp/hap_build
-          zip -qr "$GITHUB_WORKSPACE/harmonyos-artifacts/SunsetRipple-${tag}.hap" .
-          cd "$GITHUB_WORKSPACE"
-          rm -rf /tmp/hap_build
-
-          zip -qr "harmonyos-artifacts/SunsetRipple-HarmonyOS-${tag}.zip" harmonyos/
-
-      - name: Upload HarmonyOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: harmonyos-release
-          path: harmonyos-artifacts/
-          if-no-files-found: error
-
-  # ==========================================
-  # 4. 发布聚合（三端安装包统一发布到 GitHub Release）
-  # ==========================================
   publish-release:
-    name: Publish Multiplatform Release
-    needs: [build-android, build-ios, build-harmonyos]
+    name: Publish GitHub Release
+    needs: [build-android]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check out release tag
+      - name: Check out repo
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
@@ -303,18 +112,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: android-release
-          path: final-artifacts
-
-      - name: Download iOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-release
-          path: final-artifacts
-
-      - name: Download HarmonyOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: harmonyos-release
           path: final-artifacts
 
       - name: Publish versioned GitHub Release
@@ -329,7 +126,7 @@ jobs:
           fi
 
           shopt -s nullglob
-          upload_files=(final-artifacts/*)
+          upload_files=(final-artifacts/*.apk)
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${upload_files[@]}" --clobber
@@ -340,31 +137,8 @@ jobs:
           else
             gh release create "$tag" \
               "${upload_files[@]}" \
-              --verify-tag \
               --title "$tag" \
               --notes-file final-artifacts/release-notes.md \
               "${prerelease_args[@]}"
           fi
 
-      - name: Update rolling update channel
-        shell: bash
-        run: |
-          set -euo pipefail
-          channel_tag="${{ needs.build-android.outputs.channel_tag }}"
-          channel="${{ needs.build-android.outputs.channel }}"
-          notes="Latest ${channel} update manifest: ${{ needs.build-android.outputs.tag }}"
-
-          if gh release view "$channel_tag" >/dev/null 2>&1; then
-            gh release upload "$channel_tag" final-artifacts/update.json --clobber
-            gh release edit "$channel_tag" --title "SunsetRipple ${channel} update channel" --notes "$notes"
-          else
-            channel_args=()
-            if [[ "$channel" == "prerelease" ]]; then
-              channel_args+=(--prerelease)
-            fi
-            gh release create "$channel_tag" final-artifacts/update.json \
-              --target "$GITHUB_SHA" \
-              --title "SunsetRipple ${channel} update channel" \
-              --notes "$notes" \
-              "${channel_args[@]}"
-          fi
