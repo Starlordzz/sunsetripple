@@ -142,15 +142,20 @@ class _AboutPageState extends State<AboutPage> {
     final bgGradient = isNight
         ? [AppTheme.nightAbyss, AppTheme.nightDeepOcean]
         : [AppTheme.lightBg, AppTheme.sunsetCoral.withValues(alpha: 0.15)];
+        : [AppTheme.lightBg, AppTheme.sunsetCoral.withOpacity(0.15)];
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
     final textSecondary =
         isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     final cardBg = isNight
         ? Colors.white.withValues(alpha: 0.06)
         : Colors.black.withValues(alpha: 0.04);
+        ? Colors.white.withOpacity(0.06)
+        : Colors.black.withOpacity(0.04);
     final borderColor = isNight
         ? Colors.white.withValues(alpha: 0.12)
         : Colors.black.withValues(alpha: 0.08);
+        ? Colors.white.withOpacity(0.12)
+        : Colors.black.withOpacity(0.08);
 
     return Scaffold(
       body: Container(
@@ -206,6 +211,7 @@ class _AboutPageState extends State<AboutPage> {
                               boxShadow: [
                                 BoxShadow(
                                   color: AppTheme.sunsetCoral.withValues(alpha: 0.3),
+                                  color: AppTheme.sunsetCoral.withOpacity(0.3),
                                   blurRadius: 16,
                                   spreadRadius: 2,
                                 ),
@@ -241,6 +247,7 @@ class _AboutPageState extends State<AboutPage> {
                             style: TextStyle(
                               fontSize: 12,
                               color: textSecondary.withValues(alpha: 0.8),
+                              color: textSecondary.withOpacity(0.8),
                             ),
                           ),
                         ],

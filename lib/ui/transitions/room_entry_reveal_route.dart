@@ -139,6 +139,7 @@ class _RevealEdgePainter extends CustomPainter {
       _revealRRect(origin, fraction, size),
       Paint()
         ..color = color.withValues(alpha: alpha)
+        ..color = color.withOpacity(alpha)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4,
     );

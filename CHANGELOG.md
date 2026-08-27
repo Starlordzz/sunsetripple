@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.1.0-alpha.8 - 2026-08-25
+
+### 新功能
+
+- 全量迁移至 Flutter：原 Kotlin 实现整体重写为 Flutter/Dart + C++ FFI 混合架构，Android、iOS 与 HarmonyOS NEXT 三端共用同一套 Dart 会话核心与二进制帧协议（`lib/core/`），仅音频 HAL 与 BLE 信道下沉到各平台原生层。
+- 新增 C++ 无锁环形缓冲区（`native/src/ring_buffer.cpp`）与原生帧编解码（`native/src/protocol_frame.cpp`），经 `dart:ffi` 暴露给 Dart 层，压低音频路径抖动。
+- 新增 BLE L2CAP CoC 传输通道（`lib/core/transport/ble_l2cap_transport.dart`），支撑蓝牙按住说话（PTT）房型。
+- 新增统一平台音频通道（`lib/core/platform/platform_audio_channel.dart`），把三端原生硬件 AEC/NS/AGC 收敛到同一套接口。
+- 引入 RoomCubit 会话状态管理，房主选举（`host_election.dart`）、房主转移（`host_transfer.dart`）与断线重连（`reconnect_controller.dart`）拆分为独立可测单元。
+- WiFi 全双工房与蓝牙 PTT 房达成功能对齐，两种房型共享同一套成员轨道、全房静音联动与说话状态动画。
+- 搜房界面补齐「重新扫描」入口，解决发现窗口超时后无法手动重试的问题。
+
+### 修复与优化
+
+- 修复平台音频通道在部分机型上通道名不匹配导致的采集异常。
+- 界面文案去技术术语化，改用面向普通用户的表述。
+- 新增 RoomSession 端到端集成测试与 PTT 状态测试，测试总数达到 58 个。
+
+### 变更
+
+- 修复 CI/CD Android 构建链：移除硬编码 `java.home`，改用 Flutter 官方 release action。
+- 将 `intl` 依赖约束放宽为 `>=0.19.0 <1.0.0`，以兼容 Flutter SDK 内置 `flutter_localizations` 所钉的 intl 版本。
+- CI 工作流统一钉定 Flutter 3.29.x：低于 3.27 会因缺少 `Color.withValues` 编译失败，而追随 latest stable 则会因其要求 Gradle >= 8.14 与 AGP 9 new DSL 而构建失败。
+- GitHub Actions 依赖升级至当前最新主版本（checkout v7、setup-java v6、upload-artifact v7、download-artifact v8），消除 Node.js 20 运行时弃用告警。
+- 全面重写 README 与 Wiki 文档，补充 iOS 安装包体积说明与 HarmonyOS 本地编译步骤。
+
 ## 0.1.0-alpha.7 - 2026-08-22
 
 ### 新功能
