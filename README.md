@@ -23,8 +23,8 @@
   <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&color=FF7138&labelColor=3A1030"></a>
   <img alt="Dart" src="https://img.shields.io/badge/Dart-3.5%2B-0175C2?labelColor=3A1030">
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
-  <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B-007AFF?labelColor=3A1030">
-  <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT-C00000?labelColor=3A1030">
+  <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B%20(%E5%8E%9F%E7%94%9F%E5%AE%9E%E7%8E%B0)-007AFF?labelColor=3A1030">
+  <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(%E6%BA%90%E7%A0%81%E5%B7%A5%E7%A8%8B)-C00000?labelColor=3A1030">
   <img alt="Tests" src="https://img.shields.io/badge/tests-58%20passing-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
@@ -43,7 +43,22 @@
 
 <br>
 
-**落日后残波（SunsetRipple）** 是一个近场无网语音对讲应用（支持 **Android、iOS 与 HarmonyOS NEXT**）。没有账号，没有云端，没有一行语音数据离开你和对方的设备之间的那几十米。手机之间直接建链，最多 6 台，说完就散。
+**落日后残波（SunsetRipple）** 是一个近场无网语音对讲应用。没有账号，没有云端，没有一行语音数据离开你和对方的设备之间的那几十米。手机之间直接建链，最多 6 台，说完就散。
+
+<br>
+
+> **各平台完成度**——Flutter 主线（统一 Dart 会话核心）目前**只在 Android 上功能完整**。
+> iOS 另有一套独立的原生 SwiftUI 实现（`ios/SunsetRipple/`），可用但不共享 Dart 核心；
+> Flutter 版 iOS 宿主仍是空壳，缺口与计划见 [docs/ios-flutter-port.md](docs/ios-flutter-port.md)。
+> HarmonyOS NEXT 是一套独立的原生 ArkTS 工程（`harmonyos/`），需自行用 DevEco Studio
+> 构建，见 [docs/harmonyos-build.md](docs/harmonyos-build.md)。
+
+| 平台 | 实现 | 发布产物 | 状态 |
+| --- | --- | --- | --- |
+| Android 8.0+ | Flutter + Kotlin 原生插件 | `.apk`，直接安装 | ✅ 功能完整 |
+| iOS 15+ | 独立原生 SwiftUI | `.ipa`，**未签名**，需侧载重签 | ⚠️ 可用，不共享 Dart 核心 |
+| iOS 15+ | Flutter 宿主 | `.ipa`，未签名 | 🚧 空壳，音频/发现/BLE 均未接通 |
+| HarmonyOS NEXT | 独立原生 ArkTS | 源码工程 zip | 🚧 需自行构建签名 |
 
 <br>
 
@@ -51,9 +66,9 @@
 
 <br>
 
-- **Flutter 跨平台统一架构**——基于 Flutter 3.24+ 构建统一 Dart 会话核心、二进制帧协议与高质感天体界面，底层无缝桥接各平台原生音频 HAL（硬件 AEC/NS/AGC）与 BLE L2CAP 信道。
+- **Flutter 统一会话核心**——基于 Flutter 构建统一 Dart 会话核心、二进制帧协议与高质感天体界面，通过平台通道桥接原生音频 HAL（硬件 AEC/NS/AGC）与 BLE L2CAP 信道。**目前只有 Android 侧的平台通道已实现**（`PlatformAudioPlugin.kt` / `BleL2capPlugin.kt`）。
 - **动态麦克风路由切换**——房内支持一键切换使用「手机自带麦克风」或「外接/蓝牙耳机麦克风」；使用手机麦拾音时自动释放通话 SCO 占用，切回 A2DP 高清媒体声道。
-- **跨端局域网/热点免网对讲**——同一 Wi-Fi 或随身热点下，通过 UDP 8990 广播零配置自动搜房建连，周期性自动修剪僵尸房间（房主关闭 4 秒内自动移除）。
+- **跨端局域网/热点免网对讲**——同一 Wi-Fi 或随身热点下，通过 UDP 8990 广播零配置自动搜房建连，周期性自动修剪僵尸房间（房主关闭 4 秒内自动移除）。音频本身为单播。<br>注意：iOS 14+ 起发送广播需 `com.apple.developer.networking.multicast` 授权（付费账号 + Apple 逐案审批），因此 iOS 侧搜房必须改走 Bonjour，详见 [docs/ios-flutter-port.md](docs/ios-flutter-port.md)。
 - **两种可用房型**——WiFi 全双工房与 BLE L2CAP CoC 按住说话（PTT）房，均支持最多 6 台设备。
 - **零语音基础设施**——无路由器、无账号、无服务器；语音只在设备之间点对点传输，版本检查在用户操作时访问 GitHub Releases。
 - **WiFi 房无缝房主转移**——支持房内手动转让房主或房主失联自动按快照选举继任者并重构组网，新房主 UDP 端口即刻同步登记，保障音频不掉线。
@@ -95,12 +110,21 @@
 
 <br>
 
-从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新版本的安装包：
-- **Android**：下载 `SunsetRipple-*.apk` 直接安装（体积约 45MB，包含全平台 Flutter 引擎与原生 Opus HAL）。
-- **iOS**：下载 `SunsetRipple-iOS-*.zip` 源码工程或直接构建运行。
-- **HarmonyOS NEXT**：可使用源码中的核心协议模块或通过平台通道接入 DevEco Studio 进行工程构建。
+从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新版本：
 
-> Android 端需要 Android 8.0（API 26）及以上系统。
+- **Android**（需 8.0 / API 26 以上）：下载 `SunsetRipple-*.apk` 直接安装。体积约 45 MB，包含 Flutter 引擎与原生 Opus HAL。
+- **iOS**（需 15.0 以上）：下载 `SunsetRipple-native-*-unsigned.ipa`。这是**未签名**包，需用 [AltStore](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 以你自己的 Apple ID 在电脑上重签后安装（免费 Apple ID 签名有效期 7 天，到期需重签）。
+- **HarmonyOS NEXT**：下载 `SunsetRipple-HarmonyOS-source-*.zip`，用 DevEco Studio 打开自行构建并签名，步骤见 [docs/harmonyos-build.md](docs/harmonyos-build.md)。
+
+> **为什么 iOS 和鸿蒙没有「下载即装」的包？**
+> Apple 要求安装包必须签名，签名需 Apple Developer Program（99 美元/年）证书，
+> ad-hoc 分发还需预先登记设备 UDID；本项目没有付费账号，因此只能提供未签名包。
+> 鸿蒙 NEXT 零售机只接受 AGC 调试证书（绑定设备 UDID、上限 100 台）或应用市场
+> 发布签名的 HAP，不存在未签名侧载路径，且 DevEco 命令行工具需华为开发者账号
+> 登录才能获取，无法在公共 CI 上构建。
+>
+> 另有 `SunsetRipple-flutter-*-unsigned.ipa` 为 Flutter 主线的构建产物，
+> 目前音频、搜房与 BLE 均未接通，仅供构建验证，请勿使用。
 
 <br>
 
