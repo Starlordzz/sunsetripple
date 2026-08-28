@@ -11,7 +11,8 @@ extern "C" {
 #if defined(_WIN32)
 #define FFI_EXPORT __declspec(dllexport)
 #else
-#define FFI_EXPORT __attribute__((visibility("default")))
+/* 见 ring_buffer.h：Apple 平台静态链接 + dead_strip 需要 `used`。 */
+#define FFI_EXPORT __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
 #define SUNSET_FRAME_HEADER_SIZE 6

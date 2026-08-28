@@ -12,7 +12,10 @@ extern "C" {
 #if defined(_WIN32)
 #define FFI_EXPORT __declspec(dllexport)
 #else
-#define FFI_EXPORT __attribute__((visibility("default")))
+/* `used` 是 Apple 平台必需的：iOS/macOS 把这些 .cpp 静态链进 app 二进制，
+ * 只有 Dart 侧通过 DynamicLibrary.process() 在运行时查符号，
+ * 链接期没有任何引用，release 的 -dead_strip 会把它们剥掉。 */
+#define FFI_EXPORT __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
 /// High-Performance Lock-Free Single-Producer Single-Consumer (SPSC) Audio Ring Buffer.

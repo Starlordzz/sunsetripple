@@ -45,5 +45,28 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>落日后残波需要使用您的麦克风进行近场语音对讲通话</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>落日后残波需要访问本地网络以发现并加入附近的对讲房间</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>落日后残波需要使用蓝牙进行近场 P2P 对讲自组网</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>落日后残波需要使用蓝牙进行近场 P2P 对讲自组网</string>
+	<!-- iOS 14+ 下发往 255.255.255.255 的 UDP 广播需要 com.apple.developer.networking.multicast
+	     授权（付费账号 + Apple 逐案审批），因此 iOS 侧搜房必须改走 Bonjour：
+	     系统代为完成组播，只需下面的服务类型声明与上面的本地网络说明。
+	     注意：Dart 侧 LanRoomDiscovery 目前仍是裸广播，尚未接入 Bonjour。 -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_sunsetripple._udp</string>
+		<string>_sunsetripple._tcp</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>bluetooth-central</string>
+		<string>bluetooth-peripheral</string>
+	</array>
 </dict>
 </plist>
