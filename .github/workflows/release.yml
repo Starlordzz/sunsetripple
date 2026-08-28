@@ -111,10 +111,66 @@ jobs:
           if-no-files-found: error
 
   # ==========================================
-  # 2. iOS 构建链 (原生 ARM64 编译 .ipa)
+  # 2a. iOS 构建链 · Flutter 统一核心 (.ipa, 未签名)
+  #
+  # 与 Android 同源：同一套 Dart 会话核心 / 帧协议 / 加密。
+  # 目前仍是「可安装但功能未接通」的外壳，缺口见 docs/ios-flutter-port.md：
+  #   - ios/Runner/PlatformAudioPlugin.swift 是空文件，平台音频通道未实现
+  #   - LanRoomDiscovery 走 255.255.255.255 广播，iOS 14+ 需 multicast 授权，必须改 Bonjour
+  #   - 无 CBL2CAPChannel 实现
+  # 因此 2b 的原生构建暂不下线，两者并行发布，产物名区分。
   # ==========================================
-  build-ios:
-    name: Build iOS (.ipa)
+  build-ios-flutter:
+    name: Build iOS Flutter (.ipa, unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS release
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          mkdir -p ios-flutter-artifacts/Payload
+          cp -R build/ios/iphoneos/Runner.app ios-flutter-artifacts/Payload/
+          cd ios-flutter-artifacts
+          zip -qry "SunsetRipple-flutter-${tag}-unsigned.ipa" Payload
+          rm -rf Payload
+          ls -la
+
+      - name: Upload iOS Flutter artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-flutter-release
+          path: ios-flutter-artifacts/
+          if-no-files-found: error
+
+  # ==========================================
+  # 2b. iOS 构建链 · 独立原生 SwiftUI 实现 (.ipa, 未签名)
+  #
+  # 这是与 Flutter 核心并行的另一套实现（ios/SunsetRipple/），
+  # 自带 AVAudioEngine 音频与 MultipeerConnectivity 发现，
+  # 不受 Apple 广播授权限制，是目前 iOS 上唯一功能可用的构建。
+  # ==========================================
+  build-ios-native:
+    name: Build iOS native SwiftUI (.ipa, unsigned)
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -123,12 +179,12 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Install XcodeGen and Compile Native iOS App
+      - name: Install XcodeGen and compile native iOS app
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
-          mkdir -p ios-artifacts/Payload
+          mkdir -p ios-native-artifacts/Payload
 
           brew install xcodegen
           cd ios
@@ -144,53 +200,56 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build
 
-          cp -r build/Build/Products/Release-iphoneos/SunsetRipple.app ../ios-artifacts/Payload/
-          cd ../ios-artifacts
-          zip -qr "SunsetRipple-${tag}.ipa" Payload
+          cp -r build/Build/Products/Release-iphoneos/SunsetRipple.app ../ios-native-artifacts/Payload/
+          cd ../ios-native-artifacts
+          zip -qry "SunsetRipple-native-${tag}-unsigned.ipa" Payload
           rm -rf Payload
-          cd ..
 
-          zip -qr "ios-artifacts/SunsetRipple-iOS-${tag}.zip" ios/
-          echo "Native iOS IPA and Project created successfully"
-
-      - name: Upload iOS artifacts
+      - name: Upload iOS native artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: ios-release
-          path: ios-artifacts/
+          name: ios-native-release
+          path: ios-native-artifacts/
           if-no-files-found: error
 
   # ==========================================
-  # 3. HarmonyOS NEXT 构建链 (.hap)
+  # 3. HarmonyOS NEXT · 源码工程校验与打包
+  #
+  # 这里【不】产出 .hap，因为在 GitHub Actions 上产出真 HAP 不可行：
+  #   1. 真 HAP 需要 hvigor 把 ArkTS 编成 .abc 字节码、restool 把资源编成
+  #      resources.index、生成 module.json 与 pack.info，最后签名。
+  #   2. DevEco 命令行工具 / HarmonyOS SDK 需华为开发者账号登录后下载，
+  #      没有可供 CI 直接拉取的公开地址。
+  #   3. 鸿蒙 NEXT 零售机只接受 AGC 调试证书签名（绑定设备 UDID、上限 100 台）
+  #      或应用市场发布包，不存在未签名侧载路径。
+  # 历史版本曾把源码 zip 改名成 .hap 发布（13 KB），那个文件无法安装，已移除。
+  # 真机构建请用 DevEco Studio 打开 harmonyos/，见 docs/harmonyos-build.md。
   # ==========================================
-  build-harmonyos:
-    name: Build HarmonyOS NEXT (.hap)
+  package-harmonyos:
+    name: Validate & package HarmonyOS NEXT project
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Check out release tag
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Package HarmonyOS NEXT HAP
+      # 捕捉「配置引用了不存在的资源」这类会让 hvigor 直接失败的问题。
+      # alpha.8 时 $media:app_icon 被引用 3 次而 media/ 目录根本不存在，
+      # 但当时 CI 只做 zip，所以一直没暴露。
+      - name: Validate HarmonyOS project
+        shell: bash
+        run: bash scripts/check-harmonyos-resources.sh
+
+      - name: Package HarmonyOS source project
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
           mkdir -p harmonyos-artifacts
-          mkdir -p /tmp/hap_build/ets
-          
-          cp -r harmonyos/entry/src/main/resources /tmp/hap_build/ 2>/dev/null || true
-          cp harmonyos/entry/src/main/module.json5 /tmp/hap_build/
-          cp -r harmonyos/entry/src/main/ets/* /tmp/hap_build/ets/
-          
-          cd /tmp/hap_build
-          zip -qr "$GITHUB_WORKSPACE/harmonyos-artifacts/SunsetRipple-${tag}.hap" .
-          cd "$GITHUB_WORKSPACE"
-          rm -rf /tmp/hap_build
-
-          zip -qr "harmonyos-artifacts/SunsetRipple-HarmonyOS-${tag}.zip" harmonyos/
+          zip -qry "harmonyos-artifacts/SunsetRipple-HarmonyOS-source-${tag}.zip" harmonyos/ \
+            -x 'harmonyos/oh_modules/*' 'harmonyos/build/*' 'harmonyos/.hvigor/*'
 
       - name: Upload HarmonyOS artifacts
         uses: actions/upload-artifact@v7
@@ -200,11 +259,11 @@ jobs:
           if-no-files-found: error
 
   # ==========================================
-  # 4. 发布聚合（三端安装包统一发布到 GitHub Release）
+  # 4. 发布聚合（统一发布到 GitHub Release）
   # ==========================================
   publish-release:
     name: Publish GitHub Release
-    needs: [build-android, build-ios, build-harmonyos]
+    needs: [build-android, build-ios-flutter, build-ios-native, package-harmonyos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -221,10 +280,16 @@ jobs:
           name: android-release
           path: final-artifacts
 
-      - name: Download iOS artifacts
+      - name: Download iOS Flutter artifacts
         uses: actions/download-artifact@v8
         with:
-          name: ios-release
+          name: ios-flutter-release
+          path: final-artifacts
+
+      - name: Download iOS native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: ios-native-release
           path: final-artifacts
 
       - name: Download HarmonyOS artifacts
@@ -232,6 +297,31 @@ jobs:
         with:
           name: harmonyos-release
           path: final-artifacts
+
+      - name: Append install instructions to release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> final-artifacts/release-notes.md <<'EOF'
+
+          ---
+
+          ### 各产物怎么装
+
+          | 产物 | 平台 | 安装方式 |
+          | --- | --- | --- |
+          | `SunsetRipple-*.apk` | Android 8.0+ | 直接安装 |
+          | `SunsetRipple-native-*-unsigned.ipa` | iOS 15+ | **未签名**，需用 AltStore / Sideloadly 以自己的 Apple ID 在本地重签后安装 |
+          | `SunsetRipple-flutter-*-unsigned.ipa` | iOS 15+ | **未签名 + 功能未接通**，仅供构建验证，暂不建议使用 |
+          | `SunsetRipple-HarmonyOS-source-*.zip` | HarmonyOS NEXT | 源码工程，需用 DevEco Studio 打开自行构建并签名 |
+
+          iOS 未提供「下载即装」包：Apple 要求安装包必须经过签名，而签名需要
+          Apple Developer Program（99 美元/年）证书；ad-hoc 分发还需预先登记设备 UDID。
+
+          HarmonyOS NEXT 未提供 `.hap`：鸿蒙零售机只接受 AGC 调试证书（绑定设备 UDID）
+          或应用市场发布包签名的 HAP，且 DevEco 命令行工具需华为开发者账号登录才能获取，
+          无法在公共 CI 上构建。
+          EOF
 
       - name: Publish versioned GitHub Release
         shell: bash
@@ -245,7 +335,7 @@ jobs:
           fi
 
           shopt -s nullglob
-          upload_files=(final-artifacts/*.apk final-artifacts/*.ipa final-artifacts/*.hap final-artifacts/*.zip)
+          upload_files=(final-artifacts/*.apk final-artifacts/*.ipa final-artifacts/*.zip)
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${upload_files[@]}" --clobber
