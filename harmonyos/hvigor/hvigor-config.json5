@@ -1,0 +1,23 @@
+{
+  /*
+   * hvigor 构建模型版本，需与 build-profile.json5 里的
+   * compatibleSdkVersion "5.0.0(12)" 对应。
+   */
+  "modelVersion": "5.0.0",
+  "dependencies": {},
+  "execution": {
+    /* "daemon": true, */
+    /* "incremental": true, */
+    /* "parallel": true, */
+    /* "typeCheck": false, */
+  },
+  "logging": {
+    /* "level": "info", */
+  },
+  "debugging": {
+    /* "stacktrace": false, */
+  },
+  "nodeOptions": {
+    /* "maxOldSpaceSize": 8192, */
+  },
+}
