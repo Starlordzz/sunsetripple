@@ -1,0 +1,22 @@
+# 默认交给 git 自动判断文本/二进制。
+* text=auto
+
+# CI 在 ubuntu runner 上执行这些脚本，必须是 LF：
+# CRLF 会让 bash 报 $'\r': command not found。
+*.sh text eol=lf
+gradlew text eol=lf
+
+# Windows 批处理必须是 CRLF。
+*.bat text eol=crlf
+gradlew.bat text eol=crlf
+
+# 二进制资源不做行尾转换。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.keystore binary
+*.jks binary
+*.p12 binary
+*.so binary
+*.a binary
