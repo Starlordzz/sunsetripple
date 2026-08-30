@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/ffi/native_core_ffi.dart';
-import 'ui/pages/home_page.dart';
+import 'ui/pages/session_stage.dart';
 import 'ui/theme/app_theme.dart';
 
 void main() {
@@ -61,7 +61,7 @@ class _SunsetRippleAppState extends State<SunsetRippleApp> {
           final isNight = _themeMode == ThemeMode.dark ||
               (_themeMode == ThemeMode.system &&
                   MediaQuery.of(context).platformBrightness == Brightness.dark);
-          return HomePage(
+          return SessionStage(
             isNight: isNight,
             onToggleTheme: _toggleTheme,
           );

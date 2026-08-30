@@ -2,188 +2,99 @@ import 'package:flutter/material.dart';
 import '../../core/session/member.dart';
 import '../../core/session/room_session.dart';
 import '../theme/app_theme.dart';
+import '../transitions/stage_choreography.dart';
 import '../widgets/audio_controls.dart';
-import '../widgets/celestial_canvas.dart';
 import '../widgets/member_orbit.dart';
 import '../widgets/ptt_button.dart';
-import 'diagnostics_sheet.dart';
 
-/// SunsetRipple Intercom Room Screen.
-class RoomPage extends StatefulWidget {
+/// 房间前景：成员轨道、中央对讲盘、底部音频控制条。
+///
+/// 房名、状态行与返回/诊断按钮压在背景上，由 `SessionStage` 绘制。这里每一块都
+/// 套了 [StageEnterItem]，按 [stage] 依次从下方浮上来。
+class RoomContent extends StatefulWidget {
   final RoomSession session;
   final bool isNight;
-  final String roomName;
 
-  const RoomPage({
+  /// 整段进房转场的 0→1 进度。0.52 之前这里还是空的。
+  final double stage;
+
+  final VoidCallback onLeave;
+
+  const RoomContent({
     super.key,
     required this.session,
     required this.isNight,
-    this.roomName = "落日对讲房",
+    required this.stage,
+    required this.onLeave,
   });
 
   @override
-  State<RoomPage> createState() => _RoomPageState();
+  State<RoomContent> createState() => _RoomContentState();
 }
 
-class _RoomPageState extends State<RoomPage> {
+class _RoomContentState extends State<RoomContent> {
   bool _isSpeakerOn = true;
 
   @override
   Widget build(BuildContext context) {
     final isNight = widget.isNight;
-    final isFullDuplex = widget.session.isFullDuplex;
-    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final stage = widget.stage;
+    // 对讲盘按屏幕高度取，矮屏上收一点，免得挤爆下面的控制条。
+    final discSize =
+        (MediaQuery.of(context).size.height * 0.24).clamp(148.0, 212.0);
 
-    return Scaffold(
-      body: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // 1. Dynamic Celestial Header
-            StreamBuilder<double>(
-              stream: widget.session.waveStream,
-              initialData: 0.0,
-              builder: (context, snapshot) {
-                return Stack(
-                  children: [
-                    CelestialCanvas(
-                      isNight: isNight,
-                      waveIntensity: snapshot.data ?? 0.0,
-                    ),
-                    Positioned(
-                      top: 48,
-                      left: 16,
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: _onLeaveRoom,
-                      ),
-                    ),
-                    Positioned(
-                      top: 48,
-                      right: 16,
-                      child: IconButton(
-                        icon: const Icon(Icons.info_outline, color: Colors.white),
-                        onPressed: _showDiagnostics,
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 16,
-                      left: 24,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.roomName,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.session.isHost ? "我是房主 · 房间广播中" : "已加入房间 · 语音加密互通中",
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.82),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
+    return SafeArea(
+      top: false,
+      child: Column(
+        children: [
+          const SizedBox(height: 18),
 
-            const SizedBox(height: 16),
-
-            // 2. Member Orbit Track
-            StreamBuilder<List<Member>>(
+          // 1. 成员轨道
+          StageEnterItem(
+            stage: stage,
+            index: 0,
+            child: StreamBuilder<List<Member>>(
               stream: widget.session.membersStream,
               initialData: widget.session.members,
               builder: (context, snapshot) {
-                final members = snapshot.data ?? [];
                 return MemberOrbit(
-                  members: members,
+                  members: snapshot.data ?? [],
                   isNight: isNight,
                 );
               },
             ),
+          ),
 
-            const Spacer(),
+          const Spacer(),
 
-            // 3. Central Interactive Element
-            if (isFullDuplex)
-              // WiFi Mode: Real-time Audio Wave Pulse
-              StreamBuilder<double>(
-                stream: widget.session.waveStream,
-                initialData: 0.0,
-                builder: (context, snapshot) {
-                  final wave = snapshot.data ?? 0.0;
-                  final activeColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
-                  final isSpeaking = wave > 0.05 && !widget.session.isMuted;
+          // 2. 中央对讲盘：WiFi 房是实时音浪，蓝牙房是按住说话
+          StageEnterItem(
+            stage: stage,
+            index: 1,
+            rise: 40,
+            fromScale: 0.84,
+            child: widget.session.isFullDuplex
+                ? _buildDuplexDisc(isNight, discSize)
+                : PttButton(
+                    isNight: isNight,
+                    size: discSize,
+                    isPressed: widget.session.isPttPressed,
+                    onStateChanged: (pressed) {
+                      setState(() {
+                        widget.session.setPtt(pressed);
+                      });
+                    },
+                  ),
+          ),
 
-                  return Container(
-                    width: 170,
-                    height: 170,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: activeColor,
-                      boxShadow: [
-                        BoxShadow(
-                          color: activeColor.withValues(alpha: 0.35 + wave * 0.4),
-                          blurRadius: 24 + wave * 30,
-                          spreadRadius: 4 + wave * 14,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            widget.session.isMuted
-                                ? Icons.mic_off
-                                : (isSpeaking ? Icons.graphic_eq : Icons.mic),
-                            size: 48,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            widget.session.isMuted
-                                ? "麦克风已静音"
-                                : (isSpeaking ? "正在说话..." : "通话中"),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 1.1,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              )
-            else
-              // Bluetooth Mode: Push-To-Talk Button
-              PttButton(
-                isNight: isNight,
-                isPressed: widget.session.isPttPressed,
-                onStateChanged: (pressed) {
-                  setState(() {
-                    widget.session.setPtt(pressed);
-                  });
-                },
-              ),
+          const Spacer(),
 
-            const Spacer(),
-
-            // 4. Audio Controls Bottom Bar (Mute, Speaker/Earpiece, Leave)
-            AudioControlsBar(
+          // 3. 底部控制条（静音 / 扬声器 / 离开）
+          StageEnterItem(
+            stage: stage,
+            index: 2,
+            rise: 36,
+            child: AudioControlsBar(
               isNight: isNight,
               isMuted: widget.session.isMuted,
               isSpeakerOn: _isSpeakerOn,
@@ -198,29 +109,65 @@ class _RoomPageState extends State<RoomPage> {
                   widget.session.setSpeakerphone(_isSpeakerOn);
                 });
               },
-              onLeave: _onLeaveRoom,
+              onLeave: widget.onLeave,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  void _onLeaveRoom() async {
-    await widget.session.leave();
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-  }
+  Widget _buildDuplexDisc(bool isNight, double size) {
+    return StreamBuilder<double>(
+      stream: widget.session.waveStream,
+      initialData: 0.0,
+      builder: (context, snapshot) {
+        final wave = snapshot.data ?? 0.0;
+        final activeColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
+        final isSpeaking = wave > 0.05 && !widget.session.isMuted;
 
-  void _showDiagnostics() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DiagnosticsSheet(
-        isNight: widget.isNight,
-        memberCount: widget.session.members.length,
-      ),
+        return Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: activeColor,
+            boxShadow: [
+              BoxShadow(
+                color: activeColor.withValues(alpha: 0.35 + wave * 0.4),
+                blurRadius: 24 + wave * 30,
+                spreadRadius: 4 + wave * 14,
+              ),
+            ],
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  widget.session.isMuted
+                      ? Icons.mic_off
+                      : (isSpeaking ? Icons.graphic_eq : Icons.mic),
+                  size: size * 0.28,
+                  color: Colors.white,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  widget.session.isMuted
+                      ? "麦克风已静音"
+                      : (isSpeaking ? "正在说话..." : "通话中"),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: (size * 0.085).clamp(15.0, 18.0),
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

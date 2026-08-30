@@ -27,7 +27,7 @@ class AudioControlsBar extends StatelessWidget {
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
@@ -95,28 +95,28 @@ class _ActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(26),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(26),
           border: Border.all(
             color: borderColor ?? (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
-            width: 1.2,
+            width: 1.4,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: textColor),
-            const SizedBox(width: 6),
+            Icon(icon, size: 24, color: textColor),
+            const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
                 color: textColor,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

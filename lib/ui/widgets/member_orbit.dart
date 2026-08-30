@@ -16,12 +16,12 @@ class MemberOrbit extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 80,
+      height: 104,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 22),
         itemCount: members.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 14),
+        separatorBuilder: (_, __) => const SizedBox(width: 18),
         itemBuilder: (context, index) {
           final member = members[index];
           return _MemberAvatarChip(
@@ -50,26 +50,29 @@ class _MemberAvatarChip extends StatelessWidget {
         ? (isNight ? const Color(0xFF6B9BE8) : const Color(0xFFF39C82))
         : Colors.transparent;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
+    return SizedBox(
+      // 固定宽度，昵称才有可省略的边界；否则横向列表里 Row 拿到的是无界约束。
+      width: 92,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          width: 48,
-          height: 48,
+          width: 64,
+          height: 64,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg,
             border: Border.all(
               color: member.isSpeaking ? activeBorderColor : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
-              width: member.isSpeaking ? 2.5 : 1.2,
+              width: member.isSpeaking ? 3.0 : 1.4,
             ),
             boxShadow: member.isSpeaking
                 ? [
                     BoxShadow(
                       color: speakingGlow.withValues(alpha: 0.45),
-                      blurRadius: 10,
-                      spreadRadius: 2,
+                      blurRadius: 12,
+                      spreadRadius: 2.5,
                     )
                   ]
                 : [],
@@ -80,36 +83,39 @@ class _MemberAvatarChip extends StatelessWidget {
               style: TextStyle(
                 color: isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
                 fontWeight: FontWeight.bold,
-                fontSize: 16,
+                fontSize: 22,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (member.isHost)
               Padding(
-                padding: const EdgeInsets.only(right: 2),
+                padding: const EdgeInsets.only(right: 3),
                 child: Icon(
                   Icons.star,
-                  size: 11,
+                  size: 14,
                   color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
                 ),
               ),
-            Text(
-              member.nickname,
-              style: TextStyle(
-                fontSize: 11,
-                color: isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+            Flexible(
+              child: Text(
+                member.nickname,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
-      ],
+        ],
+      ),
     );
   }
 }

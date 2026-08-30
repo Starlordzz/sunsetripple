@@ -7,10 +7,26 @@ class CelestialCanvas extends StatefulWidget {
   final bool isNight;
   final double waveIntensity; // 0.0 ~ 1.0 (audio activity)
 
+  /// 画布高度。进房转场时由 [SessionStage] 在首页高度与房间高度之间插值。
+  final double height;
+
+  /// 日轮/月轮圆心的纵向位置，取值为高度的比例。
+  final double celestialCenterFactorY;
+
+  /// 日轮/月轮半径（逻辑像素）。
+  final double celestialRadius;
+
+  /// 水面波纹起始线的纵向位置，取值为高度的比例。
+  final double waterLineFactor;
+
   const CelestialCanvas({
     super.key,
     required this.isNight,
     this.waveIntensity = 0.0,
+    this.height = 260,
+    this.celestialCenterFactorY = 0.42,
+    this.celestialRadius = 52,
+    this.waterLineFactor = 0.76,
   });
 
   @override
@@ -42,11 +58,14 @@ class _CelestialCanvasState extends State<CelestialCanvas>
       animation: _animController,
       builder: (context, child) {
         return CustomPaint(
-          size: const Size(double.infinity, 260),
+          size: Size(double.infinity, widget.height),
           painter: _CelestialPainter(
             isNight: widget.isNight,
             wavePhase: _animController.value * 2 * math.pi,
             waveIntensity: widget.waveIntensity,
+            celestialCenterFactorY: widget.celestialCenterFactorY,
+            celestialRadius: widget.celestialRadius,
+            waterLineFactor: widget.waterLineFactor,
           ),
         );
       },
@@ -58,11 +77,17 @@ class _CelestialPainter extends CustomPainter {
   final bool isNight;
   final double wavePhase;
   final double waveIntensity;
+  final double celestialCenterFactorY;
+  final double celestialRadius;
+  final double waterLineFactor;
 
   _CelestialPainter({
     required this.isNight,
     required this.wavePhase,
     required this.waveIntensity,
+    required this.celestialCenterFactorY,
+    required this.celestialRadius,
+    required this.waterLineFactor,
   });
 
   @override
@@ -84,8 +109,9 @@ class _CelestialPainter extends CustomPainter {
     canvas.drawRect(rect, skyPaint);
 
     // 2. Sun / Moon (Celestial Body)
-    final celestialCenter = Offset(size.width / 2, size.height * 0.42);
-    final celestialRadius = 52.0;
+    final celestialCenter =
+        Offset(size.width / 2, size.height * celestialCenterFactorY);
+    final radius = celestialRadius;
 
     final celestialColor = isNight ? AppTheme.moonSilverWhite : AppTheme.sunWarmYellow;
 
@@ -93,20 +119,22 @@ class _CelestialPainter extends CustomPainter {
     final glowPaint = Paint()
       ..color = celestialColor.withValues(alpha: 0.25 + 0.15 * math.sin(wavePhase))
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28);
-    canvas.drawCircle(celestialCenter, celestialRadius + 14, glowPaint);
+    canvas.drawCircle(celestialCenter, radius + 14, glowPaint);
 
     // Main Circle
     final mainPaint = Paint()..color = celestialColor;
-    canvas.drawCircle(celestialCenter, celestialRadius, mainPaint);
+    canvas.drawCircle(celestialCenter, radius, mainPaint);
 
     // 3. Water Surface Ripple Reflections
-    final waterY = size.height * 0.76;
-    final rippleCount = 5;
+    final waterY = size.height * waterLineFactor;
+    const rippleCount = 5;
+    // 波纹跟着天体一起变大，转场时整片背景才像是同一个东西在缩放。
+    final rippleScale = radius / 52.0;
 
     for (int i = 0; i < rippleCount; i++) {
-      final y = waterY + i * 14;
+      final y = waterY + i * 14 * rippleScale;
       final progress = i / rippleCount;
-      final waveWidth = (160 + i * 40) + 30 * waveIntensity;
+      final waveWidth = ((160 + i * 40) + 30 * waveIntensity) * rippleScale;
       final alpha = (0.4 - progress * 0.28).clamp(0.0, 1.0);
 
       final ripplePaint = Paint()
@@ -134,7 +162,10 @@ class _CelestialPainter extends CustomPainter {
   bool shouldRepaint(covariant _CelestialPainter oldDelegate) {
     return oldDelegate.isNight != isNight ||
         oldDelegate.wavePhase != wavePhase ||
-        oldDelegate.waveIntensity != waveIntensity;
+        oldDelegate.waveIntensity != waveIntensity ||
+        oldDelegate.celestialCenterFactorY != celestialCenterFactorY ||
+        oldDelegate.celestialRadius != celestialRadius ||
+        oldDelegate.waterLineFactor != waterLineFactor;
   }
 }
 

@@ -1,38 +1,45 @@
 import 'package:flutter/material.dart';
 import '../../core/audio/audio_io.dart';
-import '../../core/platform/platform_audio_channel.dart';
 import '../../core/session/room_session.dart';
 import '../../core/transport/lan_discovery.dart';
 import '../theme/app_theme.dart';
-import '../widgets/celestial_canvas.dart';
-import 'room_page.dart';
+import '../transitions/stage_choreography.dart';
 
-/// SunsetRipple Homepage.
-class HomePage extends StatefulWidget {
+/// 首页前景：昵称、房型、建房/扫描按钮、附近房间列表。
+///
+/// 头部的日轮背景与大标题不在这里——它们归 `SessionStage` 管，因为进房时那层
+/// 背景要留在原地继续演。这里只负责"会离场的那些东西"：每一块都套了
+/// [StageExitItem]，按 [stage] 依次下沉淡出。
+class HomeContent extends StatefulWidget {
   final bool isNight;
-  final VoidCallback onToggleTheme;
 
-  const HomePage({
+  /// 整段进房转场的 0→1 进度。0 时是完整首页，0.4 之后这里已经空了。
+  final double stage;
+
+  final AudioIo audioIo;
+  final void Function(RoomSession session, String roomName) onEnterRoom;
+
+  const HomeContent({
     super.key,
     required this.isNight,
-    required this.onToggleTheme,
+    required this.stage,
+    required this.audioIo,
+    required this.onEnterRoom,
   });
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<HomeContent> createState() => _HomeContentState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomeContentState extends State<HomeContent> {
   final _nicknameController = TextEditingController(text: "探索者");
   final _lanDiscovery = LanRoomDiscovery();
-  late AudioIo _audioIo;
   RoomMode _selectedMode = RoomMode.wifiFullDuplex;
   bool _isScanning = false;
 
   @override
   void initState() {
     super.initState();
-    _audioIo = PlatformAudioChannel();
     _startScan();
   }
 
@@ -56,70 +63,28 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final isNight = widget.isNight;
+    final stage = widget.stage;
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
     final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
 
-    return Scaffold(
-      body: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // 1. Dynamic Celestial Header
-            Stack(
-              children: [
-                CelestialCanvas(isNight: isNight),
-                Positioned(
-                  top: 48,
-                  right: 16,
-                  child: IconButton(
-                    tooltip: "切换昼夜主题",
-                    icon: Icon(
-                      isNight ? Icons.nightlight_round : Icons.wb_sunny_rounded,
-                      color: Colors.white,
-                    ),
-                    onPressed: widget.onToggleTheme,
-                  ),
-                ),
-                Positioned(
-                  bottom: 20,
-                  left: 28,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "落日后残波",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 26,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "夕阳已远，涟漪未散，犹诉未尽之言。",
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.85),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+    return SafeArea(
+      top: false,
+      child: Column(
+        children: [
+          const SizedBox(height: 18),
 
-            const SizedBox(height: 16),
-
-            // 2. Nickname input
-            Padding(
+          // 1. 昵称输入
+          StageExitItem(
+            stage: stage,
+            index: 0,
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
                 decoration: BoxDecoration(
                   color: cardBg,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(
                     color: isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8),
                     width: 1.2,
@@ -127,21 +92,26 @@ class _HomePageState extends State<HomePage> {
                 ),
                 child: TextField(
                   controller: _nicknameController,
-                  style: TextStyle(color: textPrimary),
+                  style: TextStyle(color: textPrimary, fontSize: 17),
                   decoration: InputDecoration(
                     border: InputBorder.none,
-                    icon: Icon(Icons.person_outline, color: textSecondary),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                    icon: Icon(Icons.person_outline, size: 24, color: textSecondary),
                     hintText: "请输入对讲昵称",
-                    hintStyle: TextStyle(color: textSecondary),
+                    hintStyle: TextStyle(color: textSecondary, fontSize: 17),
                   ),
                 ),
               ),
             ),
+          ),
 
-            const SizedBox(height: 12),
+          const SizedBox(height: 14),
 
-            // 3. Room Mode Selector (WiFi 房 vs 蓝牙房)
-            Padding(
+          // 2. 房型选择（WiFi 房 / 蓝牙房）
+          StageExitItem(
+            stage: stage,
+            index: 1,
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
                 children: [
@@ -169,11 +139,15 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+          ),
 
-            const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
-            // 4. Action Buttons (创建房间 + 扫描搜房)
-            Padding(
+          // 3. 建房 + 扫描
+          StageExitItem(
+            stage: stage,
+            index: 2,
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
                 children: [
@@ -184,15 +158,15 @@ class _HomePageState extends State<HomePage> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 18),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25),
+                          borderRadius: BorderRadius.circular(28),
                         ),
                         elevation: 0,
                       ),
                       child: Text(
                         _selectedMode == RoomMode.wifiFullDuplex ? "创建 WiFi 房" : "创建蓝牙房",
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -203,22 +177,22 @@ class _HomePageState extends State<HomePage> {
                       onPressed: _isScanning ? null : _startScan,
                       icon: _isScanning
                           ? SizedBox(
-                              width: 16,
-                              height: 16,
+                              width: 18,
+                              height: 18,
                               child: CircularProgressIndicator(
-                                strokeWidth: 2,
+                                strokeWidth: 2.2,
                                 color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
                               ),
                             )
                           : Icon(
                               Icons.radar,
-                              size: 18,
+                              size: 21,
                               color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
                             ),
                       label: Text(
                         _isScanning ? "正在扫描" : "扫描房间",
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
                         ),
@@ -226,11 +200,11 @@ class _HomePageState extends State<HomePage> {
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(
                           color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
-                          width: 1.5,
+                          width: 1.6,
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 18),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25),
+                          borderRadius: BorderRadius.circular(28),
                         ),
                       ),
                     ),
@@ -238,11 +212,15 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+          ),
 
-            const SizedBox(height: 20),
+          const SizedBox(height: 22),
 
-            // 5. Discovered Rooms List Header
-            Padding(
+          // 4. 房间列表标题
+          StageExitItem(
+            stage: stage,
+            index: 3,
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 28),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -251,7 +229,7 @@ class _HomePageState extends State<HomePage> {
                     "附近的对讲房间",
                     style: TextStyle(
                       color: textSecondary,
-                      fontSize: 13,
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -260,17 +238,21 @@ class _HomePageState extends State<HomePage> {
                       "正在探测...",
                       style: TextStyle(
                         color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
-                        fontSize: 12,
+                        fontSize: 14,
                       ),
                     ),
                 ],
               ),
             ),
+          ),
 
-            const SizedBox(height: 8),
+          const SizedBox(height: 8),
 
-            // 6. Discovered Rooms List
-            Expanded(
+          // 5. 房间列表
+          Expanded(
+            child: StageExitItem(
+              stage: stage,
+              index: 4,
               child: StreamBuilder<List<DiscoveredRoom>>(
                 stream: _lanDiscovery.roomsStream,
                 initialData: _lanDiscovery.currentRooms,
@@ -278,10 +260,17 @@ class _HomePageState extends State<HomePage> {
                   final rooms = snapshot.data ?? [];
                   if (rooms.isEmpty) {
                     return Center(
-                      child: Text(
-                        "未发现附近的房间\n点击上方「扫描房间」或同连热点/蓝牙即可自动发现",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: textSecondary.withValues(alpha: 0.6), fontSize: 13),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          "未发现附近的房间\n点击上方「扫描房间」或同连热点/蓝牙即可自动发现",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: textSecondary.withValues(alpha: 0.7),
+                            fontSize: 15,
+                            height: 1.5,
+                          ),
+                        ),
                       ),
                     );
                   }
@@ -289,14 +278,14 @@ class _HomePageState extends State<HomePage> {
                   return ListView.separated(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                     itemCount: rooms.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final room = rooms[index];
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                         decoration: BoxDecoration(
                           color: cardBg,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(18),
                           border: Border.all(
                             color: isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8),
                           ),
@@ -304,34 +293,43 @@ class _HomePageState extends State<HomePage> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  room.roomName,
-                                  style: TextStyle(
-                                    color: textPrimary,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    room.roomName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: textPrimary,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  "房主: ${room.hostNickname} · ${room.memberCount}/6 台",
-                                  style: TextStyle(color: textSecondary, fontSize: 12),
-                                ),
-                              ],
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "房主: ${room.hostNickname} · ${room.memberCount}/6 台",
+                                    style: TextStyle(color: textSecondary, fontSize: 14),
+                                  ),
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 12),
                             ElevatedButton(
                               onPressed: () => _onJoinRoom(room),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
                                 foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
+                                  borderRadius: BorderRadius.circular(22),
                                 ),
                               ),
-                              child: const Text("加入"),
+                              child: const Text(
+                                "加入",
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ],
                         ),
@@ -341,18 +339,25 @@ class _HomePageState extends State<HomePage> {
                 },
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
+  String get _nickname {
+    final text = _nicknameController.text.trim();
+    return text.isEmpty ? "探索者" : text;
+  }
+
   void _onCreateRoom() async {
-    final nickname = _nicknameController.text.trim().isEmpty ? "探索者" : _nicknameController.text.trim();
-    final roomName = _selectedMode == RoomMode.wifiFullDuplex ? "$nickname 的 WiFi 房" : "$nickname 的蓝牙房";
+    final nickname = _nickname;
+    final roomName = _selectedMode == RoomMode.wifiFullDuplex
+        ? "$nickname 的 WiFi 房"
+        : "$nickname 的蓝牙房";
 
     final session = RoomSession(
-      audioIo: _audioIo,
+      audioIo: widget.audioIo,
       selfNickname: nickname,
       mode: _selectedMode,
     );
@@ -366,39 +371,18 @@ class _HomePageState extends State<HomePage> {
       getMemberCount: () => session.members.length,
     );
 
-    if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => RoomPage(
-            session: session,
-            isNight: widget.isNight,
-            roomName: roomName,
-          ),
-        ),
-      );
-    }
+    if (mounted) widget.onEnterRoom(session, roomName);
   }
 
   void _onJoinRoom(DiscoveredRoom room) async {
-    final nickname = _nicknameController.text.trim().isEmpty ? "探索者" : _nicknameController.text.trim();
     final session = RoomSession(
-      audioIo: _audioIo,
-      selfNickname: nickname,
+      audioIo: widget.audioIo,
+      selfNickname: _nickname,
       mode: RoomMode.wifiFullDuplex,
     );
     await session.joinRoom();
 
-    if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => RoomPage(
-            session: session,
-            isNight: widget.isNight,
-            roomName: room.roomName,
-          ),
-        ),
-      );
-    }
+    if (mounted) widget.onEnterRoom(session, room.roomName);
   }
 }
 
@@ -428,12 +412,12 @@ class _ModeSelectChip extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
         decoration: BoxDecoration(
           color: isSelected ? activeColor.withValues(alpha: 0.12) : cardBg,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: isSelected ? activeColor : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
             width: isSelected ? 2.0 : 1.0,
@@ -444,24 +428,24 @@ class _ModeSelectChip extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, size: 16, color: isSelected ? activeColor : textSecondary),
-                const SizedBox(width: 6),
+                Icon(icon, size: 20, color: isSelected ? activeColor : textSecondary),
+                const SizedBox(width: 7),
                 Text(
                   title,
                   style: TextStyle(
                     color: isSelected ? activeColor : textPrimary,
                     fontWeight: FontWeight.bold,
-                    fontSize: 13,
+                    fontSize: 16,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               subtitle,
               style: TextStyle(
                 color: textSecondary,
-                fontSize: 11,
+                fontSize: 13,
               ),
             ),
           ],

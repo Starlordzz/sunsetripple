@@ -8,11 +8,15 @@ class PttButton extends StatefulWidget {
   final bool isPressed;
   final ValueChanged<bool> onStateChanged;
 
+  /// 圆盘直径。房间页按屏幕高度算，矮屏上会收一点。
+  final double size;
+
   const PttButton({
     super.key,
     required this.isNight,
     required this.isPressed,
     required this.onStateChanged,
+    this.size = 212,
   });
 
   @override
@@ -82,8 +86,8 @@ class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMix
           return Transform.scale(
             scale: _scaleAnim.value,
             child: Container(
-              width: 170,
-              height: 170,
+              width: widget.size,
+              height: widget.size,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: widget.isPressed ? pressedColor : activeColor,
@@ -101,15 +105,15 @@ class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMix
                   children: [
                     Icon(
                       widget.isPressed ? Icons.mic : Icons.mic_none,
-                      size: 46,
+                      size: widget.size * 0.27,
                       color: Colors.white,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     Text(
                       widget.isPressed ? "正在讲话" : "按住说话",
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: (widget.size * 0.09).clamp(16.0, 19.0),
                         fontWeight: FontWeight.w600,
                         letterSpacing: 1.2,
                       ),
