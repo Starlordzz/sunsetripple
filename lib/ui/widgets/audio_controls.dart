@@ -27,9 +27,8 @@ class AudioControlsBar extends StatelessWidget {
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 18),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           // 1. 静音
           _ActionButton(
@@ -93,33 +92,43 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(26),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        decoration: BoxDecoration(
-          color: bgColor,
+    // 三个按钮均分底部宽度：放大字号后，360dp 的窄屏上原来的自适应宽度会挤爆。
+    // 均分之后再套一层 FittedBox，更窄的屏上是整体缩小而不是溢出。
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(26),
-          border: Border.all(
-            color: borderColor ?? (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
-            width: 1.4,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 24, color: textColor),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(
+                color: borderColor ?? (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
+                width: 1.4,
               ),
             ),
-          ],
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 24, color: textColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

@@ -430,12 +430,16 @@ class _ModeSelectChip extends StatelessWidget {
               children: [
                 Icon(icon, size: 20, color: isSelected ? activeColor : textSecondary),
                 const SizedBox(width: 7),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: isSelected ? activeColor : textPrimary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                Flexible(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isSelected ? activeColor : textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
               ],

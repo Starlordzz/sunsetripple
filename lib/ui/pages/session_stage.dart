@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../core/audio/audio_io.dart';
 import '../../core/platform/platform_audio_channel.dart';
@@ -33,8 +35,6 @@ class SessionStage extends StatefulWidget {
 class _SessionStageState extends State<SessionStage>
     with SingleTickerProviderStateMixin {
   // 背景在首页与房间两种形态下的几何参数，转场时在两者之间插值。
-  // 高度按屏幕比例取，再夹在上下限之间：矮屏上不至于把房间 UI 挤到溢出，
-  // 高屏上也不会让天空涨得没边。
   static const double _homeCelestialY = 0.42;
   static const double _roomCelestialY = 0.38;
   static const double _homeCelestialRadius = 52;
@@ -42,6 +42,8 @@ class _SessionStageState extends State<SessionStage>
   static const double _homeWaterLine = 0.76;
   static const double _roomWaterLine = 0.72;
 
+  // 头部高度按屏幕比例取，再夹在上下限之间：矮屏上不至于把房间 UI 挤到溢出，
+  // 高屏上也不会让天空涨得没边。
   static double _homeHeaderFor(double screenHeight) =>
       (screenHeight * 0.30).clamp(196.0, 260.0);
 
@@ -82,19 +84,21 @@ class _SessionStageState extends State<SessionStage>
     _stage.forward(from: 0.0);
   }
 
-  Future<void> _onLeaveRoom() async {
+  void _onLeaveRoom() {
     final session = _session;
     if (session == null) return;
 
-    await session.leave();
-    if (!mounted) return;
+    // 点了就走：退场动画立刻起，音频与 socket 的收尾在后台并行做。
+    // 早先这里是 `await session.leave()` 再反演动画，等于让用户干等一次
+    // socket 关闭，手感上像是按钮没反应。
+    unawaited(session.leave());
 
-    await _stage.reverse();
-    if (!mounted) return;
-
-    setState(() {
-      _session = null;
-      _roomName = "";
+    _stage.reverse().whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _session = null;
+        _roomName = "";
+      });
     });
   }
 
@@ -140,12 +144,23 @@ class _SessionStageState extends State<SessionStage>
 
     return Stack(
       children: [
-        // 1. 共用背景：整段转场里始终是同一个 CelestialCanvas。
+        // 1. 头部：共用背景 + 压在上面的标题与图标，整块随 headerHeight 一起长高。
+        //    标题贴着这块的底边，天空长高时它自然跟着往下走。
         Positioned(
           top: 0,
           left: 0,
           right: 0,
-          child: _buildBackground(session, headerHeight, bg, homeHeader, roomHeader),
+          height: headerHeight,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: _buildBackground(
+                    session, headerHeight, bg, homeHeader, roomHeader),
+              ),
+              ..._buildHomeHeaderOverlay(stage),
+              if (session != null) ..._buildRoomHeaderOverlay(session, stage),
+            ],
+          ),
         ),
 
         // 2. 主体内容：首页与房间的前景叠在一起，各自淡出/淡入。
@@ -181,11 +196,6 @@ class _SessionStageState extends State<SessionStage>
             ],
           ),
         ),
-
-        // 3. 压在背景上的标题与图标：首页那组走，房间那组来。
-        ..._buildHomeHeaderOverlay(stage, headerHeight, homeHeader),
-        if (session != null)
-          ..._buildRoomHeaderOverlay(session, stage, headerHeight, roomHeader),
       ],
     );
   }
@@ -204,18 +214,14 @@ class _SessionStageState extends State<SessionStage>
       bg,
     );
 
-    Widget canvasFor(double waveIntensity) => SizedBox(
+    Widget canvasFor(double waveIntensity) => CelestialCanvas(
+          isNight: widget.isNight,
+          waveIntensity: waveIntensity,
           height: headerHeight,
-          width: double.infinity,
-          child: CelestialCanvas(
-            isNight: widget.isNight,
-            waveIntensity: waveIntensity,
-            height: headerHeight,
-            celestialCenterFactorY:
-                lerpDouble(_homeCelestialY, _roomCelestialY, bg),
-            celestialRadius: radius,
-            waterLineFactor: lerpDouble(_homeWaterLine, _roomWaterLine, bg),
-          ),
+          celestialCenterFactorY:
+              lerpDouble(_homeCelestialY, _roomCelestialY, bg),
+          celestialRadius: radius,
+          waterLineFactor: lerpDouble(_homeWaterLine, _roomWaterLine, bg),
         );
 
     if (session == null) return canvasFor(0.0);
@@ -228,8 +234,7 @@ class _SessionStageState extends State<SessionStage>
     );
   }
 
-  List<Widget> _buildHomeHeaderOverlay(
-      double stage, double headerHeight, double homeHeader) {
+  List<Widget> _buildHomeHeaderOverlay(double stage) {
     // 标题比正文早一点走，页面像是从上往下被抽走的。
     final t = const Interval(0.0, 0.26, curve: Curves.easeInCubic)
         .transform(stage.clamp(0.0, 1.0));
@@ -242,8 +247,8 @@ class _SessionStageState extends State<SessionStage>
 
     return [
       Positioned(
-        top: 44,
-        right: 12,
+        top: 40,
+        right: 8,
         child: fade(
           IconButton(
             tooltip: "切换昼夜主题",
@@ -259,44 +264,41 @@ class _SessionStageState extends State<SessionStage>
         ),
       ),
       Positioned(
-        bottom: 0,
+        bottom: 18,
         left: 28,
-        width: MediaQuery.of(context).size.width - 56,
-        child: Transform.translate(
-          // 跟着背景一起往下走，标题不会被长高的天空甩在后面。
-          offset: Offset(0, headerHeight - homeHeader - 20),
-          child: fade(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  "落日后残波",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
-                  ),
+        right: 28,
+        child: fade(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "落日后残波",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 30,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  "夕阳已远，涟漪未散，犹诉未尽之言。",
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    fontSize: 15,
-                  ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                "夕阳已远，涟漪未散，犹诉未尽之言。",
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 15,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     ];
   }
 
-  List<Widget> _buildRoomHeaderOverlay(
-      RoomSession session, double stage, double headerHeight, double roomHeader) {
+  List<Widget> _buildRoomHeaderOverlay(RoomSession session, double stage) {
     final t = const Interval(0.56, 0.92, curve: Curves.easeOutCubic)
         .transform(stage.clamp(0.0, 1.0));
     if (t <= 0.0) return const [];
@@ -311,8 +313,8 @@ class _SessionStageState extends State<SessionStage>
 
     return [
       Positioned(
-        top: 44,
-        left: 12,
+        top: 40,
+        left: 8,
         child: rise(
           IconButton(
             tooltip: "离开房间",
@@ -325,8 +327,8 @@ class _SessionStageState extends State<SessionStage>
         ),
       ),
       Positioned(
-        top: 44,
-        right: 12,
+        top: 40,
+        right: 8,
         child: rise(
           IconButton(
             tooltip: "连接诊断",
@@ -339,37 +341,36 @@ class _SessionStageState extends State<SessionStage>
         ),
       ),
       Positioned(
-        bottom: 0,
+        bottom: 22,
         left: 28,
-        width: MediaQuery.of(context).size.width - 56,
-        child: Transform.translate(
-          offset: Offset(0, headerHeight - roomHeader - 24),
-          child: rise(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _roomName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 27,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.6,
-                  ),
+        right: 28,
+        child: rise(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _roomName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 27,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.6,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  session.isHost ? "我是房主 · 房间广播中" : "已加入房间 · 语音加密互通中",
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    fontSize: 15,
-                  ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                session.isHost ? "我是房主 · 房间广播中" : "已加入房间 · 语音加密互通中",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 15,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
