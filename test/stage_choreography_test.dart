@@ -37,8 +37,16 @@ void main() {
     testWidgets('stage=0 时首页元素在、房间元素不可见', (tester) async {
       await tester.pumpWidget(host(
         const Column(children: [
-          StageExitItem(stage: 0.0, index: 0, child: Text('首页')),
-          StageEnterItem(stage: 0.0, index: 0, child: Text('房间')),
+          StageExitItem(
+            stage: AlwaysStoppedAnimation(0.0),
+            index: 0,
+            child: Text('首页'),
+          ),
+          StageEnterItem(
+            stage: AlwaysStoppedAnimation(0.0),
+            index: 0,
+            child: Text('房间'),
+          ),
         ]),
       ));
 
@@ -53,8 +61,16 @@ void main() {
     testWidgets('stage=1 时首页元素已撤走、房间元素完全落位', (tester) async {
       await tester.pumpWidget(host(
         const Column(children: [
-          StageExitItem(stage: 1.0, index: 0, child: Text('首页')),
-          StageEnterItem(stage: 1.0, index: 0, child: Text('房间')),
+          StageExitItem(
+            stage: AlwaysStoppedAnimation(1.0),
+            index: 0,
+            child: Text('首页'),
+          ),
+          StageEnterItem(
+            stage: AlwaysStoppedAnimation(1.0),
+            index: 0,
+            child: Text('房间'),
+          ),
         ]),
       ));
 

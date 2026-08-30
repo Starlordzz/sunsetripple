@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/session/device_code.dart';
 import '../../core/session/member.dart';
 import '../theme/app_theme.dart';
 
@@ -16,7 +17,8 @@ class MemberOrbit extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 104,
+      // 头像 64 + 昵称一行 + 短码一行，留点余量。
+      height: 118,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 22),
@@ -49,6 +51,9 @@ class _MemberAvatarChip extends StatelessWidget {
     final speakingGlow = member.isSpeaking
         ? (isNight ? const Color(0xFF6B9BE8) : const Color(0xFFF39C82))
         : Colors.transparent;
+    // 昵称里带的十六进制短码单独拆出来画：同名的人靠它区分，
+    // 塞在同一行会被宽度挤掉，所以给它自己一行、颜色淡一档。
+    final (displayName, code) = DeviceCode.split(member.nickname);
 
     return SizedBox(
       // 固定宽度，昵称才有可省略的边界；否则横向列表里 Row 拿到的是无界约束。
@@ -103,7 +108,7 @@ class _MemberAvatarChip extends StatelessWidget {
               ),
             Flexible(
               child: Text(
-                member.nickname,
+                displayName,
                 style: TextStyle(
                   fontSize: 14,
                   color: isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
@@ -114,6 +119,17 @@ class _MemberAvatarChip extends StatelessWidget {
             ),
           ],
         ),
+        if (code != null)
+          Text(
+            '${DeviceCode.separator}$code',
+            style: TextStyle(
+              fontSize: 11,
+              letterSpacing: 0.4,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              color: (isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary)
+                  .withValues(alpha: 0.7),
+            ),
+          ),
         ],
       ),
     );

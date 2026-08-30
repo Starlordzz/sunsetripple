@@ -56,9 +56,11 @@ class StageChoreography {
 
 /// 首页元素的离场：随进度往下沉、缩一点、淡出。
 ///
-/// [stage] 是整段转场的 0→1 进度，[index] 决定它排在第几个走。
+/// 接的是 [Animation] 而不是每帧算好的 double：[child] 只建一次，
+/// 每帧重建的只有外面这层 Opacity/Transform。首页那棵树里有 ListView 和
+/// 好几个 StreamBuilder，按帧重建它是这段动画掉帧的主因之一。
 class StageExitItem extends StatelessWidget {
-  final double stage;
+  final Animation<double> stage;
   final int index;
   final Widget child;
 
@@ -75,28 +77,35 @@ class StageExitItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = StageChoreography.homeExit(index).transform(stage.clamp(0.0, 1.0));
-    if (t >= 1.0) return const SizedBox.shrink();
-    if (t <= 0.0) return child;
+    final interval = StageChoreography.homeExit(index);
+    return AnimatedBuilder(
+      animation: stage,
+      child: child,
+      builder: (context, child) {
+        final t = interval.transform(stage.value.clamp(0.0, 1.0));
+        if (t >= 1.0) return const SizedBox.shrink();
+        if (t <= 0.0) return child!;
 
-    return Opacity(
-      opacity: 1.0 - t,
-      child: Transform.translate(
-        offset: Offset(0, drift * t),
-        child: Transform.scale(
-          scale: 1.0 - 0.04 * t,
-          child: child,
-        ),
-      ),
+        return Opacity(
+          opacity: 1.0 - t,
+          child: Transform.translate(
+            offset: Offset(0, drift * t),
+            child: Transform.scale(
+              scale: 1.0 - 0.04 * t,
+              child: child,
+            ),
+          ),
+        );
+      },
     );
   }
 }
 
 /// 房间元素的入场：从下方浮上来、淡入。
 ///
-/// [stage] 是整段转场的 0→1 进度，[index] 决定它排在第几个到。
+/// 同样只重建外层包装，[child] 建一次。
 class StageEnterItem extends StatelessWidget {
-  final double stage;
+  final Animation<double> stage;
   final int index;
   final Widget child;
 
@@ -117,20 +126,27 @@ class StageEnterItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = StageChoreography.roomEnter(index).transform(stage.clamp(0.0, 1.0));
-    if (t >= 1.0) return child;
-    // 还没轮到它出场，占住位置但不画，免得布局在入场瞬间跳一下。
-    if (t <= 0.0) return Opacity(opacity: 0, child: child);
+    final interval = StageChoreography.roomEnter(index);
+    return AnimatedBuilder(
+      animation: stage,
+      child: child,
+      builder: (context, child) {
+        final t = interval.transform(stage.value.clamp(0.0, 1.0));
+        if (t >= 1.0) return child!;
+        // 还没轮到它出场，占住位置但不画，免得布局在入场瞬间跳一下。
+        if (t <= 0.0) return Opacity(opacity: 0, child: child);
 
-    return Opacity(
-      opacity: t,
-      child: Transform.translate(
-        offset: Offset(0, rise * (1.0 - t)),
-        child: Transform.scale(
-          scale: fromScale + (1.0 - fromScale) * t,
-          child: child,
-        ),
-      ),
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, rise * (1.0 - t)),
+            child: Transform.scale(
+              scale: fromScale + (1.0 - fromScale) * t,
+              child: child,
+            ),
+          ),
+        );
+      },
     );
   }
 }

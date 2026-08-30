@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/audio/audio_io.dart';
+import '../../core/session/device_code.dart';
 import '../../core/session/room_session.dart';
 import '../../core/transport/lan_discovery.dart';
 import '../theme/app_theme.dart';
@@ -14,7 +15,8 @@ class HomeContent extends StatefulWidget {
   final bool isNight;
 
   /// 整段进房转场的 0→1 进度。0 时是完整首页，0.4 之后这里已经空了。
-  final double stage;
+  /// 传的是动画本身而不是当帧的值——每行各自听，子树不用按帧重建。
+  final Animation<double> stage;
 
   final AudioIo audioIo;
   final void Function(RoomSession session, String roomName) onEnterRoom;
@@ -350,6 +352,10 @@ class _HomeContentState extends State<HomeContent> {
     return text.isEmpty ? "探索者" : text;
   }
 
+  /// 走 roster 的身份名，带十六进制短码，房间里好区分同名的人。
+  /// 房名仍然用不带码的昵称，免得标题变得很长。
+  String get _identityNickname => DeviceCode.attach(_nickname);
+
   void _onCreateRoom() async {
     final nickname = _nickname;
     final roomName = _selectedMode == RoomMode.wifiFullDuplex
@@ -358,10 +364,12 @@ class _HomeContentState extends State<HomeContent> {
 
     final session = RoomSession(
       audioIo: widget.audioIo,
-      selfNickname: nickname,
+      selfNickname: _identityNickname,
       mode: _selectedMode,
     );
-    await session.createRoom();
+    // 不在这里开麦：AudioRecord/AudioTrack 的构造压在 Android 主线程上，
+    // 一次上百毫秒，塞进转场会掉帧。SessionStage 会在动画落位后调 startAudio。
+    await session.createRoom(startAudio: false);
 
     _lanDiscovery.startAdvertising(
       roomId: "room_${DateTime.now().millisecondsSinceEpoch}",
@@ -377,10 +385,11 @@ class _HomeContentState extends State<HomeContent> {
   void _onJoinRoom(DiscoveredRoom room) async {
     final session = RoomSession(
       audioIo: widget.audioIo,
-      selfNickname: _nickname,
+      selfNickname: _identityNickname,
       mode: RoomMode.wifiFullDuplex,
     );
-    await session.joinRoom();
+    // 同 _onCreateRoom：开麦推迟到转场跑完。
+    await session.joinRoom(startAudio: false);
 
     if (mounted) widget.onEnterRoom(session, room.roomName);
   }

@@ -16,7 +16,8 @@ class RoomContent extends StatefulWidget {
   final bool isNight;
 
   /// 整段进房转场的 0→1 进度。0.52 之前这里还是空的。
-  final double stage;
+  /// 传的是动画本身而不是当帧的值——每块各自听，子树不用按帧重建。
+  final Animation<double> stage;
 
   final VoidCallback onLeave;
 

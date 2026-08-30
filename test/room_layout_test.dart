@@ -39,7 +39,7 @@ void main() {
               mode: mode,
             ),
             isNight: isNight,
-            stage: 1.0,
+            stage: const AlwaysStoppedAnimation(1.0),
             onLeave: () {},
           ),
         ),

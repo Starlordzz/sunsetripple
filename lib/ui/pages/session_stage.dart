@@ -18,6 +18,13 @@ import 'diagnostics_sheet.dart';
 /// 房间的成员轨道、对讲盘、底部控制条再依次浮上来——三段重叠成一镜到底。
 ///
 /// 编排表见 [StageChoreography]。
+///
+/// 为了不掉帧，这里对"每帧要动的东西"抠得比较紧：
+///   - 两组前景的顶边是**固定**的（首页贴首页头图高度，房间贴房间头图高度），
+///     每帧变化的只有头部那一层。前景一旦按帧改 top，整棵树每帧都要重新布局。
+///   - 前景的进出场由 [StageExitItem]/[StageEnterItem] 各自听动画，
+///     子树只建一次，见那两个类的说明。
+///   - 麦克风推迟到动画跑完再开，原因见 [RoomSession.startAudio]。
 class SessionStage extends StatefulWidget {
   final bool isNight;
   final VoidCallback onToggleTheme;
@@ -81,7 +88,13 @@ class _SessionStageState extends State<SessionStage>
       _session = session;
       _roomName = roomName;
     });
-    _stage.forward(from: 0.0);
+
+    // 建房时特意没开麦（见 HomeContent._onCreateRoom）：AudioRecord/AudioTrack
+    // 的构造和前台服务启动都压在 Android 主线程上，一次上百毫秒，
+    // 塞进转场里必然掉帧。等动画落位再开。
+    _stage.forward(from: 0.0).whenComplete(() {
+      if (mounted) session.startAudio();
+    });
   }
 
   void _onLeaveRoom() {
@@ -117,6 +130,11 @@ class _SessionStageState extends State<SessionStage>
 
   @override
   Widget build(BuildContext context) {
+    final session = _session;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final homeHeader = _homeHeaderFor(screenHeight);
+    final roomHeader = _roomHeaderFor(screenHeight);
+
     return PopScope(
       // 在房间里时，系统返回键走的是退场动画，而不是直接弹出路由。
       canPop: !_inRoom,
@@ -124,79 +142,94 @@ class _SessionStageState extends State<SessionStage>
         if (!didPop && _inRoom) _onLeaveRoom();
       },
       child: Scaffold(
-        body: AnimatedBuilder(
-          animation: _stage,
-          builder: (context, _) => _buildScene(context, _stage.value),
+        body: Stack(
+          children: [
+            // 1. 首页前景。顶边钉死在首页头图高度上，整段转场不重新布局。
+            Positioned(
+              top: homeHeader,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedBuilder(
+                animation: _stage,
+                child: HomeContent(
+                  isNight: widget.isNight,
+                  stage: _stage,
+                  audioIo: _audioIo,
+                  onEnterRoom: _onEnterRoom,
+                ),
+                builder: (context, child) => Offstage(
+                  offstage: _stage.value >= 1.0,
+                  child: IgnorePointer(
+                    ignoring: _stage.value > 0.0,
+                    child: child,
+                  ),
+                ),
+              ),
+            ),
+
+            // 2. 房间前景。顶边钉死在房间头图高度上，同样不按帧重新布局。
+            if (session != null)
+              Positioned(
+                top: roomHeader,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: AnimatedBuilder(
+                  animation: _stage,
+                  child: RoomContent(
+                    session: session,
+                    isNight: widget.isNight,
+                    stage: _stage,
+                    onLeave: _onLeaveRoom,
+                  ),
+                  builder: (context, child) => IgnorePointer(
+                    ignoring: _stage.value < 1.0,
+                    child: child,
+                  ),
+                ),
+              ),
+
+            // 3. 头部盖在最上面：天空长高时会顺势把正在离场的首页内容盖掉，
+            //    这是整段转场里唯一每帧重新布局的一层，只有一个 CustomPaint。
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: AnimatedBuilder(
+                animation: _stage,
+                builder: (context, _) =>
+                    _buildHeaderLayer(session, homeHeader, roomHeader),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildScene(BuildContext context, double stage) {
-    final session = _session;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final homeHeader = _homeHeaderFor(screenHeight);
-    final roomHeader = _roomHeaderFor(screenHeight);
-
+  Widget _buildHeaderLayer(
+      RoomSession? session, double homeHeader, double roomHeader) {
+    final stage = _stage.value;
     // 背景形变走自己那一段区间，不跟着前景的进出走。
     final bg = StageChoreography.background.transform(stage);
     final headerHeight = lerpDouble(homeHeader, roomHeader, bg);
 
-    return Stack(
-      children: [
-        // 1. 头部：共用背景 + 压在上面的标题与图标，整块随 headerHeight 一起长高。
-        //    标题贴着这块的底边，天空长高时它自然跟着往下走。
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          height: headerHeight,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: _buildBackground(
-                    session, headerHeight, bg, homeHeader, roomHeader),
-              ),
-              ..._buildHomeHeaderOverlay(stage),
-              if (session != null) ..._buildRoomHeaderOverlay(session, stage),
-            ],
+    return SizedBox(
+      height: headerHeight,
+      width: double.infinity,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: _buildBackground(
+                  session, headerHeight, bg, homeHeader, roomHeader),
+            ),
           ),
-        ),
-
-        // 2. 主体内容：首页与房间的前景叠在一起，各自淡出/淡入。
-        Positioned(
-          top: headerHeight,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Stack(
-            children: [
-              Offstage(
-                offstage: stage >= 1.0,
-                child: IgnorePointer(
-                  ignoring: stage > 0.0,
-                  child: HomeContent(
-                    isNight: widget.isNight,
-                    stage: stage,
-                    audioIo: _audioIo,
-                    onEnterRoom: _onEnterRoom,
-                  ),
-                ),
-              ),
-              if (session != null)
-                IgnorePointer(
-                  ignoring: stage < 1.0,
-                  child: RoomContent(
-                    session: session,
-                    isNight: widget.isNight,
-                    stage: stage,
-                    onLeave: _onLeaveRoom,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
+          ..._buildHomeHeaderOverlay(stage),
+          if (session != null) ..._buildRoomHeaderOverlay(session, stage),
+        ],
+      ),
     );
   }
 
