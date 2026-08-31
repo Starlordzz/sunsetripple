@@ -10,11 +10,15 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
-        // 与根项目 settings.gradle.kts 同样的处理：本机直连 dl.google.com 会
-        // TLS 中断，国内镜像放最前，原仓库留作后备（镜像未同步的构件回落直连）。
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        // 国内直连 dl.google.com 会 TLS 握手中断，本地构建得走镜像。
+        // 但 GitHub runner 反过来：连 maven.aliyun.com 会 502，而 Gradle 撞到
+        // 502 会把整个仓库标记为 disabled、不再回落到后面的 google()，
+        // 于是整条 release 链挂掉。所以镜像只在本地开，CI 走官方源。
+        if (System.getenv("CI") == null) {
+            maven { url = uri("https://maven.aliyun.com/repository/google") }
+            maven { url = uri("https://maven.aliyun.com/repository/central") }
+            maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        }
         google()
         mavenCentral()
         gradlePluginPortal()
