@@ -92,16 +92,41 @@ class _HomeContentState extends State<HomeContent> {
                     width: 1.2,
                   ),
                 ),
-                child: TextField(
-                  controller: _nicknameController,
-                  style: TextStyle(color: textPrimary, fontSize: 17),
-                  decoration: InputDecoration(
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                    icon: Icon(Icons.person_outline, size: 24, color: textSecondary),
-                    hintText: "请输入对讲昵称",
-                    hintStyle: TextStyle(color: textSecondary, fontSize: 17),
-                  ),
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline, size: 24, color: textSecondary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _nicknameController,
+                        style: TextStyle(color: textPrimary, fontSize: 17),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                          hintText: "请输入对讲昵称",
+                          hintStyle: TextStyle(color: textSecondary, fontSize: 17),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: (isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '#${DeviceCode.current}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -374,7 +399,7 @@ class _HomeContentState extends State<HomeContent> {
     _lanDiscovery.startAdvertising(
       roomId: "room_${DateTime.now().millisecondsSinceEpoch}",
       roomName: roomName,
-      hostNickname: nickname,
+      hostNickname: _identityNickname,
       tcpPort: 8988,
       getMemberCount: () => session.members.length,
     );
