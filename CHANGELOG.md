@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.0-alpha.10 - 2026-09-02
+
+### 新功能
+
+- **统一直连与 WiFi 房（UI 与系统共用）**：
+  - 移除孤立的「直连加速」开关，将 Wi-Fi Direct 直连完全收敛统一入标准的「WiFi 房」中。直连即为 WiFi 房的一种免路由网络拓扑。
+  - 创建 WiFi 房时，后台同时拉起局域网组播广播与原生 Wi-Fi Direct 群组（Group Owner），无需用户手动切换链路。
+  - 搜房列表统一将局域网广播房间与 Wi-Fi Direct 近场设备聚合展示为标准房间卡片，并标记「近场直连」。
+
+### 修复与优化
+
+- **修复离线 Wi-Fi Direct 房间发现与建组**：
+  - 修复 `MainActivity.kt` 中 `WifiDirectPlugin` 遗漏向 Flutter 引擎注册导致原生 P2P 扫描与建组调用静默失效的根本缺陷。
+  - 适配 Android 14 / ColorOS 14 系统广播安全隔离策略，将 P2P 广播接收器注册权限升级为 `RECEIVER_EXPORTED`。
+  - 补齐并优化 `ACCESS_FINE_LOCATION` 与 `ACCESS_COARSE_LOCATION` 离线近场扫描权限申请。
+  - 增强 `WifiDirectPlugin.kt` 底层遇到 `WifiP2pManager.BUSY` 状态时的退避重试机制与通道状态恢复。
+  - 修复了未连 Wi-Fi 离线状态下 UDP 广播异常未捕获导致的控制台抛错。
+- **实机与测试套件完善**：
+  - 新增 Wi-Fi Direct 模块与平台通道单元测试，全套单测扩展至 87/87 全部通过。
+  - 基于 UIAutomator2 对多台 Android 14 真机在完全无路由器、无热点的离线环境下完成端到端自动化建房、扫描与进房实测。
+
 ## 0.1.0-alpha.9 - 2026-08-30
 
 ### 新功能

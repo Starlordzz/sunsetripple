@@ -1,9 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sunset_ripple/main.dart';
 
 void main() {
+  const audioChannel = MethodChannel('host.msknet.sunsetripple/audio');
+  const audioEventsChannel = MethodChannel('host.msknet.sunsetripple/audio_events');
+  const wifiDirectChannel = MethodChannel('host.msknet.sunsetripple/wifi_direct');
+  const wifiDirectEventsChannel = MethodChannel('host.msknet.sunsetripple/wifi_direct_events');
+
+  setUp(() {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(audioChannel, (_) async => null);
+    messenger.setMockMethodCallHandler(audioEventsChannel, (_) async => null);
+    messenger.setMockMethodCallHandler(wifiDirectChannel, (call) async {
+      if (call.method == 'isSupported') return true;
+      if (call.method == 'isEnabled') return true;
+      if (call.method == 'discoverPeers') return true;
+      return null;
+    });
+    messenger.setMockMethodCallHandler(wifiDirectEventsChannel, (_) async => null);
+  });
+
+  tearDown(() {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(audioChannel, null);
+    messenger.setMockMethodCallHandler(audioEventsChannel, null);
+    messenger.setMockMethodCallHandler(wifiDirectChannel, null);
+    messenger.setMockMethodCallHandler(wifiDirectEventsChannel, null);
+  });
+
   // 首页 initState 会发起一次扫描，里面有 2 秒的 Future.delayed；
   // 不把假时钟推过去，测试结束时会因为「还有未完成的 Timer」而失败。
   const scanSettle = Duration(seconds: 3);

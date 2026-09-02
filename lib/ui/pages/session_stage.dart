@@ -9,6 +9,7 @@ import '../widgets/celestial_canvas.dart';
 import 'home_page.dart';
 import 'room_page.dart';
 import 'diagnostics_sheet.dart';
+import 'about_page.dart';
 
 /// 首页与房间共用的一张"舞台"。
 ///
@@ -283,15 +284,37 @@ class _SessionStageState extends State<SessionStage>
         top: 40,
         right: 8,
         child: fade(
-          IconButton(
-            tooltip: "切换昼夜主题",
-            iconSize: 30,
-            padding: const EdgeInsets.all(12),
-            icon: Icon(
-              widget.isNight ? Icons.nightlight_round : Icons.wb_sunny_rounded,
-              color: Colors.white,
-            ),
-            onPressed: widget.onToggleTheme,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: "详情与更新",
+                iconSize: 28,
+                padding: const EdgeInsets.all(10),
+                icon: const Icon(
+                  Icons.info_outline_rounded,
+                  color: Colors.white,
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AboutPage(isNight: widget.isNight),
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                tooltip: "切换昼夜主题",
+                iconSize: 28,
+                padding: const EdgeInsets.all(10),
+                icon: Icon(
+                  widget.isNight ? Icons.nightlight_round : Icons.wb_sunny_rounded,
+                  color: Colors.white,
+                ),
+                onPressed: widget.onToggleTheme,
+              ),
+            ],
           ),
           drift: -20,
         ),

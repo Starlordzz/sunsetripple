@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.content.Context
+import android.net.wifi.WifiManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -17,11 +19,10 @@ class MainActivity : FlutterActivity() {
 
     private var audioPlugin: PlatformAudioPlugin? = null
     private var blePlugin: BleL2capPlugin? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        // 这些通道原本在 Dart 侧被调用，但 Android 侧从来没有人接，
-        // 所有 invokeMethod 都会抛 MissingPluginException 并被静默吞掉。
         audioPlugin = PlatformAudioPlugin(
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
@@ -35,6 +36,20 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
+        acquireMulticastLock()
+    }
+
+    private fun acquireMulticastLock() {
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            multicastLock = wifiManager?.createMulticastLock("SunsetRippleMulticastLock")?.apply {
+                setReferenceCounted(true)
+                acquire()
+            }
+            Log.i(TAG, "已成功获取 WiFi MulticastLock 组播锁")
+        } catch (e: Exception) {
+            Log.w(TAG, "获取 WiFi MulticastLock 失败", e)
+        }
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
@@ -42,6 +57,14 @@ class MainActivity : FlutterActivity() {
         audioPlugin = null
         blePlugin?.dispose()
         blePlugin = null
+        try {
+            multicastLock?.let {
+                if (it.isHeld) it.release()
+            }
+            multicastLock = null
+        } catch (e: Exception) {
+            Log.w(TAG, "释放 WiFi MulticastLock 失败", e)
+        }
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

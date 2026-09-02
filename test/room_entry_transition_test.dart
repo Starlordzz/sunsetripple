@@ -58,6 +58,14 @@ void main() {
     expect(find.text('通话中'), findsOneWidget);
     expect(find.text('离开'), findsOneWidget);
     expect(find.textContaining('的 WiFi 房'), findsOneWidget);
+
+    // 离开房间完成清理
+    await tester.tap(find.text('离开'));
+    await tester.pump();
+    for (var i = 0; i < 14; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
   });
 
   testWidgets('离开房间：原路退回首页', (tester) async {
@@ -80,10 +88,10 @@ void main() {
     }
     expect(find.text('通话中'), findsOneWidget);
 
-    // 退场不依赖网络收尾（session.leave 在后台跑），假时钟推得动。
+    // 退场清理
     await tester.tap(find.text('离开'));
     await tester.pump();
-    for (var i = 0; i < 12; i++) {
+    for (var i = 0; i < 14; i++) {
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull, reason: '退场第 ${i + 1} 帧溢出');
     }
@@ -91,5 +99,7 @@ void main() {
     expect(find.text('通话中'), findsNothing);
     expect(find.text('落日后残波'), findsOneWidget);
     expect(find.text('创建 WiFi 房'), findsOneWidget);
+
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
   });
 }

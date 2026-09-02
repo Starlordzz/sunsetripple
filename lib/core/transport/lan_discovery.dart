@@ -38,6 +38,7 @@ class LanRoomDiscovery {
 
   RawDatagramSocket? _socket;
   Timer? _broadcastTimer;
+  Timer? _pruneTimer;
   final Map<String, DiscoveredRoom> _discoveredRooms = {};
 
   /// 自己作为房主时广播的房间号——用来把自己从「附近的房间」里滤掉。
@@ -68,7 +69,6 @@ class LanRoomDiscovery {
         final datagram = _socket?.receive();
         if (datagram != null) _handleIncomingPacket(datagram);
       },
-      onError: (Object e) => AppLog.error(_tag, '房间发现通道出错', e),
     );
 
     AppLog.info(_tag, '已开始监听 UDP $discoveryPort');
@@ -120,10 +120,64 @@ class LanRoomDiscovery {
     AppLog.info(_tag, '房间「$roomName」开始广播（控制端口 $tcpPort）');
   }
 
-  void stopAdvertising() {
+  /// 停止广播；[sendGoodbye] 为 true 时向局域网发送即时解散通知，
+  /// 让其他设备列表立刻清除该房间，无需等待超时。
+  void stopAdvertising({bool sendGoodbye = true}) {
+    if (sendGoodbye && _selfRoomId != null && _socket != null) {
+      final lastRoomId = _selfRoomId!;
+      _sendBroadcast(
+        roomId: lastRoomId,
+        roomName: "",
+        hostNickname: "",
+        tcpPort: 0,
+        memberCount: 0,
+        action: "ROOM_CLOSED",
+      );
+      Future.delayed(const Duration(milliseconds: 80), () {
+        if (_socket != null) {
+          _sendBroadcast(
+            roomId: lastRoomId,
+            roomName: "",
+            hostNickname: "",
+            tcpPort: 0,
+            memberCount: 0,
+            action: "ROOM_CLOSED",
+          );
+        }
+      });
+    }
+
     _broadcastTimer?.cancel();
     _broadcastTimer = null;
     _selfRoomId = null;
+  }
+
+  Future<List<InternetAddress>> _getBroadcastAddresses() async {
+    final addresses = <InternetAddress>{
+      InternetAddress("255.255.255.255"),
+    };
+
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (addr.isLoopback) continue;
+          final parts = addr.address.split('.');
+          if (parts.length == 4) {
+            // 计算热点/局域网 /24 定向子网广播（如 192.168.43.255）
+            final directed = '${parts[0]}.${parts[1]}.${parts[2]}.255';
+            addresses.add(InternetAddress(directed));
+          }
+        }
+      }
+    } catch (e) {
+      AppLog.debug(_tag, '获取本地网卡广播地址失败: $e');
+    }
+
+    return addresses.toList();
   }
 
   void _sendBroadcast({
@@ -132,7 +186,8 @@ class LanRoomDiscovery {
     required String hostNickname,
     required int tcpPort,
     required int memberCount,
-  }) {
+    String? action,
+  }) async {
     final socket = _socket;
     if (socket == null) return;
 
@@ -143,17 +198,18 @@ class LanRoomDiscovery {
       "hostNickname": hostNickname,
       "port": tcpPort,
       "members": memberCount,
+      if (action != null) "action": action,
       "timestamp": DateTime.now().millisecondsSinceEpoch,
     });
 
-    try {
-      socket.send(
-        utf8.encode(jsonPayload),
-        InternetAddress("255.255.255.255"),
-        discoveryPort,
-      );
-    } catch (e) {
-      AppLog.warn(_tag, '广播房间信息失败', e);
+    final bytes = utf8.encode(jsonPayload);
+    final targets = await _getBroadcastAddresses();
+    for (final target in targets) {
+      try {
+        socket.send(bytes, target, discoveryPort);
+      } catch (_) {
+        // 部分接口若不支持广播，静默跳过
+      }
     }
   }
 
@@ -175,6 +231,15 @@ class LanRoomDiscovery {
       // 广播是发到 255.255.255.255 的，自己也会收到自己的包。
       if (roomId == _selfRoomId) return;
 
+      // 收到解散通知，即刻移除
+      if (json["action"] == "ROOM_CLOSED") {
+        if (_discoveredRooms.remove(roomId) != null) {
+          AppLog.info(_tag, '收到房间 $roomId 的解散通知，已即时从列表移除');
+          _notifyRoomsChanged();
+        }
+        return;
+      }
+
       final room = DiscoveredRoom(
         roomId: roomId,
         roomName: json["roomName"] as String,
@@ -186,27 +251,50 @@ class LanRoomDiscovery {
       );
 
       _discoveredRooms[roomId] = room;
+      _ensurePruneTimer();
       _pruneStaleRooms();
-      if (!_roomsController.isClosed) {
-        _roomsController.add(_discoveredRooms.values.toList());
-      }
+      _notifyRoomsChanged();
     } catch (e) {
       AppLog.warn(_tag, '收到字段不完整的房间广播，已忽略', e);
     }
   }
 
+  void _ensurePruneTimer() {
+    if (_pruneTimer != null || _discoveredRooms.isEmpty) return;
+    _pruneTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _pruneStaleRooms();
+    });
+  }
+
   void _pruneStaleRooms() {
     final now = DateTime.now();
+    final countBefore = _discoveredRooms.length;
     _discoveredRooms.removeWhere(
-      (_, room) => now.difference(room.lastSeen).inSeconds > 4,
+      (_, room) => now.difference(room.lastSeen).inMilliseconds > 3500,
     );
+    if (_discoveredRooms.length != countBefore) {
+      _notifyRoomsChanged();
+    }
+    if (_discoveredRooms.isEmpty) {
+      _pruneTimer?.cancel();
+      _pruneTimer = null;
+    }
+  }
+
+  void _notifyRoomsChanged() {
+    if (!_roomsController.isClosed) {
+      _roomsController.add(_discoveredRooms.values.toList());
+    }
   }
 
   Future<void> stop() async {
     stopAdvertising();
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
     _socket?.close();
     _socket = null;
     _discoveredRooms.clear();
+    _notifyRoomsChanged();
   }
 
   void dispose() {

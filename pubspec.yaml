@@ -3,8 +3,8 @@ description: "SunsetRipple - Near-field voice intercom for Android, iOS, Windows
 publish_to: 'none'
 
 # versionName 取 `+` 前半段，versionCode 取后半段。
-# 上一版是 Kotlin 版的 0.1.0-alpha.7 / versionCode 8，这里必须递增。
-version: 0.1.0-alpha.9+10
+# 0.1.0-alpha.10 / versionCode 11
+version: 0.1.0-alpha.10+11
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

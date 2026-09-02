@@ -765,6 +765,7 @@ class RoomSession {
     await audioIo.stopCapture();
     await audioIo.stopPlayback();
     await audioIo.clearRemoteMembers();
+    await transport?.stop();
 
     _members.clear();
     _lastAudioAt.clear();

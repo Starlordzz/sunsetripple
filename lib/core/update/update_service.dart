@@ -135,7 +135,7 @@ class SemVer implements Comparable<SemVer> {
 }
 
 class UpdateService {
-  static const String currentVersion = '0.1.0-alpha.8';
+  static const String currentVersion = '0.1.0-alpha.10';
   static const String latestReleaseUrl =
       'https://api.github.com/repos/Starlordzz/sunsetripple/releases/latest';
 
