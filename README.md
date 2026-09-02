@@ -25,7 +25,7 @@
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
   <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B%20(%E5%8E%9F%E7%94%9F%E5%AE%9E%E7%8E%B0)-007AFF?labelColor=3A1030">
   <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(%E6%BA%90%E7%A0%81%E5%B7%A5%E7%A8%8B)-C00000?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-58%20passing-F4B85C?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-87%20passing-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -66,10 +66,10 @@
 
 <br>
 
-- **Flutter 统一会话核心**——基于 Flutter 构建统一 Dart 会话核心、二进制帧协议与高质感天体界面，通过平台通道桥接原生音频 HAL（硬件 AEC/NS/AGC）与 BLE L2CAP 信道。**目前只有 Android 侧的平台通道已实现**（`PlatformAudioPlugin.kt` / `BleL2capPlugin.kt`）。
+- **Flutter 统一会话核心**——基于 Flutter 构建统一 Dart 会话核心、二进制帧协议与高质感天体界面，通过平台通道桥接原生音频 HAL（硬件 AEC/NS/AGC）、BLE L2CAP 信道与 Wi-Fi Direct 原生近场直连。**目前 Android 侧平台通道完整实现**（`PlatformAudioPlugin.kt` / `BleL2capPlugin.kt` / `WifiDirectPlugin.kt`）。
 - **动态麦克风路由切换**——房内支持一键切换使用「手机自带麦克风」或「外接/蓝牙耳机麦克风」；使用手机麦拾音时自动释放通话 SCO 占用，切回 A2DP 高清媒体声道。
-- **跨端局域网/热点免网对讲**——同一 Wi-Fi 或随身热点下，通过 UDP 8990 广播零配置自动搜房建连，周期性自动修剪僵尸房间（房主关闭 4 秒内自动移除）。音频本身为单播。<br>注意：iOS 14+ 起发送广播需 `com.apple.developer.networking.multicast` 授权（付费账号 + Apple 逐案审批），因此 iOS 侧搜房必须改走 Bonjour，详见 [docs/ios-flutter-port.md](docs/ios-flutter-port.md)。
-- **两种可用房型**——WiFi 全双工房与 BLE L2CAP CoC 按住说话（PTT）房，均支持最多 6 台设备。
+- **免路由近场直连与局域网对讲**——支持同一 Wi-Fi、随身热点以及**完全脱网的 Wi-Fi Direct 近场免路由直连**。零配置自动搜房建连，周期性自动修剪僵尸房间（房主关闭 4 秒内自动移除）。音频本身为单播。<br>注意：iOS 14+ 起发送广播需 `com.apple.developer.networking.multicast` 授权（付费账号 + Apple 逐案审批），因此 iOS 侧搜房必须改走 Bonjour，详见 [docs/ios-flutter-port.md](docs/ios-flutter-port.md)。
+- **两种可用房型**——WiFi 房（支持同一局域网、随身热点及 Wi-Fi Direct 离线近场直连全双工）与 BLE L2CAP CoC 按住说话（PTT）房，均支持最多 6 台设备。
 - **零语音基础设施**——无路由器、无账号、无服务器；语音只在设备之间点对点传输，版本检查在用户操作时访问 GitHub Releases。
 - **WiFi 房无缝房主转移**——支持房内手动转让房主或房主失联自动按快照选举继任者并重构组网，新房主 UDP 端口即刻同步登记，保障音频不掉线。
 - **全网静音与说话状态联动**——静音操作全房即时同步标志位，关闭麦克风实时熄灭音频声波动画。
@@ -86,16 +86,16 @@
 
 <br>
 
-| | WiFi 局域网/热点房 | 蓝牙 BLE L2CAP 房 |
+| | WiFi 房（局域网/热点/近场直连） | 蓝牙 BLE L2CAP 房 |
 | --- | --- | --- |
 | 状态 | ✅ 可用（推荐） | ✅ 可用 |
 | 通话方式 | 全双工（同时自由交谈） | 按住说话（PTT 对讲） |
 | 拓扑架构 | 星型/网状混合——控制 TCP + 音频 UDP 直发 | 星型拓扑——动态分配 PSM，原子帧转发 |
 | 信令 / 音频 | TCP 8988 / UDP 8989 | BLE L2CAP 面向连接通道 (CoC) |
-| 协议发现 | UDP 8990 广播发现 | BLE 广播厂商自定义数据 (Company ID 0xFFFF) |
+| 协议发现 | UDP 8990 广播 + Wi-Fi Direct P2P 探针 | BLE 广播厂商自定义数据 (Company ID 0xFFFF) |
 | 音频码率 | 24 kbps Opus | 16 kbps Opus |
 | 最大人数 | 6 台设备 | 6 台设备 |
-| 依赖要求 | 同一 Wi-Fi 路由或随身热点 | 蓝牙 5.0+ (Android 10+ / iOS 15+ / 鸿蒙 NEXT) |
+| 依赖要求 | 同一 Wi-Fi 路由、随身热点或 Wi-Fi Direct 免网直连 | 蓝牙 5.0+ (Android 10+ / iOS 15+ / 鸿蒙 NEXT) |
 | 房主转移 | ✅ 支持手动转让与故障自愈 | ❌ 暂不支持（主机退出即散会） |
 
 <br>

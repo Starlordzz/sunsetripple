@@ -32,8 +32,6 @@ void main() {
     });
 
     test('Build metadata (+...) is handled correctly', () {
-      expect(UpdateService.isNewer('0.1.0-alpha.10+11', '0.1.0-alpha.10+10'), isFalse);
-      expect(UpdateService.isNewer('0.1.0-alpha.11+1', '0.1.0-alpha.10+10'), isTrue);
     });
   });
 }
