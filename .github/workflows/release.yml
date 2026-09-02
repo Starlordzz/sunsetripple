@@ -111,6 +111,14 @@ jobs:
           if-no-files-found: error
 
   # ==========================================
+  # 2a. iOS 构建链 · Flutter 统一核心 (.ipa, 未签名)
+  #
+  # 与 Android 同源：同一套 Dart 会话核心 / 帧协议 / 加密。
+  # 目前仍是「可安装但功能未接通」的外壳，缺口见 docs/ios-flutter-port.md：
+  #   - ios/Runner/PlatformAudioPlugin.swift 是空文件，平台音频通道未实现
+  #   - LanRoomDiscovery 走 255.255.255.255 广播，iOS 14+ 需 multicast 授权，必须改 Bonjour
+  #   - 无 CBL2CAPChannel 实现
+  # 因此 2b 的原生构建暂不下线，两者并行发布，产物名区分。
   # 2. iOS 构建链 · Flutter 统一核心 (.ipa, 未签名)
   # ==========================================
   build-ios-flutter:
@@ -153,6 +161,56 @@ jobs:
         with:
           name: ios-flutter-release
           path: ios-flutter-artifacts/
+          if-no-files-found: error
+
+  # ==========================================
+  # 2b. iOS 构建链 · 独立原生 SwiftUI 实现 (.ipa, 未签名)
+  #
+  # 这是与 Flutter 核心并行的另一套实现（ios/SunsetRipple/），
+  # 自带 AVAudioEngine 音频与 MultipeerConnectivity 发现，
+  # 不受 Apple 广播授权限制，是目前 iOS 上唯一功能可用的构建。
+  # ==========================================
+  build-ios-native:
+    name: Build iOS native SwiftUI (.ipa, unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install XcodeGen and compile native iOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          mkdir -p ios-native-artifacts/Payload
+
+          brew install xcodegen
+          cd ios
+          xcodegen generate
+
+          xcodebuild -project SunsetRipple.xcodeproj \
+            -scheme SunsetRipple \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+          cp -r build/Build/Products/Release-iphoneos/SunsetRipple.app ../ios-native-artifacts/Payload/
+          cd ../ios-native-artifacts
+          zip -qry "SunsetRipple-native-${tag}-unsigned.ipa" Payload
+          rm -rf Payload
+
+      - name: Upload iOS native artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-native-release
+          path: ios-native-artifacts/
           if-no-files-found: error
 
   # ==========================================
@@ -206,6 +264,7 @@ jobs:
   # ==========================================
   publish-release:
     name: Publish GitHub Release
+    needs: [build-android, build-ios-flutter, build-ios-native, package-harmonyos]
     needs: [build-android, build-ios-flutter, package-harmonyos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -229,6 +288,12 @@ jobs:
           name: ios-flutter-release
           path: final-artifacts
 
+      - name: Download iOS native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: ios-native-release
+          path: final-artifacts
+
       - name: Download HarmonyOS artifacts
         uses: actions/download-artifact@v8
         with:
@@ -248,6 +313,8 @@ jobs:
           | 产物 | 平台 | 安装方式 |
           | --- | --- | --- |
           | `SunsetRipple-*.apk` | Android 8.0+ | 直接安装 |
+          | `SunsetRipple-native-*-unsigned.ipa` | iOS 15+ | **未签名**，需用 AltStore / Sideloadly 以自己的 Apple ID 在本地重签后安装 |
+          | `SunsetRipple-flutter-*-unsigned.ipa` | iOS 15+ | **未签名 + 功能未接通**，仅供构建验证，暂不建议使用 |
           | `SunsetRipple-flutter-*-unsigned.ipa` | iOS 15+ | **未签名**，需用 AltStore / Sideloadly 以自己的 Apple ID 在本地重签后安装 |
           | `SunsetRipple-HarmonyOS-source-*.zip` | HarmonyOS NEXT | 源码工程，需用 DevEco Studio 打开自行构建并签名 |
 
