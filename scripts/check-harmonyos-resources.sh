@@ -68,8 +68,11 @@ echo
 pub_code="$(sed -nE 's/^version:.*\+([0-9]+)[[:space:]]*$/\1/p' pubspec.yaml)"
 ohos_code="$(sed -nE 's/.*"versionCode"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
               harmonyos/AppScope/app.json5)"
+pub_code="$(grep -E '^version:' pubspec.yaml | sed -nE 's/^version:.*\+([0-9]+).*/\1/p' | tr -d '\r\n ')"
+ohos_code="$(grep -E '"versionCode"' harmonyos/AppScope/app.json5 | sed -nE 's/.*"versionCode"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' | tr -d '\r\n ')"
 echo "pubspec versionCode = '${pub_code}'   AppScope versionCode = '${ohos_code}'"
 if [[ "$pub_code" != "$ohos_code" ]]; then
+if [[ -z "$pub_code" || -z "$ohos_code" || "$pub_code" != "$ohos_code" ]]; then
   err "versionCode 不一致：pubspec=${pub_code}, AppScope/app.json5=${ohos_code}"
   fail=1
 fi
