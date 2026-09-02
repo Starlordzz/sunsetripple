@@ -34,13 +34,13 @@ jobs:
 
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up Java 17
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
@@ -104,21 +104,14 @@ jobs:
           fi
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: android-release
           path: release-artifacts/
           if-no-files-found: error
 
   # ==========================================
-  # 2a. iOS 构建链 · Flutter 统一核心 (.ipa, 未签名)
-  #
-  # 与 Android 同源：同一套 Dart 会话核心 / 帧协议 / 加密。
-  # 目前仍是「可安装但功能未接通」的外壳，缺口见 docs/ios-flutter-port.md：
-  #   - ios/Runner/PlatformAudioPlugin.swift 是空文件，平台音频通道未实现
-  #   - LanRoomDiscovery 走 255.255.255.255 广播，iOS 14+ 需 multicast 授权，必须改 Bonjour
-  #   - 无 CBL2CAPChannel 实现
-  # 因此 2b 的原生构建暂不下线，两者并行发布，产物名区分。
+  # 2. iOS 构建链 · Flutter 统一核心 (.ipa, 未签名)
   # ==========================================
   build-ios-flutter:
     name: Build iOS Flutter (.ipa, unsigned)
@@ -126,7 +119,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -156,7 +149,7 @@ jobs:
           ls -la
 
       - name: Upload iOS Flutter artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ios-flutter-release
           path: ios-flutter-artifacts/
@@ -181,7 +174,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -202,7 +195,7 @@ jobs:
             -x 'harmonyos/oh_modules/*' 'harmonyos/build/*' 'harmonyos/.hvigor/*'
 
       - name: Upload HarmonyOS artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: harmonyos-release
           path: harmonyos-artifacts/
@@ -220,24 +213,24 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Download Android artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: android-release
           path: final-artifacts
 
       - name: Download iOS Flutter artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: ios-flutter-release
           path: final-artifacts
 
       - name: Download HarmonyOS artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: harmonyos-release
           path: final-artifacts
