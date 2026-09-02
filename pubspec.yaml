@@ -3,8 +3,6 @@ description: "SunsetRipple - Near-field voice intercom for Android, iOS, Windows
 publish_to: 'none'
 
 # versionName 取 `+` 前半段，versionCode 取后半段。
-# 0.1.0-alpha.10 / versionCode 11
-version: 0.1.0-alpha.10+11
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
