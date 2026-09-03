@@ -19,7 +19,7 @@ dependencies:
   ffi: ^2.1.2
   cryptography: ^2.9.0
   crypto: ^3.0.7
-  pointycastle: ^3.9.1
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:
