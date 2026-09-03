@@ -25,6 +25,22 @@ void main() {
     messenger.setMockMethodCallHandler(audioEventsChannel, null);
   });
 
+  Finder findTitle() => find.byWidgetPredicate(
+        (w) => w is Text && (w.data == '落日后残波' || w.data == 'SunsetRipple'),
+      );
+  Finder findCreateWifi() => find.byWidgetPredicate(
+        (w) => w is Text && (w.data == '创建 WiFi 房' || w.data == 'Create WiFi Room'),
+      );
+  Finder findInCall() => find.byWidgetPredicate(
+        (w) => w is Text && (w.data == '通话中' || w.data == 'In call'),
+      );
+  Finder findLeave() => find.byWidgetPredicate(
+        (w) => w is Text && (w.data == '离开' || w.data == 'Leave'),
+      );
+  Finder findRoomTitle() => find.byWidgetPredicate(
+        (w) => w is Text && (w.data?.contains('WiFi 房') == true || w.data?.contains('WiFi Room') == true),
+      );
+
   testWidgets('创建房间：首页 UI 离场、背景留场、房间 UI 入场', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1.0;
@@ -36,12 +52,12 @@ void main() {
     // 首页 initState 会发起扫描，里面有 2 秒的 Future.delayed。
     await tester.pump(const Duration(seconds: 3));
 
-    expect(find.text('落日后残波'), findsOneWidget);
-    expect(find.text('通话中'), findsNothing);
+    expect(findTitle(), findsWidgets);
+    expect(findInCall(), findsNothing);
 
     // createRoom 里有真实的 socket 绑定，得让真事件循环跑一轮。
     await tester.runAsync(() async {
-      await tester.tap(find.text('创建 WiFi 房'));
+      await tester.tap(findCreateWifi());
       await Future<void>.delayed(const Duration(milliseconds: 500));
     });
     await tester.pump();
@@ -53,14 +69,14 @@ void main() {
     }
 
     // 落位：首页那组走干净了，房间那组到齐了。
-    expect(find.text('落日后残波'), findsNothing);
-    expect(find.text('创建 WiFi 房'), findsNothing);
-    expect(find.text('通话中'), findsOneWidget);
-    expect(find.text('离开'), findsOneWidget);
-    expect(find.textContaining('的 WiFi 房'), findsOneWidget);
+    expect(findTitle(), findsNothing);
+    expect(findCreateWifi(), findsNothing);
+    expect(findInCall(), findsOneWidget);
+    expect(findLeave(), findsOneWidget);
+    expect(findRoomTitle(), findsOneWidget);
 
     // 离开房间完成清理
-    await tester.tap(find.text('离开'));
+    await tester.tap(findLeave());
     await tester.pump();
     for (var i = 0; i < 14; i++) {
       await tester.pump(const Duration(milliseconds: 100));
@@ -79,26 +95,26 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
 
     await tester.runAsync(() async {
-      await tester.tap(find.text('创建 WiFi 房'));
+      await tester.tap(findCreateWifi());
       await Future<void>.delayed(const Duration(milliseconds: 500));
     });
     await tester.pump();
     for (var i = 0; i < 14; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    expect(find.text('通话中'), findsOneWidget);
+    expect(findInCall(), findsOneWidget);
 
     // 退场清理
-    await tester.tap(find.text('离开'));
+    await tester.tap(findLeave());
     await tester.pump();
     for (var i = 0; i < 14; i++) {
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull, reason: '退场第 ${i + 1} 帧溢出');
     }
 
-    expect(find.text('通话中'), findsNothing);
-    expect(find.text('落日后残波'), findsOneWidget);
-    expect(find.text('创建 WiFi 房'), findsOneWidget);
+    expect(findInCall(), findsNothing);
+    expect(findTitle(), findsWidgets);
+    expect(findCreateWifi(), findsOneWidget);
 
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
   });

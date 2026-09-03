@@ -6,6 +6,7 @@ import '../transitions/stage_choreography.dart';
 import '../widgets/audio_controls.dart';
 import '../widgets/member_orbit.dart';
 import '../widgets/ptt_button.dart';
+import '../../l10n/app_strings.dart';
 
 /// 房间前景：成员轨道、中央对讲盘、底部音频控制条。
 ///
@@ -119,6 +120,7 @@ class _RoomContentState extends State<RoomContent> {
   }
 
   Widget _buildDuplexDisc(bool isNight, double size) {
+    final s = AppStrings.of(context);
     return StreamBuilder<double>(
       stream: widget.session.waveStream,
       initialData: 0.0,
@@ -155,8 +157,8 @@ class _RoomContentState extends State<RoomContent> {
                 const SizedBox(height: 10),
                 Text(
                   widget.session.isMuted
-                      ? "麦克风已静音"
-                      : (isSpeaking ? "正在说话..." : "通话中"),
+                      ? s.micMutedStatus
+                      : (isSpeaking ? s.speakingStatus : s.inCallStatus),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: (size * 0.085).clamp(15.0, 18.0),

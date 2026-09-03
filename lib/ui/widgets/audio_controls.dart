@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../../l10n/app_strings.dart';
 
 /// Bottom Audio Controls Bar (Mute, Speakerphone, Leave).
 class AudioControlsBar extends StatelessWidget {
@@ -22,6 +23,7 @@ class AudioControlsBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final leaveColor = isNight ? AppTheme.darkLeaveRosePink : AppTheme.lightLeaveAccent;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
@@ -33,7 +35,7 @@ class AudioControlsBar extends StatelessWidget {
           // 1. 静音
           _ActionButton(
             icon: isMuted ? Icons.mic_off : Icons.mic,
-            label: isMuted ? "已静音" : "麦克风",
+            label: isMuted ? s.muted : s.microphone,
             isActive: !isMuted,
             isNight: isNight,
             onTap: onToggleMute,
@@ -44,7 +46,7 @@ class AudioControlsBar extends StatelessWidget {
           // 2. 扬声器 / 听筒
           _ActionButton(
             icon: isSpeakerOn ? Icons.volume_up : Icons.phone_in_talk,
-            label: isSpeakerOn ? "扬声器" : "听筒",
+            label: isSpeakerOn ? s.speaker : s.earpiece,
             isActive: isSpeakerOn,
             isNight: isNight,
             onTap: onToggleSpeaker,
@@ -55,7 +57,7 @@ class AudioControlsBar extends StatelessWidget {
           // 3. 离开房间 (高对比度月夜玫瑰粉)
           _ActionButton(
             icon: Icons.call_end,
-            label: "离开",
+            label: s.leave,
             isActive: true,
             isNight: isNight,
             onTap: onLeave,

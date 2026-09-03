@@ -10,6 +10,7 @@ import 'home_page.dart';
 import 'room_page.dart';
 import 'diagnostics_sheet.dart';
 import 'about_page.dart';
+import '../../l10n/app_strings.dart';
 
 /// 首页与房间共用的一张"舞台"。
 ///
@@ -269,6 +270,7 @@ class _SessionStageState extends State<SessionStage>
   }
 
   List<Widget> _buildHomeHeaderOverlay(double stage) {
+    final s = AppStrings.of(context);
     // 标题比正文早一点走，页面像是从上往下被抽走的。
     final t = const Interval(0.0, 0.26, curve: Curves.easeInCubic)
         .transform(stage.clamp(0.0, 1.0));
@@ -288,7 +290,7 @@ class _SessionStageState extends State<SessionStage>
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                tooltip: "详情与更新",
+                tooltip: s.tooltipInfoAndUpdates,
                 iconSize: 28,
                 padding: const EdgeInsets.all(10),
                 icon: const Icon(
@@ -305,7 +307,7 @@ class _SessionStageState extends State<SessionStage>
                 },
               ),
               IconButton(
-                tooltip: "切换昼夜主题",
+                tooltip: s.tooltipToggleTheme,
                 iconSize: 28,
                 padding: const EdgeInsets.all(10),
                 icon: Icon(
@@ -328,9 +330,9 @@ class _SessionStageState extends State<SessionStage>
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                "落日后残波",
-                style: TextStyle(
+              Text(
+                s.appName,
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 30,
                   fontWeight: FontWeight.bold,
@@ -339,7 +341,7 @@ class _SessionStageState extends State<SessionStage>
               ),
               const SizedBox(height: 6),
               Text(
-                "夕阳已远，涟漪未散，犹诉未尽之言。",
+                s.appSubheading,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -355,6 +357,7 @@ class _SessionStageState extends State<SessionStage>
   }
 
   List<Widget> _buildRoomHeaderOverlay(RoomSession session, double stage) {
+    final s = AppStrings.of(context);
     final t = const Interval(0.56, 0.92, curve: Curves.easeOutCubic)
         .transform(stage.clamp(0.0, 1.0));
     if (t <= 0.0) return const [];
@@ -373,7 +376,7 @@ class _SessionStageState extends State<SessionStage>
         left: 8,
         child: rise(
           IconButton(
-            tooltip: "离开房间",
+            tooltip: s.tooltipLeaveRoom,
             iconSize: 30,
             padding: const EdgeInsets.all(12),
             icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -387,7 +390,7 @@ class _SessionStageState extends State<SessionStage>
         right: 8,
         child: rise(
           IconButton(
-            tooltip: "连接诊断",
+            tooltip: s.tooltipDiagnostics,
             iconSize: 30,
             padding: const EdgeInsets.all(12),
             icon: const Icon(Icons.info_outline, color: Colors.white),
@@ -418,7 +421,7 @@ class _SessionStageState extends State<SessionStage>
               ),
               const SizedBox(height: 6),
               Text(
-                session.isHost ? "我是房主 · 房间广播中" : "已加入房间 · 语音加密互通中",
+                session.isHost ? s.hostBroadcastingStatus : s.memberConnectedStatus,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(

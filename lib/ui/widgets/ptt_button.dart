@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
+import '../../l10n/app_strings.dart';
 
 /// Push-To-Talk (PTT) Central Interactive Disc Button.
 class PttButton extends StatefulWidget {
@@ -73,6 +74,7 @@ class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final activeColor = widget.isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
     final pressedColor = widget.isNight ? const Color(0xFF5D85C2) : const Color(0xFFBA5F68);
 
@@ -110,7 +112,7 @@ class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMix
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      widget.isPressed ? "正在讲话" : "按住说话",
+                      widget.isPressed ? s.pttHoldingToTalk : s.pttHoldToTalk,
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: (widget.size * 0.09).clamp(16.0, 19.0),

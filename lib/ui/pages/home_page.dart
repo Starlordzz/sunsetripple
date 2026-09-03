@@ -11,6 +11,7 @@ import '../../core/transport/wifi_direct_manager.dart';
 import '../theme/app_theme.dart';
 import '../transitions/stage_choreography.dart';
 import '../../core/update/update_service.dart';
+import '../../l10n/app_strings.dart';
 
 /// 首页前景：昵称、房型、建房/扫描按钮、附近房间列表。
 ///
@@ -94,6 +95,7 @@ class _HomeContentState extends State<HomeContent> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final isNight = widget.isNight;
     final stage = widget.stage;
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
@@ -141,7 +143,7 @@ class _HomeContentState extends State<HomeContent> {
                                 decoration: InputDecoration(
                                   border: InputBorder.none,
                                   contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                                  hintText: "请输入对讲昵称",
+                                  hintText: s.nicknamePlaceholder,
                                   hintStyle: TextStyle(color: textSecondary, fontSize: 17),
                                 ),
                               ),
@@ -183,8 +185,8 @@ class _HomeContentState extends State<HomeContent> {
                           Expanded(
                             child: _ModeSelectChip(
                               icon: Icons.wifi,
-                              title: "WiFi 房",
-                              subtitle: "同连WiFi/热点/直连 · 畅聊",
+                              title: s.wifiRoom,
+                              subtitle: s.wifiRoomChipSubtitle,
                               isSelected: _selectedMode == RoomMode.wifiFullDuplex,
                               isNight: isNight,
                               onTap: () => setState(() => _selectedMode = RoomMode.wifiFullDuplex),
@@ -194,8 +196,8 @@ class _HomeContentState extends State<HomeContent> {
                           Expanded(
                             child: _ModeSelectChip(
                               icon: Icons.bluetooth,
-                              title: "蓝牙房",
-                              subtitle: "近场免配对 · 按住对讲",
+                              title: s.bluetoothRoom,
+                              subtitle: s.bleRoomChipSubtitle,
                               isSelected: _selectedMode == RoomMode.bluetoothPtt,
                               isNight: isNight,
                               onTap: () => setState(() => _selectedMode = RoomMode.bluetoothPtt),
@@ -223,53 +225,66 @@ class _HomeContentState extends State<HomeContent> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 18),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(28),
                                 ),
                                 elevation: 0,
                               ),
-                              child: Text(
-                                _selectedMode == RoomMode.wifiFullDuplex ? "创建 WiFi 房" : "创建蓝牙房",
-                                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  _selectedMode == RoomMode.wifiFullDuplex ? s.createWifiRoom : s.createBleRoom,
+                                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                                ),
                               ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             flex: 5,
-                            child: OutlinedButton.icon(
+                            child: OutlinedButton(
                               onPressed: _isScanning ? null : _startScan,
-                              icon: _isScanning
-                                  ? SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.2,
-                                        color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
-                                      ),
-                                    )
-                                  : Icon(
-                                      Icons.radar,
-                                      size: 21,
-                                      color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
-                                    ),
-                              label: Text(
-                                _isScanning ? "正在扫描" : "扫描房间",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
-                                ),
-                              ),
                               style: OutlinedButton.styleFrom(
                                 side: BorderSide(
                                   color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
                                   width: 1.6,
                                 ),
-                                padding: const EdgeInsets.symmetric(vertical: 18),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 18),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(28),
+                                ),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_isScanning)
+                                      SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.2,
+                                          color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                                        ),
+                                      )
+                                    else
+                                      Icon(
+                                        Icons.radar,
+                                        size: 21,
+                                        color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                                      ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _isScanning ? s.scanning : s.scanRooms,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -290,22 +305,28 @@ class _HomeContentState extends State<HomeContent> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            "附近的对讲房间",
-                            style: TextStyle(
-                              color: textSecondary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
+                          Expanded(
+                            child: Text(
+                              s.nearbyRoomsTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                          if (_isScanning)
+                          if (_isScanning) ...[
+                            const SizedBox(width: 8),
                             Text(
-                              "正在探测...",
+                              s.detectingRooms,
                               style: TextStyle(
                                 color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
                                 fontSize: 14,
                               ),
                             ),
+                          ],
                         ],
                       ),
                     ),
@@ -334,7 +355,7 @@ class _HomeContentState extends State<HomeContent> {
                         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
                         alignment: Alignment.center,
                         child: Text(
-                          "未发现附近的房间或设备\n点击上方「扫描房间」或同连热点/蓝牙即可自动发现",
+                          s.noRoomsDiscoveredHint,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: textSecondary.withValues(alpha: 0.7),
@@ -382,7 +403,7 @@ class _HomeContentState extends State<HomeContent> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        "房主: ${room.hostNickname} · ${room.memberCount}/6 台",
+                                        s.roomHostInfo(room.hostNickname, room.memberCount, 6),
                                         style: TextStyle(color: textSecondary, fontSize: 14),
                                       ),
                                     ],
@@ -399,9 +420,9 @@ class _HomeContentState extends State<HomeContent> {
                                       borderRadius: BorderRadius.circular(22),
                                     ),
                                   ),
-                                  child: const Text(
-                                    "加入",
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  child: Text(
+                                    s.joinRoom,
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                   ),
                                 ),
                               ],
@@ -409,7 +430,7 @@ class _HomeContentState extends State<HomeContent> {
                           );
                         } else {
                           final peer = p2pPeers[index - rooms.length];
-                          final peerTitle = peer.name.isNotEmpty ? "${peer.name} 的 WiFi 房" : "附近 WiFi 房";
+                          final peerTitle = peer.name.isNotEmpty ? s.defaultWifiRoomTitle(peer.name) : s.nearbyWifiRoom;
                           return Container(
                             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                             decoration: BoxDecoration(
@@ -438,7 +459,7 @@ class _HomeContentState extends State<HomeContent> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        "房主: ${peer.name.isNotEmpty ? peer.name : '附近设备'} · 近场直连",
+                                        "${s.hostTag}: ${peer.name.isNotEmpty ? peer.name : s.nearbyDevice} · ${s.nearFieldDirect}",
                                         style: TextStyle(color: textSecondary, fontSize: 14),
                                       ),
                                     ],
@@ -455,9 +476,9 @@ class _HomeContentState extends State<HomeContent> {
                                       borderRadius: BorderRadius.circular(22),
                                     ),
                                   ),
-                                  child: const Text(
-                                    "加入",
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  child: Text(
+                                    s.joinRoom,
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                   ),
                                 ),
                               ],
@@ -495,8 +516,9 @@ class _HomeContentState extends State<HomeContent> {
   }
 
   String get _nickname {
+    final s = AppStrings.of(context);
     final text = _nicknameController.text.trim();
-    return text.isEmpty ? "探索者" : text;
+    return text.isEmpty ? s.defaultNickname : text;
   }
 
   /// 走 roster 的身份名，带十六进制短码，房间里好区分同名的人。
@@ -504,10 +526,11 @@ class _HomeContentState extends State<HomeContent> {
   String get _identityNickname => DeviceCode.attach(_nickname);
 
   void _onCreateRoom() async {
+    final s = AppStrings.of(context);
     final nickname = _nickname;
     final roomName = _selectedMode == RoomMode.wifiFullDuplex
-        ? "$nickname 的 WiFi 房"
-        : "$nickname 的蓝牙房";
+        ? s.defaultWifiRoomTitle(nickname)
+        : s.defaultBleRoomTitle(nickname);
 
     final session = RoomSession(
       audioIo: widget.audioIo,
@@ -570,9 +593,10 @@ class _HomeContentState extends State<HomeContent> {
   }
 
   void _onJoinWifiDirectPeer(WifiP2pPeer peer) async {
+    final s = AppStrings.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("正在连接 (${peer.name.isNotEmpty ? peer.name : peer.address})..."),
+        content: Text(s.connectingTo(peer.name.isNotEmpty ? peer.name : peer.address)),
         duration: const Duration(seconds: 4),
       ),
     );
@@ -581,8 +605,8 @@ class _HomeContentState extends State<HomeContent> {
     if (connectionInfo == null || !connectionInfo.isConnected || connectionInfo.groupOwnerAddress.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("近场连接失败，请确认对端已允许连接"),
+          SnackBar(
+            content: Text(s.directConnectPermissionFailed),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -609,7 +633,7 @@ class _HomeContentState extends State<HomeContent> {
     await session.joinRoom(startAudio: false);
 
     if (mounted) {
-      final displayName = peer.name.isNotEmpty ? "${peer.name} 的 WiFi 房" : "WiFi 房";
+      final displayName = peer.name.isNotEmpty ? s.defaultWifiRoomTitle(peer.name) : s.wifiRoom;
       widget.onEnterRoom(session, displayName);
     }
   }

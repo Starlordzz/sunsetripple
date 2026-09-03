@@ -57,7 +57,12 @@ void main() {
         isNight: false,
       );
       expect(tester.takeException(), isNull);
-      expect(find.text('通话中'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Text && (w.data == '通话中' || w.data == 'In call'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('${entry.key} 蓝牙房内布局不溢出', (tester) async {
@@ -68,7 +73,12 @@ void main() {
         isNight: true,
       );
       expect(tester.takeException(), isNull);
-      expect(find.text('按住说话'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Text && (w.data == '按住说话' || w.data == 'Hold to talk'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('${entry.key} 首页整场（背景+标题+前景）不溢出', (tester) async {
@@ -82,8 +92,20 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
 
       expect(tester.takeException(), isNull);
-      expect(find.text('落日后残波'), findsOneWidget);
-      expect(find.text('创建 WiFi 房'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Text && (w.data == '落日后残波' || w.data == 'SunsetRipple'),
+        ),
+        findsWidgets,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Text &&
+              (w.data == '创建 WiFi 房' || w.data == 'Create WiFi Room'),
+        ),
+        findsOneWidget,
+      );
     });
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../../l10n/app_strings.dart';
 
 /// Diagnostics & Connection Quality Sheet.
 class DiagnosticsSheet extends StatelessWidget {
@@ -18,6 +19,7 @@ class DiagnosticsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final bg = isNight ? AppTheme.darkBg : AppTheme.lightBg;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
     final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
@@ -37,7 +39,7 @@ class DiagnosticsSheet extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "网络与音质诊断",
+                s.diagnosticsTitle,
                 style: TextStyle(
                   color: textPrimary,
                   fontSize: 18,
@@ -52,28 +54,28 @@ class DiagnosticsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _MetricRow(
-            title: "当前在线成员",
-            value: "$memberCount / 6 台",
+            title: s.currentOnlineMembers,
+            value: s.deviceCount(memberCount, 6),
             cardBg: cardBg,
             textPrimary: textPrimary,
           ),
           const SizedBox(height: 10),
           _MetricRow(
-            title: "往返延迟 (RTT)",
+            title: s.roundTripLatency,
             value: "$roundTripTimeMs ms",
             cardBg: cardBg,
             textPrimary: textPrimary,
           ),
           const SizedBox(height: 10),
           _MetricRow(
-            title: "网络丢包率",
+            title: s.packetLossRateTitle,
             value: "$packetLossRate %",
             cardBg: cardBg,
             textPrimary: textPrimary,
           ),
           const SizedBox(height: 10),
           _MetricRow(
-            title: "音频编码格式",
+            title: s.audioCodecFormat,
             value: "Opus 16kHz Mono 20ms",
             cardBg: cardBg,
             textPrimary: textPrimary,

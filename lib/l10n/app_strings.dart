@@ -22,6 +22,7 @@ class AppStrings {
   String get nicknamePlaceholder => isEn ? 'Enter a nickname' : '输入昵称';
 
   // Modes & Descriptions
+  String get wifiRoom => isEn ? 'WiFi room' : 'WiFi 房';
   String get wifiDirect => isEn ? 'WiFi Direct' : 'WiFi 直连';
   String get wifiDescription =>
       isEn ? 'Router-free, for multi-person conversation' : '无需路由器，适合多人同时通话';
@@ -114,4 +115,70 @@ class AppStrings {
       isEn ? 'Theme: $current (Tap to switch)' : '当前主题: $current (点击切换)';
   String get themeLight => isEn ? 'Sunset Warm' : '暖金落日';
   String get themeDark => isEn ? 'Moonlit Ocean' : '月夜深海';
+
+  // Home & Stage
+  String get appSubheading => isEn
+      ? 'The sun has set, the ripples linger, whispering words unsaid.'
+      : '夕阳已远，涟漪未散，犹诉未尽之言。';
+  String get defaultNickname => isEn ? 'Explorer' : '探索者';
+  String get nicknameValidationEmpty => isEn ? 'Please enter a nickname' : '请输入昵称';
+  String get emptyRoomListHint => isEn
+      ? 'No nearby rooms found\nTap the button above to create a room'
+      : '未发现附近的房间\n点击上方按钮即可创建房间';
+  String get nearFieldDirect => isEn ? 'Direct P2P' : '近场直连';
+  String get nearbyWifiRoom => isEn ? 'Nearby WiFi Room' : '附近 WiFi 房';
+  String get directP2PExplanation => isEn
+      ? 'Direct P2P connects directly without router'
+      : '近场直连将自动建立免网连接并加入';
+  String get scanRooms => isEn ? 'Scan Rooms' : '扫描房间';
+  String get nearbyRoomsTitle => isEn ? 'Nearby Voice Rooms' : '附近的对讲房间';
+  String get detectingRooms => isEn ? 'Probing…' : '正在探测...';
+  String get noRoomsDiscoveredHint => isEn
+      ? 'No nearby rooms or devices found\nTap "Scan Rooms" above or join the same hotspot / Bluetooth to discover'
+      : '未发现附近的房间或设备\n点击上方「扫描房间」或同连热点/蓝牙即可自动发现';
+  String get wifiRoomChipSubtitle =>
+      isEn ? 'Same WiFi / Hotspot / Direct · Full Duplex' : '同连WiFi/热点/直连 · 畅聊';
+  String get bleRoomChipSubtitle =>
+      isEn ? 'Close-range Pairing-free · Hold to talk' : '近场免配对 · 按住对讲';
+  String get nearbyDevice => isEn ? 'Nearby device' : '附近设备';
+  String connectingTo(String target) => isEn ? 'Connecting ($target)...' : '正在连接 ($target)...';
+  String get directConnectFailed => isEn
+      ? 'Failed to establish Wi-Fi Direct connection. Please get closer and try again.'
+      : '未能成功建立 Wi-Fi Direct 直连，请靠近重试';
+  String get directConnectPermissionFailed => isEn
+      ? 'Direct connection failed. Please make sure the peer accepted the connection.'
+      : '近场连接失败，请确认对端已允许连接';
+  String roomHostInfo(String host, int count, int max) =>
+      isEn ? 'Host: $host · $count/$max devices' : '房主: $host · $count/$max 台';
+  String deviceCount(int count, int max) =>
+      isEn ? '$count / $max devices' : '$count / $max 台';
+  String defaultWifiRoomTitle(String name) =>
+      isEn ? "$name's WiFi Room" : '$name 的 WiFi 房';
+  String defaultBleRoomTitle(String name) =>
+      isEn ? "$name's Bluetooth Room" : '$name 的 蓝牙房';
+  String get connecting => isEn ? 'Connecting…' : '正在连接…';
+  String joinFailed(String msg) => isEn ? 'Failed to join: $msg' : '加入房间失败: $msg';
+
+  // Stage Header
+  String get tooltipInfoAndUpdates => isEn ? 'About & Updates' : '详情与更新';
+  String get tooltipToggleTheme => isEn ? 'Toggle Day/Night Theme' : '切换昼夜主题';
+  String get tooltipLeaveRoom => isEn ? 'Leave Room' : '离开房间';
+  String get tooltipDiagnostics => isEn ? 'Connection Diagnostics' : '连接诊断';
+  String get hostBroadcastingStatus => isEn ? 'Host · Broadcasting' : '我是房主 · 房间广播中';
+  String get memberConnectedStatus => isEn ? 'Joined · Voice Encrypted' : '已加入房间 · 语音加密互通中';
+
+  // Room Audio State
+  String get micMutedStatus => isEn ? 'Microphone muted' : '麦克风已静音';
+  String get speakingStatus => isEn ? 'Speaking…' : '正在说话...';
+  String get inCallStatus => isEn ? 'In call' : '通话中';
+  String get pttHoldingToTalk => isEn ? 'Speaking' : '正在讲话';
+  String get pttHoldToTalk => isEn ? 'Hold to talk' : '按住说话';
+  String get leave => isEn ? 'Leave' : '离开';
+  String get microphone => isEn ? 'Microphone' : '麦克风';
+
+  // Diagnostics Sheet
+  String get currentOnlineMembers => isEn ? 'Online Members' : '当前在线成员';
+  String get roundTripLatency => isEn ? 'RTT Latency' : '往返延迟 (RTT)';
+  String get packetLossRateTitle => isEn ? 'Packet Loss Rate' : '网络丢包率';
+  String get audioCodecFormat => isEn ? 'Audio Codec' : '音频编码格式';
 }
