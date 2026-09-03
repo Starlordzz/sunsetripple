@@ -28,7 +28,7 @@ flowchart TD
 
     subgraph SHELLS ["🐚 Shells（各平台超薄打包外壳）"]
         S_AND["📱 Android Shell (`app/`)<br/>• Activity / 前台服务<br/>• WifiDirectManager & BluetoothAdapter<br/>• 产出 `.apk`"]
-        S_IOS["🍏 iOS Shell (`ios/`)<br/>• SwiftUI Launcher<br/>• AudioUnit (VoiceProcessingIO) & Multipeer<br/>• 产出 `.ipa` / App"]
+        S_IOS["🍏 iOS Shell (`ios/`)<br/>• Flutter Runner<br/>• AudioUnit (VoiceProcessingIO) & CoreBluetooth L2CAP<br/>• 产出 `.ipa`"]
         S_HARMONY["🔴 HarmonyOS NEXT Shell (`harmonyos/`)<br/>• ArkUI Launcher<br/>• @ohos.multimedia.audio & @ohos.net.wifi<br/>• 产出 `.hap`"]
         S_DESKTOP["💻 Desktop Shell (`desktop/`)<br/>• JavaSound & Windows/Mac 窗口启动器<br/>• 产出 `.exe` / `.msi`"]
     end
@@ -46,7 +46,7 @@ flowchart TD
 | **Core 统一核心** | [`app/src/main/kotlin/host/msknet/sunsetripple/`](file:///d:/LEARNING/vibeproject/SunsetRipple/app/src/main/kotlin/host/msknet/sunsetripple/) | • `protocol/`：统一二进制帧<br/>• `audio/`：混音、抖动缓冲、`AudioIo` 接口<br/>• `transport/lan/`：UDP 8990 跨端房间发现<br/>• `session/`：房间会话生命周期<br/>• `ui/`：落日调色板与工具栏决策模型 |
 | **Android Shell** | [`app/`](file:///d:/LEARNING/vibeproject/SunsetRipple/app/) | 承载 AndroidManifest、前台保活服务、`WifiP2pManager` 与 `BluetoothServerSocket` |
 | **HarmonyOS Shell** | [`harmonyos/`](file:///d:/LEARNING/vibeproject/SunsetRipple/harmonyos/) | 承载 DevEco Studio 工程、ArkTS 入口、`AudioCapturer`/`AudioRenderer`、ArkUI 界面 |
-| **iOS Shell** | [`ios/`](file:///d:/LEARNING/vibeproject/SunsetRipple/ios/) | 承载 Xcode 工程、SwiftUI 入口、`AudioUnit` 硬件 AEC、`MultipeerConnectivity` |
+| **iOS Shell** | [`ios/`](file:///d:/LEARNING/vibeproject/SunsetRipple/ios/) | 承载 Xcode 工程、Flutter Runner、`PlatformAudioPlugin` (VoiceProcessingIO)、`BleL2capPlugin` |
 
 ---
 

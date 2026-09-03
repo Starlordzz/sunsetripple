@@ -47,18 +47,15 @@
 
 <br>
 
-> **各平台完成度**——Flutter 主线（统一 Dart 会话核心）目前**只在 Android 上功能完整**。
-> iOS 另有一套独立的原生 SwiftUI 实现（`ios/SunsetRipple/`），可用但不共享 Dart 核心；
-> Flutter 版 iOS 宿主仍是空壳，缺口与计划见 [docs/ios-flutter-port.md](docs/ios-flutter-port.md)。
-> HarmonyOS NEXT 是一套独立的原生 ArkTS 工程（`harmonyos/`），需自行用 DevEco Studio
-> 构建，见 [docs/harmonyos-build.md](docs/harmonyos-build.md)。
+> **各平台完成度**——Flutter 主线（统一 Dart 会话核心）已覆盖 Android 与 iOS。
+> iOS 平台已全面收敛至 Flutter 统一宿主（`ios/Runner/`），共享 Dart 状态机与帧协议，原生音频与 BLE 插件已就绪。
+> HarmonyOS NEXT 为独立原生 ArkTS 工程（`harmonyos/`），需自行用 DevEco Studio 构建，见 [docs/harmonyos-build.md](docs/harmonyos-build.md)。
 
-| 平台 | 实现 | 发布产物 | 状态 |
+| 平台 | 技术栈 | 发布产物 | 状态 |
 | --- | --- | --- | --- |
 | Android 8.0+ | Flutter + Kotlin 原生插件 | `.apk`，直接安装 | ✅ 功能完整 |
-| iOS 15+ | 独立原生 SwiftUI | `.ipa`，**未签名**，需侧载重签 | ⚠️ 可用，不共享 Dart 核心 |
-| iOS 15+ | Flutter 宿主 | `.ipa`，未签名 | 🚧 空壳，音频/发现/BLE 均未接通 |
-| HarmonyOS NEXT | 独立原生 ArkTS | 源码工程 zip | 🚧 需自行构建签名 |
+| iOS 15+ | Flutter + Swift 原生插件 | `.ipa`，**未签名**，需侧载重签 | 🚧 原生音频与 BLE 就绪，搜房待适配 Bonjour |
+| HarmonyOS NEXT | 独立原生 ArkTS | 源码工程 zip | 🚧 需本地 DevEco 构建签名 |
 
 <br>
 
@@ -113,7 +110,7 @@
 从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新版本：
 
 - **Android**（需 8.0 / API 26 以上）：下载 `SunsetRipple-*.apk` 直接安装。体积约 45 MB，包含 Flutter 引擎与原生 Opus HAL。
-- **iOS**（需 15.0 以上）：下载 `SunsetRipple-native-*-unsigned.ipa`。这是**未签名**包，需用 [AltStore](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 以你自己的 Apple ID 在电脑上重签后安装（免费 Apple ID 签名有效期 7 天，到期需重签）。
+- **iOS**（需 15.0 以上）：下载 `SunsetRipple-flutter-*-unsigned.ipa`。这是基于 Flutter 统一宿主的**未签名**包，需用 [AltStore](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 以你自己的 Apple ID 在电脑上重签后安装（免费 Apple ID 签名有效期 7 天，到期需重签）。
 - **HarmonyOS NEXT**：下载 `SunsetRipple-HarmonyOS-source-*.zip`，用 DevEco Studio 打开自行构建并签名，步骤见 [docs/harmonyos-build.md](docs/harmonyos-build.md)。
 
 > **为什么 iOS 和鸿蒙没有「下载即装」的包？**
@@ -122,9 +119,6 @@
 > 鸿蒙 NEXT 零售机只接受 AGC 调试证书（绑定设备 UDID、上限 100 台）或应用市场
 > 发布签名的 HAP，不存在未签名侧载路径，且 DevEco 命令行工具需华为开发者账号
 > 登录才能获取，无法在公共 CI 上构建。
->
-> 另有 `SunsetRipple-flutter-*-unsigned.ipa` 为 Flutter 主线的构建产物，
-> 目前音频、搜房与 BLE 均未接通，仅供构建验证，请勿使用。
 
 <br>
 
@@ -213,8 +207,8 @@ Release APK 生成路径位于 `build/app/outputs/flutter-apk/app-release.apk`�
 
 ```text
 SunsetRipple/
-├── android/               # Android 原生宿主、PlatformAudioPlugin 与 BleL2capPlugin
-├── ios/                   # iOS 原生宿主、PlatformAudioPlugin 与 SwiftUI 资产
+├── android/               # Android 原生宿主、PlatformAudioPlugin、BleL2capPlugin 与 WifiDirectPlugin
+├── ios/                   # iOS Flutter 宿主、PlatformAudioPlugin 与 BleL2capPlugin
 ├── native/                # 跨平台 C++ 核心（无锁环形缓冲区 RingBuffer、DSP 混音）
 ├── lib/
 │   ├── core/

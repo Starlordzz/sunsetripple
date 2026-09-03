@@ -1,76 +1,38 @@
-# iOS Flutter 端接通计划
+# iOS Flutter 端架构与适配进展
 
-`ios/Runner/` 目前是一个**未经改动的 Flutter 脚手架**。CI 里的
-`build-ios-flutter` job 能产出一个真实的 `.ipa`（与 Android 同源，含完整
-Flutter 引擎与 Dart 会话核心），但**装上后除界面外没有任何功能可用**。
+从 v0.1.0-alpha.9 起，iOS 平台已彻底废除并移除早期的独立 SwiftUI 子工程（`ios/SunsetRipple/`），全面收敛至 Flutter 统一宿主（`ios/Runner/`）。
 
-在这些缺口补齐之前，请继续使用 `build-ios-native` 产出的
-`SunsetRipple-native-*-unsigned.ipa`——那是 `ios/SunsetRipple/` 下的独立
-SwiftUI 实现，自带 AVAudioEngine 音频与 MultipeerConnectivity 发现。
+三端（Android / iOS / HarmonyOS）基于同一套二进制帧协议与会话模型演进，iOS 与 Android 100% 共享 Dart 会话核心（`lib/core/`）与 UI 界面。
 
-## 缺口清单
+## 落地清单
 
-### 1. 平台音频通道未实现（阻断级）
+### 1. 平台音频通道（已实现）
 
-`ios/Runner/PlatformAudioPlugin.swift` 是**空文件**（0 字节），
-`ios/Runner/AppDelegate.swift` 是原版模板，只调了
-`GeneratedPluginRegistrant.register`。整个 `ios/` 目录搜不到一个
-`MethodChannel`。
+`ios/Runner/PlatformAudioPlugin.swift` 已完整实现统一平台音频通道：
+- 对齐方法通道：`host.msknet.sunsetripple/audio`
+- 对齐事件通道：`host.msknet.sunsetripple/audio_events`
+- 基于 Apple 硬件声学前端 `VoiceProcessingIO` AudioUnit，提供硬件级回声消除（AEC）、噪声抑制（NS）与自动增益（AGC）。
+- 具备 16kHz / 单声道 / 20ms（320 采样点）PCM 实时采集、RMS 能量电平计算、多路远端音频饱和防爆音混音与听筒/扬声器/外接麦克风动态路由。
 
-Dart 侧 `PlatformAudioChannel` 会收到 `MissingPluginException`。注意
-`lib/core/platform/platform_audio_channel.dart:13-15` 的注释——作者在
-Android 上踩过同一个坑，症状是「界面一切正常但没有声音」。
+### 2. BLE L2CAP 蓝牙面向连接信道（已实现）
 
-需要实现的契约（与 `android/.../PlatformAudioPlugin.kt` 完全对齐）：
+`ios/Runner/BleL2capPlugin.swift` 基于 `CoreBluetooth` 完整实现：
+- 方法通道：`host.msknet.sunsetripple/ble_l2cap`
+- 数据事件通道：`host.msknet.sunsetripple/ble_l2cap_data`
+- 扫描事件通道：`host.msknet.sunsetripple/ble_l2cap_scan`
+- 房主（Host）发布动态 PSM 广播；成员扫描并连接 `CBL2CAPChannel` 进行全双工点对点数据流通讯。无需 MFi 硬件认证。
 
-| 通道 | 类型 | 名称 |
-| --- | --- | --- |
-| 方法 | `MethodChannel` | `host.msknet.sunsetripple/audio` |
-| 事件 | `EventChannel` | `host.msknet.sunsetripple/audio_events` |
+---
 
-方法共 10 个：`startCapture` `stopCapture` `stopPlayback`
-`submitRemoteFrame` `setBitrate` `setMuted` `setSpeakerphone`
-`setUseBuiltinMic` `removeRemoteMember` `clearRemoteMembers`。
+## 推进中事项
 
-可直接移植 `ios/SunsetRipple/Audio/VoiceProcessingAudioEngine.swift`——
-它已经用 `AVAudioEngine` + `.voiceChat` 模式拿到了硬件 AEC/NS/AGC。
+### 1. WiFi 搜房方案切换为 Bonjour
 
-### 2. WiFi 搜房被 Apple 挡死（需改架构）
+`lib/core/transport/lan_discovery.dart:152` 把发现包发往 `InternetAddress("255.255.255.255")`。iOS 14+ 起，发送广播或组播需要 `com.apple.developer.networking.multicast` 授权，该授权要求付费 Apple Developer Program 账号并经 Apple 逐案审批。
+- 音频单播通路不受影响（`lan_transport.dart` 为单播，只需 `NSLocalNetworkUsageDescription`）。
+- 搜房方案：iOS 侧通过 `NWBrowser` / `NWListener` 注册与浏览 `_sunsetripple._udp`，由系统代做组播发现并交回 Dart。`Info.plist` 的 `NSBonjourServices` 已预先声明好这两个服务类型。
 
-`lib/core/transport/lan_discovery.dart:152` 把发现包发往
-`InternetAddress("255.255.255.255")`。iOS 14+ 起，**发送广播或组播需要
-`com.apple.developer.networking.multicast` 授权**，该授权要求付费
-Apple Developer Program 账号并经 Apple 逐案审批。没有账号则此路不通。
-
-好消息是**音频通路不受影响**：`lan_transport.dart:413` 与 `:441` 都是
-单播（`socket.send(bytes, endpoint.address, endpoint.port)`），只需
-`NSLocalNetworkUsageDescription` 即可，该权限已在 `Info.plist` 中补齐。
-
-所以只有「发现」这一步需要换机制。两个免授权方案：
-
-- **Bonjour**（推荐）：iOS 侧用 `NWBrowser` / `NWListener` 注册与浏览
-  `_sunsetripple._udp`，由系统代做组播。`Info.plist` 的
-  `NSBonjourServices` 已预先声明好这两个服务类型。发现到 peer 后解析出
-  IP/端口交回 Dart，后续单播流程完全复用现有代码。
-- **MultipeerConnectivity**：`ios/SunsetRipple/Transport/MultipeerTransport.swift`
-  已有实现，但它自带一套传输语义，与 Dart 的帧协议耦合度更高。
-
-无论选哪个，都需要把 `LanRoomDiscovery` 抽象成按平台可替换的发现策略：
-Android 保留 UDP 广播，iOS 走平台通道。
-
-### 3. BLE L2CAP 未实现
-
-`ios/` 下没有任何 `CBL2CAPChannel` 代码。需对齐 Android
-`BleL2capPlugin.kt` 的三个通道：
-
-- `host.msknet.sunsetripple/ble_l2cap`（方法）
-- `host.msknet.sunsetripple/ble_l2cap_data`（事件）
-- `host.msknet.sunsetripple/ble_l2cap_scan`（事件）
-
-`CBL2CAPChannel` 不需要 MFi 认证，也不需要特殊授权，
-`NSBluetoothAlwaysUsageDescription` 已补齐。
-
-### 4. 原生 C++ 未接入 Runner target
+### 2. 原生 C++ 接入 Runner target
 
 `ios/Runner.xcodeproj/project.pbxproj` 没有引用 `native/src/*.cpp`，
 `NativeCoreFfi` 在 iOS 上会走 `DynamicLibrary.process()` 查不到符号，
