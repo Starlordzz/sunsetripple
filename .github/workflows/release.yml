@@ -104,7 +104,7 @@ jobs:
           fi
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-release
           path: release-artifacts/
@@ -149,7 +149,7 @@ jobs:
           ls -la
 
       - name: Upload iOS Flutter artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-flutter-release
           path: ios-flutter-artifacts/
@@ -195,7 +195,7 @@ jobs:
             -x 'harmonyos/oh_modules/*' 'harmonyos/build/*' 'harmonyos/.hvigor/*'
 
       - name: Upload HarmonyOS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: harmonyos-release
           path: harmonyos-artifacts/
