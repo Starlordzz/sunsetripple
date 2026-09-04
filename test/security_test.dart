@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sunset_ripple/core/audio/audio_io.dart';
 import 'package:sunset_ripple/core/protocol/frame.dart';
 import 'package:sunset_ripple/core/protocol/frame_type.dart';
+import 'package:sunset_ripple/core/protocol/payloads/chat_message.dart';
 import 'package:sunset_ripple/core/security/session_crypto.dart';
 import 'package:sunset_ripple/core/security/session_handshake.dart';
+import 'package:sunset_ripple/core/session/room_session.dart';
 
 void main() {
   group('SessionCrypto Tests', () {
@@ -195,6 +198,45 @@ void main() {
       );
 
       expect(() async => await codec.seal(frame), throwsArgumentError);
+    });
+
+    test('RoomSession chat sealing pipeline: unsealed by default, sealed when secureCodec is set', () async {
+      final sent = <Frame>[];
+      final session = RoomSession(
+        audioIo: MockAudioIo(),
+        selfNickname: '加密测试者',
+      );
+      session.onSendFrame = sent.add;
+      await session.createRoom();
+
+      // 1. Default production state (secureCodec == null): sends plain FrameType.chat
+      expect(session.secureCodec, isNull);
+      await session.sendChat('明文兼容消息');
+      expect(sent.last.type, FrameType.chat);
+
+      // 2. When secureCodec is configured: automatically seals to FrameType.sealed
+      final keyBytes = Uint8List(32);
+      for (int i = 0; i < 32; i++) {
+        keyBytes[i] = i + 1;
+      }
+      final cipher = await SessionCipher.fromKey(keyBytes);
+      final codec = SecureFrameCodec(cipher);
+      session.secureCodec = codec;
+
+      await session.sendChat('机密聊天消息');
+      final sealedFrame = sent.last;
+      expect(sealedFrame.type, FrameType.sealed);
+
+      // 3. Opening the sealed frame restores the original FrameType.chat and text
+      final openedFrame = await codec.open(sealedFrame);
+      expect(openedFrame.type, FrameType.chat);
+      expect(openedFrame.senderId, session.selfMemberId);
+
+      final payload = ChatMessagePayload.decode(openedFrame.payload);
+      expect(payload, isNotNull);
+      expect(payload!.text, '机密聊天消息');
+
+      await session.dispose();
     });
   });
 }
