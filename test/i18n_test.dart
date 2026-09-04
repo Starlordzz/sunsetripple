@@ -38,6 +38,9 @@ void main() {
       expect(s.chatRecallConfirm, contains('确定为所有人删除'));
       expect(s.chatRecalledTip, '你撤回了一条消息');
       expect(s.formerNameLabel('旧名字'), '曾用名: 旧名字');
+      expect(s.hostRoleBadge, '房主');
+      expect(s.chatSelfBadge, '我');
+      expect(s.deviceCodeTooltip, '设备标识码');
     });
 
     test('English strings return non-empty localized texts', () {
@@ -75,6 +78,9 @@ void main() {
       expect(s.chatRecallConfirm, contains('Delete this message for everyone'));
       expect(s.chatRecalledTip, 'You recalled a message');
       expect(s.formerNameLabel('OldName'), 'Formerly: OldName');
+      expect(s.hostRoleBadge, 'Host');
+      expect(s.chatSelfBadge, 'Me');
+      expect(s.deviceCodeTooltip, 'Device ID');
     });
   });
 }

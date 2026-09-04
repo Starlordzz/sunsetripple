@@ -57,7 +57,7 @@ class ChatMessagePayload {
     }
 
     // Version 2
-    final codeAscii = ascii.encode(senderCode.padRight(4, '0').substring(0, 4));
+    final codeAscii = ascii.encode(senderCode.padRight(4, ' ').substring(0, 4));
     final buffer = Uint8List(15 + textBytes.length);
     final bd = ByteData.sublistView(buffer);
     buffer[0] = 2;
@@ -98,7 +98,7 @@ class ChatMessagePayload {
       if (data.length < 15) return null;
       final bd = ByteData.sublistView(data);
       final timestamp = bd.getUint64(1, Endian.big);
-      final code = ascii.decode(data.sublist(9, 13), allowInvalid: true);
+      final code = ascii.decode(data.sublist(9, 13), allowInvalid: true).trim();
       final textLength = bd.getUint16(13, Endian.big);
       if (textLength == 0 || textLength > maxTextBytes) return null;
       if (data.length != 15 + textLength) return null;

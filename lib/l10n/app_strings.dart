@@ -205,4 +205,7 @@ class AppStrings {
       isEn ? 'You recalled a message' : '你撤回了一条消息';
   String formerNameLabel(String name) =>
       isEn ? 'Formerly: $name' : '曾用名: $name';
+  String get hostRoleBadge => isEn ? 'Host' : '房主';
+  String get chatSelfBadge => isEn ? 'Me' : '我';
+  String get deviceCodeTooltip => isEn ? 'Device ID' : '设备标识码';
 }

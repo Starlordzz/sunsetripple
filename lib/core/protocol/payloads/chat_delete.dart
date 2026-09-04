@@ -22,7 +22,7 @@ class ChatDeletePayload {
   });
 
   Uint8List encode() {
-    final codeBytes = ascii.encode(senderCode.padRight(4, '0').substring(0, 4));
+    final codeBytes = ascii.encode(senderCode.padRight(4, ' ').substring(0, 4));
     final msgIdBytes = utf8.encode(messageId);
     final msgIdLen = msgIdBytes.length.clamp(0, 64);
 
@@ -39,7 +39,7 @@ class ChatDeletePayload {
     final version = data[0];
     if (version != currentVersion) return null;
 
-    final senderCode = ascii.decode(data.sublist(1, 5), allowInvalid: true);
+    final senderCode = ascii.decode(data.sublist(1, 5), allowInvalid: true).trim();
     final msgIdLen = data[5];
     if (data.length != 6 + msgIdLen) return null;
 

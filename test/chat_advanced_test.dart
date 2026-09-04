@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sunset_ripple/core/audio/audio_io.dart';
 import 'package:sunset_ripple/core/protocol/frame.dart';
@@ -9,7 +10,9 @@ import 'package:sunset_ripple/core/protocol/payloads/join_request.dart';
 import 'package:sunset_ripple/core/protocol/payloads/roster.dart';
 import 'package:sunset_ripple/core/session/device_code.dart';
 import 'package:sunset_ripple/core/session/room_session.dart';
+import 'package:sunset_ripple/l10n/app_strings.dart';
 import 'package:sunset_ripple/ui/widgets/avatar_frame.dart';
+import 'package:sunset_ripple/ui/widgets/room_chat_sheet.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -75,6 +78,9 @@ void main() {
       expect(clientSession.chatMessages.length, 2);
       expect(clientSession.chatMessages[0].text, '第一条开房公告');
       expect(clientSession.chatMessages[1].text, '第二条房间规则');
+
+      await hostSession.dispose();
+      await clientSession.dispose();
     });
 
     test('跨退出改名识别：同一设备短码改名重入后正确识别同人并关联曾用名', () async {
@@ -143,6 +149,8 @@ void main() {
       expect(session.chatMessages.length, 2);
       expect(session.chatMessages.last.senderNickname, '银河旅行家');
       expect(session.chatMessages.last.previousNickname, '探索者');
+
+      await session.dispose();
     });
 
     test('全员撤回与删除消息：本人可撤回，他人无法伪造撤回，各端同步移除', () async {
@@ -169,7 +177,7 @@ void main() {
       final delFrame = sentFrames.firstWhere((f) => f.type == FrameType.chatDelete);
       expect(delFrame, isNotNull);
       final delPayload = ChatDeletePayload.decode(delFrame.payload);
-      expect(delPayload!.senderCode, DeviceCode.current);
+      expect(delPayload!.senderCode, DeviceCode.toNumeric('AAAA'));
       expect(delPayload.messageId, myMsg.messageId);
 
       // 模拟远端收到该 chatDelete 帧并在远端移除
@@ -228,6 +236,9 @@ void main() {
         ).encode(),
       ));
       expect(remoteSession.chatMessages, isEmpty); // 成功被移除
+
+      await session.dispose();
+      await remoteSession.dispose();
     });
 
     test('确定性系统头像框：不可自定义，房主专属金辉，成员算法恒定映射', () {
@@ -248,6 +259,132 @@ void main() {
       final host2 = AvatarFrameTheme.fromCode('BBBB', isHost: true);
       expect(host1.name, 'HostCrown');
       expect(host2.name, 'HostCrown');
+    });
+
+    testWidgets('RoomChatSheet 气泡署名：同名冲突显隐与身份徽标', (tester) async {
+      final session = RoomSession(
+        audioIo: MockAudioIo(),
+        selfNickname: '探索者#${DeviceCode.current}',
+      );
+      await session.createRoom(startAudio: false);
+
+      // 1. 本机发送的消息（探索者，房主）
+      await session.sendChat('我是本地探索者');
+
+      // 2. 远端同名探索者发送的消息
+      const remoteExplorerCode = '327';
+      session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 1,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '探索者#${DeviceCode.current}'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '探索者#$remoteExplorerCode'),
+            RosterMember(memberId: 3, flags: 0x00, nickname: '阿彬#222'),
+          ],
+        ).encode(),
+      ));
+
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chat,
+        senderId: 2,
+        seq: 2,
+        payload: const ChatMessagePayload(
+          text: '我是远端同名探索者',
+          senderCode: remoteExplorerCode,
+        ).encode(),
+      ));
+
+      // 3. 远端唯一昵称「阿彬」发送的消息
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chat,
+        senderId: 3,
+        seq: 3,
+        payload: const ChatMessagePayload(
+          text: '我是阿彬，我的名字独一无二',
+          senderCode: '222',
+        ).encode(),
+      ));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomChatSheet(
+              session: session,
+              isNight: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final s = AppStrings.of(tester.element(find.byType(RoomChatSheet)));
+      // 验证身份徽标
+      expect(find.text(s.chatSelfBadge), findsOneWidget);
+      expect(find.text(s.hostRoleBadge), findsOneWidget);
+
+      // 验证同名冲突智能显隐：
+      // 同名为「探索者」的两位，均显式展示 3 位数字设备码
+      expect(find.text('#${DeviceCode.current}'), findsOneWidget);
+      expect(find.text('#327'), findsOneWidget);
+
+      // 唯一命名的「阿彬」，设备码被智能隐藏
+      expect(find.text('阿彬'), findsOneWidget);
+      expect(find.text('#222'), findsNothing);
+
+      await session.dispose();
+    });
+
+    testWidgets('平板宽屏软键盘弹起时零 Overflow 测试', (tester) async {
+      final session = RoomSession(
+        audioIo: MockAudioIo(),
+        selfNickname: '探索者#${DeviceCode.current}',
+      );
+      await session.createRoom(startAudio: false);
+
+      // 塞入多条消息使列表有充分内容
+      for (int i = 1; i <= 8; i++) {
+        await session.sendChat('测试聊天消息行 $i');
+      }
+
+      // 设置平板横屏尺寸（1024 x 768）
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      // 模拟底部软键盘弹起 320px 的 viewInsets
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(
+            size: Size(1024, 768),
+            padding: EdgeInsets.only(top: 24),
+            viewInsets: EdgeInsets.only(bottom: 320),
+          ),
+          child: MaterialApp(
+            home: Scaffold(
+              body: RoomChatSheet(
+                session: session,
+                isNight: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 检查输入框和发送按钮正常可见
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.byIcon(Icons.send_rounded), findsOneWidget);
+
+      // 检查零 Flutter overflow 错误
+      expect(tester.takeException(), isNull);
+
+      await session.dispose();
     });
   });
 }

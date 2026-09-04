@@ -807,7 +807,9 @@ class RoomSession {
       throw ArgumentError('Chat message text cannot be empty or whitespace-only.');
     }
 
-    final code = DeviceCode.current;
+    final fullNickname = _members[_selfMemberId]?.nickname ?? selfNickname;
+    final rawCode = DeviceCode.split(fullNickname).$2 ?? DeviceCode.current;
+    final code = DeviceCode.toNumeric(rawCode);
     final now = DateTime.now();
     final timestampMs = now.millisecondsSinceEpoch;
     final seq = _nextSeq();
@@ -835,7 +837,6 @@ class RoomSession {
     await sendFrame(frame);
 
     // 本地立即追加一条 isLocal = true 消息
-    final fullNickname = _members[_selfMemberId]?.nickname ?? selfNickname;
     _recordMemberIdentity(_selfMemberId, fullNickname);
     final cleanNickname = _currentNicknameByCode[code] ?? DeviceCode.split(fullNickname).$1;
     final prevNick = _previousNicknamesByCode[code]?.join('、');
@@ -885,7 +886,7 @@ class RoomSession {
     _recordMemberIdentity(frame.senderId, sender.nickname);
     final split = DeviceCode.split(sender.nickname);
     final senderCode = (payload.senderCode != '0000' && payload.senderCode.isNotEmpty)
-        ? payload.senderCode
+        ? DeviceCode.toNumeric(payload.senderCode)
         : (split.$2 ?? 'M${frame.senderId}');
     final cleanNickname = _currentNicknameByCode[senderCode] ?? split.$1;
     final prevNick = _previousNicknamesByCode[senderCode]?.join('、');
@@ -986,8 +987,9 @@ class RoomSession {
     if (idx == -1) return;
     final target = _chatMessages[idx];
 
+    final myCode = DeviceCode.toNumeric(DeviceCode.split(selfNickname).$2 ?? DeviceCode.current);
     // 权限校验：只能删除自己发送的消息
-    if (!target.isLocal && target.senderCode != DeviceCode.current) {
+    if (!target.isLocal && DeviceCode.toNumeric(target.senderCode) != myCode) {
       throw StateError('Cannot delete messages sent by other members.');
     }
 
@@ -999,7 +1001,7 @@ class RoomSession {
 
     // 广播撤回帧给所有人
     final deletePayload = ChatDeletePayload(
-      senderCode: DeviceCode.current,
+      senderCode: myCode,
       messageId: messageId,
     );
     final frame = Frame(
@@ -1020,7 +1022,7 @@ class RoomSession {
 
     final target = _chatMessages[idx];
     // 校验发起人短码是否与消息作者一致
-    if (target.senderCode != payload.senderCode) {
+    if (DeviceCode.toNumeric(target.senderCode) != DeviceCode.toNumeric(payload.senderCode)) {
       AppLog.warn('RoomSession', '收到非法撤回请求：发起方 ${payload.senderCode} 试图撤回作者 ${target.senderCode} 的消息');
       return;
     }

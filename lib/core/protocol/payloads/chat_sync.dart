@@ -43,7 +43,7 @@ class ChatSyncPayload {
     final textBytes = utf8.encode(text);
     final textLen = textBytes.length.clamp(0, 480);
 
-    final codeBytes = ascii.encode(senderCode.padRight(4, '0').substring(0, 4));
+    final codeBytes = ascii.encode(senderCode.padRight(4, ' ').substring(0, 4));
 
     final totalLen = 1 + 1 + 4 + 8 + 1 + msgIdLen + 1 + nickLen + 2 + textLen;
     final buffer = Uint8List(totalLen);
@@ -75,7 +75,7 @@ class ChatSyncPayload {
 
     final targetMemberId = data[0];
     final senderId = data[1];
-    final senderCode = ascii.decode(data.sublist(2, 6), allowInvalid: true);
+    final senderCode = ascii.decode(data.sublist(2, 6), allowInvalid: true).trim();
     final timestampMs = ByteData.sublistView(data).getUint64(6, Endian.big);
 
     int offset = 14;

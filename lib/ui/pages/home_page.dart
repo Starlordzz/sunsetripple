@@ -149,20 +149,23 @@ class _HomeContentState extends State<HomeContent> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: (isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral).withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '#${DeviceCode.current}',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.8,
-                                  color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                            Tooltip(
+                              message: '${s.deviceCodeTooltip} (#${DeviceCode.current})',
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: (isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  '#${DeviceCode.current}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.8,
+                                    color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                                  ),
                                 ),
                               ),
                             ),

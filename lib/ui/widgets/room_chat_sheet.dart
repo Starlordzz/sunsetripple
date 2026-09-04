@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../core/session/chat_message.dart';
+import '../../core/session/device_code.dart';
 import '../../core/session/room_session.dart';
 import '../../l10n/app_strings.dart';
 import '../theme/app_theme.dart';
@@ -154,6 +155,131 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     }
   }
 
+  Widget _buildBubbleHeader({
+    required BuildContext context,
+    required ChatMessage msg,
+    required bool isLocal,
+    required bool isFormer,
+    required bool hasConflict,
+    required AppStrings s,
+    required Color textSecondary,
+    required Color accentColor,
+    required bool isNight,
+  }) {
+    final (baseName, codeInNick) = DeviceCode.split(msg.senderNickname);
+    final rawCode = codeInNick ?? (msg.senderCode.isNotEmpty ? msg.senderCode : null);
+    final numericCode = rawCode != null ? DeviceCode.toNumeric(rawCode) : '';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Wrap(
+        spacing: 5,
+        runSpacing: 2,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        alignment: isLocal ? WrapAlignment.end : WrapAlignment.start,
+        children: [
+          // 1. [我] 身份徽标（本地发送者专属）
+          if (isLocal)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                s.chatSelfBadge,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: accentColor,
+                ),
+              ),
+            ),
+
+          // 2. [★ 房主] 身份徽标（房主专属）
+          if (msg.isHost)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: (isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral)
+                    .withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.star,
+                    size: 10,
+                    color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    s.hostRoleBadge,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // 3. 基础昵称
+          Text(
+            baseName,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: textSecondary,
+            ),
+          ),
+
+          // 4. 设备码后缀：仅在同名冲突时智能展示 #108
+          if (hasConflict && numericCode.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: textSecondary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '#$numericCode',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'monospace',
+                  color: textSecondary.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+
+          // 5. 曾用名标注
+          if (msg.previousNickname != null && msg.previousNickname!.isNotEmpty)
+            Text(
+              '(${s.formerNameLabel(msg.previousNickname!)})',
+              style: TextStyle(
+                fontSize: 10,
+                color: accentColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+
+          // 6. 已退出成员标注
+          if (isFormer)
+            Text(
+              '(${s.chatFormerMember})',
+              style: TextStyle(
+                fontSize: 10,
+                color: textSecondary.withValues(alpha: 0.6),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -166,280 +292,306 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     final messages = widget.session.chatMessages;
     final activeMemberIds = widget.session.members.map((m) => m.memberId).toSet();
 
+    // 智能同名检测：统计每个基准名字关联的设备标识码数量
+    final baseNameToCodes = <String, Set<String>>{};
+    for (final member in widget.session.members) {
+      final (base, code) = DeviceCode.split(member.nickname);
+      if (code != null) {
+        baseNameToCodes.putIfAbsent(base, () => <String>{}).add(DeviceCode.toNumeric(code));
+      } else {
+        baseNameToCodes.putIfAbsent(base, () => <String>{}).add('m_${member.memberId}');
+      }
+    }
+    for (final msg in messages) {
+      final (base, codeInNick) = DeviceCode.split(msg.senderNickname);
+      final rawCode = codeInNick ?? (msg.senderCode.isNotEmpty ? msg.senderCode : null);
+      final numericCode = rawCode != null ? DeviceCode.toNumeric(rawCode) : 's_${msg.senderId}';
+      baseNameToCodes.putIfAbsent(base, () => <String>{}).add(numericCode);
+    }
+
+    // 平板及宽屏自适应与软键盘防 Overflow 高度计算
+    final mediaQuery = MediaQuery.of(context);
+    final viewInsets = mediaQuery.viewInsets;
+    final screenHeight = mediaQuery.size.height;
+    final screenWidth = mediaQuery.size.width;
+    final isTablet = screenWidth > 600;
+    final keyboardHeight = viewInsets.bottom;
+    final topPadding = mediaQuery.padding.top;
+
+    final double maxSheetHeight = (screenHeight - topPadding - 24).clamp(240.0, screenHeight);
+    final double targetHeight = keyboardHeight > 0
+        ? (screenHeight - keyboardHeight - topPadding - 16).clamp(240.0, maxSheetHeight)
+        : (screenHeight * (isTablet ? 0.65 : 0.72)).clamp(280.0, maxSheetHeight);
+
     return Material(
       color: Colors.transparent,
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.72,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
-              blurRadius: 16,
-              offset: const Offset(0, -4),
+      child: AnimatedPadding(
+        padding: EdgeInsets.only(bottom: keyboardHeight),
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: isTablet ? 620 : double.infinity,
+              maxHeight: targetHeight,
             ),
-          ],
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              // 1. 顶部把手与标题栏
-              const SizedBox(height: 10),
-              Container(
-                width: 38,
-                height: 4.5,
-                decoration: BoxDecoration(
-                  color: textSecondary.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(2.5),
-                ),
+            child: Container(
+              height: targetHeight,
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 16,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
+              child: SafeArea(
+                top: false,
+                child: Column(
                   children: [
-                    Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      size: 20,
-                      color: accentColor,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      s.chatTitle,
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.bold,
-                        color: textPrimary,
+                    // 1. 顶部把手与标题栏
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 38,
+                      height: 4.5,
+                      decoration: BoxDecoration(
+                        color: textSecondary.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(2.5),
                       ),
                     ),
-                    const Spacer(),
-                    IconButton(
-                      icon: Icon(Icons.close_rounded, color: textSecondary, size: 22),
-                      tooltip: s.chatCloseSheet,
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1, thickness: 0.8),
-
-              // 2. 消息气泡列表
-              Expanded(
-                child: messages.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            s.chatEmptyHint,
-                            textAlign: TextAlign.center,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 20,
+                            color: accentColor,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            s.chatTitle,
                             style: TextStyle(
-                              fontSize: 14,
-                              color: textSecondary.withValues(alpha: 0.75),
-                              height: 1.5,
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              color: textPrimary,
                             ),
                           ),
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        itemCount: messages.length,
-                        itemBuilder: (context, index) {
-                          final msg = messages[index];
-                          final isLocal = msg.isLocal;
-                          final isFormer = !isLocal && !activeMemberIds.contains(msg.senderId);
+                          const Spacer(),
+                          IconButton(
+                            icon: Icon(Icons.close_rounded, color: textSecondary, size: 22),
+                            tooltip: s.chatCloseSheet,
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, thickness: 0.8),
 
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              mainAxisAlignment: isLocal
-                                  ? MainAxisAlignment.end
-                                  : MainAxisAlignment.start,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // 远端消息头像框
-                                if (!isLocal) ...[
-                                  AvatarFrame(
-                                    senderCode: msg.senderCode,
-                                    nickname: msg.senderNickname,
-                                    isHost: msg.isHost,
-                                    size: 34,
-                                    isNight: isNight,
+                    // 2. 消息气泡列表
+                    Expanded(
+                      child: messages.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  s.chatEmptyHint,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: textSecondary.withValues(alpha: 0.75),
+                                    height: 1.5,
                                   ),
-                                  const SizedBox(width: 8),
-                                ],
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: _scrollController,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              itemCount: messages.length,
+                              itemBuilder: (context, index) {
+                                final msg = messages[index];
+                                final isLocal = msg.isLocal;
+                                final isFormer =
+                                    !isLocal && !activeMemberIds.contains(msg.senderId);
 
-                                // 气泡与名字栏
-                                Flexible(
-                                  child: Column(
-                                    crossAxisAlignment: isLocal
-                                        ? CrossAxisAlignment.end
-                                        : CrossAxisAlignment.start,
+                                final (baseName, _) = DeviceCode.split(msg.senderNickname);
+                                final hasConflict =
+                                    (baseNameToCodes[baseName]?.length ?? 0) > 1;
+
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 6),
+                                  child: Row(
+                                    mainAxisAlignment: isLocal
+                                        ? MainAxisAlignment.end
+                                        : MainAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      // 署名与曾用名标签
-                                      Padding(
-                                        padding: const EdgeInsets.only(bottom: 3),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
+                                      // 远端消息头像框
+                                      if (!isLocal) ...[
+                                        AvatarFrame(
+                                          senderCode: msg.senderCode,
+                                          nickname: msg.senderNickname,
+                                          isHost: msg.isHost,
+                                          size: 34,
+                                          isNight: isNight,
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+
+                                      // 气泡与名字栏
+                                      Flexible(
+                                        child: Column(
+                                          crossAxisAlignment: isLocal
+                                              ? CrossAxisAlignment.end
+                                              : CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              msg.senderNickname,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: textSecondary,
+                                            // 署名与身份标签（Wrap 结构自适应折行）
+                                            _buildBubbleHeader(
+                                              context: context,
+                                              msg: msg,
+                                              isLocal: isLocal,
+                                              isFormer: isFormer,
+                                              hasConflict: hasConflict,
+                                              s: s,
+                                              textSecondary: textSecondary,
+                                              accentColor: accentColor,
+                                              isNight: isNight,
+                                            ),
+
+                                            // 气泡本体（长按支持撤回）
+                                            GestureDetector(
+                                              onLongPress:
+                                                  isLocal ? () => _handleRecall(msg) : null,
+                                              child: Container(
+                                                constraints: BoxConstraints(
+                                                  maxWidth: isTablet
+                                                      ? 440
+                                                      : (screenWidth * 0.70).clamp(200.0, 420.0),
+                                                ),
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 13,
+                                                  vertical: 9,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: isLocal
+                                                      ? (isNight
+                                                          ? AppTheme.nightSkyBlue
+                                                          : AppTheme.sunsetCoral)
+                                                      : (isNight
+                                                          ? const Color(0xFF1E2D44)
+                                                          : const Color(0xFFEFE7DE)),
+                                                  borderRadius: BorderRadius.only(
+                                                    topLeft: const Radius.circular(16),
+                                                    topRight: const Radius.circular(16),
+                                                    bottomLeft: Radius.circular(isLocal ? 16 : 4),
+                                                    bottomRight: Radius.circular(isLocal ? 4 : 16),
+                                                  ),
+                                                  border: isLocal
+                                                      ? null
+                                                      : Border.all(
+                                                          color:
+                                                              textSecondary.withValues(alpha: 0.15),
+                                                          width: 0.6,
+                                                        ),
+                                                ),
+                                                child: Text(
+                                                  msg.text,
+                                                  softWrap: true,
+                                                  style: TextStyle(
+                                                    fontSize: 14.5,
+                                                    color: isLocal ? Colors.white : textPrimary,
+                                                    height: 1.35,
+                                                  ),
+                                                ),
                                               ),
                                             ),
-                                            if (msg.previousNickname != null &&
-                                                msg.previousNickname!.isNotEmpty) ...[
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                '(${s.formerNameLabel(msg.previousNickname!)})',
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: accentColor,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ],
-                                            if (isFormer) ...[
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                '(${s.chatFormerMember})',
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: textSecondary.withValues(alpha: 0.6),
-                                                ),
-                                              ),
-                                            ],
                                           ],
                                         ),
                                       ),
 
-                                      // 气泡本体（长按支持撤回）
-                                      GestureDetector(
-                                        onLongPress: isLocal ? () => _handleRecall(msg) : null,
-                                        child: Container(
-                                          constraints: BoxConstraints(
-                                            maxWidth: MediaQuery.of(context).size.width * 0.70,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 13,
-                                            vertical: 9,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: isLocal
-                                                ? (isNight
-                                                    ? AppTheme.nightSkyBlue
-                                                    : AppTheme.sunsetCoral)
-                                                : (isNight
-                                                    ? const Color(0xFF1E2D44)
-                                                    : const Color(0xFFEFE7DE)),
-                                            borderRadius: BorderRadius.only(
-                                              topLeft: const Radius.circular(16),
-                                              topRight: const Radius.circular(16),
-                                              bottomLeft: Radius.circular(isLocal ? 16 : 4),
-                                              bottomRight: Radius.circular(isLocal ? 4 : 16),
-                                            ),
-                                            border: isLocal
-                                                ? null
-                                                : Border.all(
-                                                    color: textSecondary.withValues(alpha: 0.15),
-                                                    width: 0.6,
-                                                  ),
-                                          ),
-                                          child: Text(
-                                            msg.text,
-                                            softWrap: true,
-                                            style: TextStyle(
-                                              fontSize: 14.5,
-                                              color: isLocal ? Colors.white : textPrimary,
-                                              height: 1.35,
-                                            ),
-                                          ),
+                                      // 本机消息头像框
+                                      if (isLocal) ...[
+                                        const SizedBox(width: 8),
+                                        AvatarFrame(
+                                          senderCode: msg.senderCode,
+                                          nickname: msg.senderNickname,
+                                          isHost: msg.isHost,
+                                          size: 34,
+                                          isNight: isNight,
                                         ),
-                                      ),
+                                      ],
                                     ],
                                   ),
-                                ),
+                                );
+                              },
+                            ),
+                    ),
 
-                                // 本机消息头像框
-                                if (isLocal) ...[
-                                  const SizedBox(width: 8),
-                                  AvatarFrame(
-                                    senderCode: msg.senderCode,
-                                    nickname: msg.senderNickname,
-                                    isHost: msg.isHost,
-                                    size: 34,
-                                    isNight: isNight,
+                    // 3. 底部输入与发送栏
+                    const Divider(height: 1, thickness: 0.8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Semantics(
+                              label: s.chatInputPlaceholder,
+                              textField: true,
+                              child: TextField(
+                                controller: _textController,
+                                maxLines: 3,
+                                minLines: 1,
+                                style: TextStyle(fontSize: 15, color: textPrimary),
+                                decoration: InputDecoration(
+                                  hintText: s.chatInputPlaceholder,
+                                  hintStyle: TextStyle(
+                                    fontSize: 13.5,
+                                    color: textSecondary.withValues(alpha: 0.65),
                                   ),
-                                ],
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-
-              // 3. 底部输入与发送栏
-              const Divider(height: 1, thickness: 0.8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Semantics(
-                        label: s.chatInputPlaceholder,
-                        textField: true,
-                        child: TextField(
-                          controller: _textController,
-                          maxLines: 3,
-                          minLines: 1,
-                          style: TextStyle(fontSize: 15, color: textPrimary),
-                          decoration: InputDecoration(
-                            hintText: s.chatInputPlaceholder,
-                            hintStyle: TextStyle(
-                              fontSize: 13.5,
-                              color: textSecondary.withValues(alpha: 0.65),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            filled: true,
-                            fillColor: isNight
-                                ? const Color(0xFF121B2B)
-                                : const Color(0xFFF1ECE5),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              borderSide: BorderSide.none,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 10,
+                                  ),
+                                  filled: true,
+                                  fillColor: isNight
+                                      ? const Color(0xFF121B2B)
+                                      : const Color(0xFFF1ECE5),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                                onSubmitted: (_) => _handleSend(),
+                              ),
                             ),
                           ),
-                          onSubmitted: (_) => _handleSend(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Semantics(
-                      label: s.chatSend,
-                      button: true,
-                      child: IconButton(
-                        icon: _isSending
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Icon(Icons.send_rounded, color: accentColor),
-                        tooltip: s.chatSend,
-                        onPressed: _handleSend,
+                          const SizedBox(width: 8),
+                          Semantics(
+                            label: s.chatSend,
+                            button: true,
+                            child: IconButton(
+                              icon: _isSending
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : Icon(Icons.send_rounded, color: accentColor),
+                              tooltip: s.chatSend,
+                              onPressed: _handleSend,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
