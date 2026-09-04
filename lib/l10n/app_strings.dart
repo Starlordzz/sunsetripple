@@ -198,4 +198,11 @@ class AppStrings {
   String get chatCloseSheet => isEn ? 'Close Chat' : '关闭聊天';
   String chatUnreadBadge(int count) =>
       isEn ? '$count unread messages' : '$count 条未读消息';
+  String get chatRecall => isEn ? 'Recall' : '撤回';
+  String get chatRecallConfirm =>
+      isEn ? 'Delete this message for everyone?' : '确定为所有人删除此消息吗？';
+  String get chatRecalledTip =>
+      isEn ? 'You recalled a message' : '你撤回了一条消息';
+  String formerNameLabel(String name) =>
+      isEn ? 'Formerly: $name' : '曾用名: $name';
 }

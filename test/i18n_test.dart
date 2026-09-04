@@ -34,6 +34,10 @@ void main() {
       expect(s.chatButtonLabel, '文字对讲');
       expect(s.chatCloseSheet, '关闭聊天');
       expect(s.chatUnreadBadge(5), '5 条未读消息');
+      expect(s.chatRecall, '撤回');
+      expect(s.chatRecallConfirm, contains('确定为所有人删除'));
+      expect(s.chatRecalledTip, '你撤回了一条消息');
+      expect(s.formerNameLabel('旧名字'), '曾用名: 旧名字');
     });
 
     test('English strings return non-empty localized texts', () {
@@ -67,6 +71,10 @@ void main() {
       expect(s.chatButtonLabel, 'Text Chat');
       expect(s.chatCloseSheet, 'Close Chat');
       expect(s.chatUnreadBadge(5), '5 unread messages');
+      expect(s.chatRecall, 'Recall');
+      expect(s.chatRecallConfirm, contains('Delete this message for everyone'));
+      expect(s.chatRecalledTip, 'You recalled a message');
+      expect(s.formerNameLabel('OldName'), 'Formerly: OldName');
     });
   });
 }

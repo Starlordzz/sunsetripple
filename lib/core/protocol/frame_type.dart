@@ -11,7 +11,9 @@ enum FrameType {
   handshakeHello(0x09),
   handshakeConfirm(0x0a),
   sealed(0x0b),
-  chat(0x0c);
+  chat(0x0c),
+  chatSync(0x0d),
+  chatDelete(0x0e);
 
   final int value;
   const FrameType(this.value);
