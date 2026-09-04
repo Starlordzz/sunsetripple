@@ -25,6 +25,15 @@ void main() {
       expect(s.pttHoldingToTalk, '正在讲话');
       expect(s.pttHoldToTalk, '按住说话');
       expect(s.diagnosticsTitle, '网络与音质诊断');
+      expect(s.chatTitle, '文字对讲');
+      expect(s.chatSend, '发送');
+      expect(s.chatEmptyHint, contains('暂无消息'));
+      expect(s.chatMessageTooLong, contains('480'));
+      expect(s.chatFormerMember, '已离开成员');
+      expect(s.tooltipChat, '文字聊天');
+      expect(s.chatButtonLabel, '文字对讲');
+      expect(s.chatCloseSheet, '关闭聊天');
+      expect(s.chatUnreadBadge(5), '5 条未读消息');
     });
 
     test('English strings return non-empty localized texts', () {
@@ -49,6 +58,15 @@ void main() {
       expect(s.pttHoldingToTalk, 'Speaking');
       expect(s.pttHoldToTalk, 'Hold to talk');
       expect(s.diagnosticsTitle, 'Network & Audio Diagnostics');
+      expect(s.chatTitle, 'Room Chat');
+      expect(s.chatSend, 'Send');
+      expect(s.chatEmptyHint, contains('No messages yet'));
+      expect(s.chatMessageTooLong, contains('480'));
+      expect(s.chatFormerMember, 'Former Member');
+      expect(s.tooltipChat, 'Room Chat');
+      expect(s.chatButtonLabel, 'Text Chat');
+      expect(s.chatCloseSheet, 'Close Chat');
+      expect(s.chatUnreadBadge(5), '5 unread messages');
     });
   });
 }

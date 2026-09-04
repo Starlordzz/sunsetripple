@@ -4,6 +4,7 @@ import 'package:sunset_ripple/core/audio/audio_io.dart';
 import 'package:sunset_ripple/core/session/room_session.dart';
 import 'package:sunset_ripple/ui/pages/room_page.dart';
 import 'package:sunset_ripple/ui/pages/session_stage.dart';
+import 'package:sunset_ripple/ui/widgets/room_chat_sheet.dart';
 
 /// 这轮把房内 UI 整体放大过（对讲盘 212、头像 64、控制条图标 24、正文 +2~4pt），
 /// 矮屏窄屏上很容易挤到溢出。这里在几种常见屏幕比例上各摆一次，
@@ -106,6 +107,45 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('${entry.key} 聊天面板弹出、输入发送、长消息不溢出', (tester) async {
+      useSurface(tester, entry.value);
+      final session = RoomSession(
+        audioIo: MockAudioIo(),
+        selfNickname: '测试者',
+      );
+      await session.createRoom();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomChatSheet(
+              session: session,
+              isNight: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(RoomChatSheet), findsOneWidget);
+
+      // 输入长文本并发送
+      await tester.enterText(
+        find.byType(TextField),
+        '这是一条测试长消息，用于验证文字聊天在各种分辨率下的换行与自适应，绝不能出现 RenderFlex overflow！',
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(session.chatMessages.length, 1);
+      expect(find.textContaining('这是一条测试长消息'), findsOneWidget);
+
+      await session.dispose();
     });
   }
 }

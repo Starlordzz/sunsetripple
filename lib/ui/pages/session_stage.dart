@@ -10,6 +10,8 @@ import 'home_page.dart';
 import 'room_page.dart';
 import 'diagnostics_sheet.dart';
 import 'about_page.dart';
+import '../theme/app_theme.dart';
+import '../widgets/room_chat_sheet.dart';
 import '../../l10n/app_strings.dart';
 
 /// 首页与房间共用的一张"舞台"。
@@ -128,6 +130,22 @@ class _SessionStageState extends State<SessionStage>
         memberCount: session.members.length,
       ),
     );
+  }
+
+  void _showChatSheet(RoomSession session) {
+    session.markChatRead();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => RoomChatSheet(
+        session: session,
+        isNight: widget.isNight,
+      ),
+    ).then((_) {
+      session.markChatRead();
+    });
   }
 
   @override
@@ -389,12 +407,52 @@ class _SessionStageState extends State<SessionStage>
         top: 40,
         right: 8,
         child: rise(
-          IconButton(
-            tooltip: s.tooltipDiagnostics,
-            iconSize: 30,
-            padding: const EdgeInsets.all(12),
-            icon: const Icon(Icons.info_outline, color: Colors.white),
-            onPressed: _showDiagnostics,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              StreamBuilder<int>(
+                stream: session.unreadChatStream,
+                initialData: session.unreadChatCount,
+                builder: (context, snapshot) {
+                  final unread = snapshot.data ?? 0;
+                  return Semantics(
+                    label: s.chatButtonLabel,
+                    hint: unread > 0 ? s.chatUnreadBadge(unread) : null,
+                    button: true,
+                    child: IconButton(
+                      tooltip: s.tooltipChat,
+                      iconSize: 28,
+                      padding: const EdgeInsets.all(12),
+                      icon: Badge(
+                        isLabelVisible: unread > 0,
+                        label: Text(
+                          '$unread',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        backgroundColor: widget.isNight
+                            ? AppTheme.darkLeaveRosePink
+                            : AppTheme.sunsetCoral,
+                        child: const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      onPressed: () => _showChatSheet(session),
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                tooltip: s.tooltipDiagnostics,
+                iconSize: 28,
+                padding: const EdgeInsets.all(12),
+                icon: const Icon(Icons.info_outline, color: Colors.white),
+                onPressed: _showDiagnostics,
+              ),
+            ],
           ),
           from: -16,
         ),

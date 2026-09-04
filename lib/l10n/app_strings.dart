@@ -181,4 +181,21 @@ class AppStrings {
   String get roundTripLatency => isEn ? 'RTT Latency' : '往返延迟 (RTT)';
   String get packetLossRateTitle => isEn ? 'Packet Loss Rate' : '网络丢包率';
   String get audioCodecFormat => isEn ? 'Audio Codec' : '音频编码格式';
+
+  // Room Text Chat
+  String get chatTitle => isEn ? 'Room Chat' : '文字对讲';
+  String get chatInputPlaceholder =>
+      isEn ? 'Type a message (max 480B)...' : '发送消息 (480 字节以内)...';
+  String get chatSend => isEn ? 'Send' : '发送';
+  String get chatEmptyHint => isEn
+      ? 'No messages yet\nSay hello to start chatting'
+      : '暂无消息\n发送一条消息开始文字对讲吧';
+  String get chatMessageTooLong =>
+      isEn ? 'Message exceeds 480 UTF-8 bytes limit' : '消息超过 480 字节限制';
+  String get chatFormerMember => isEn ? 'Former Member' : '已离开成员';
+  String get tooltipChat => isEn ? 'Room Chat' : '文字聊天';
+  String get chatButtonLabel => isEn ? 'Text Chat' : '文字对讲';
+  String get chatCloseSheet => isEn ? 'Close Chat' : '关闭聊天';
+  String chatUnreadBadge(int count) =>
+      isEn ? '$count unread messages' : '$count 条未读消息';
 }
