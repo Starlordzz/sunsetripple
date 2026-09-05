@@ -5,7 +5,9 @@ import 'package:sunset_ripple/core/audio/audio_io.dart';
 import 'package:sunset_ripple/core/ffi/native_core_ffi.dart';
 import 'package:sunset_ripple/core/protocol/frame.dart';
 import 'package:sunset_ripple/core/protocol/frame_type.dart';
+import 'package:sunset_ripple/core/protocol/payloads/chat_message.dart';
 import 'package:sunset_ripple/core/protocol/payloads/roster.dart';
+import 'package:sunset_ripple/core/session/chat_message.dart';
 import 'package:sunset_ripple/core/session/host_transfer.dart';
 import 'package:sunset_ripple/core/session/room_session.dart';
 
@@ -350,6 +352,191 @@ void main() {
       final rms = NativeCoreFfi.calculateRms(samples);
       expect(rms, closeTo(256 / 32768.0, 0.001));
       expect(rms, lessThan(0.05));
+    });
+  });
+
+  group('文字聊天室业务逻辑与去重', () {
+    test('未进房时 sendChat 抛出 StateError', () async {
+      session = build();
+      expect(() => session.sendChat('hello'), throwsStateError);
+    });
+
+    test('空文本或纯空白 sendChat 抛出 ArgumentError', () async {
+      session = build();
+      await session.createRoom();
+      expect(() => session.sendChat(''), throwsArgumentError);
+      expect(() => session.sendChat('   \n  '), throwsArgumentError);
+    });
+
+    test('房主与客户端 sendChat 均发出 FrameType.chat 帧并本地立即回显', () async {
+      session = build();
+      await session.createRoom();
+
+      final streamHistory = <ChatMessage>[];
+      final sub = session.chatStream.listen(streamHistory.add);
+
+      await session.sendChat('你好房主测试');
+
+      expect(sent.any((f) => f.type == FrameType.chat), isTrue);
+      final chatFrame = sent.firstWhere((f) => f.type == FrameType.chat);
+      expect(chatFrame.senderId, 1);
+      expect(chatFrame.seq, greaterThan(0));
+
+      final decoded = ChatMessagePayload.decode(chatFrame.payload);
+      expect(decoded, isNotNull);
+      expect(decoded!.text, '你好房主测试');
+
+      // 本机立即回显
+      expect(streamHistory.length, 1);
+      expect(streamHistory.first.isLocal, isTrue);
+      expect(streamHistory.first.text, '你好房主测试');
+      expect(streamHistory.first.senderId, 1);
+      expect(session.chatMessages.length, 1);
+      expect(session.chatMessages.first.text, '你好房主测试');
+      // 本地发送不增加未读数
+      expect(session.unreadChatCount, 0);
+
+      await sub.cancel();
+    });
+
+    test('收到在册成员合法聊天帧：进流、进历史、未读计数递增', () async {
+      session = build();
+      await session.createRoom();
+
+      // 加入成员 #2
+      session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 2,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '测试者'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '远端伙伴'),
+          ],
+        ).encode(),
+      ));
+
+      final streamHistory = <ChatMessage>[];
+      final unreadHistory = <int>[];
+      final chatSub = session.chatStream.listen(streamHistory.add);
+      final unreadSub = session.unreadChatStream.listen(unreadHistory.add);
+
+      final payload = const ChatMessagePayload(text: '远端发来的消息').encode();
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chat,
+        senderId: 2,
+        seq: 10,
+        payload: payload,
+      ));
+
+      expect(streamHistory.length, 1);
+      expect(streamHistory.first.isLocal, isFalse);
+      expect(streamHistory.first.senderId, 2);
+      expect(streamHistory.first.senderNickname, '远端伙伴');
+      expect(streamHistory.first.text, '远端发来的消息');
+
+      expect(session.chatMessages.length, 1);
+      expect(session.unreadChatCount, 1);
+      expect(unreadHistory, [1]);
+
+      // markChatRead 归零
+      session.markChatRead();
+      expect(session.unreadChatCount, 0);
+      expect(unreadHistory, [1, 0]);
+
+      await chatSub.cancel();
+      await unreadSub.cancel();
+    });
+
+    test('收到本机 senderId 回环帧或未知 sender 帧直接丢弃', () async {
+      session = build();
+      await session.createRoom();
+
+      final payload = const ChatMessagePayload(text: '回环与非法').encode();
+
+      // 1. senderId == self (1)
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chat,
+        senderId: 1,
+        seq: 99,
+        payload: payload,
+      ));
+      expect(session.chatMessages, isEmpty);
+      expect(session.unreadChatCount, 0);
+
+      // 2. senderId == 未在册成员 (99)
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chat,
+        senderId: 99,
+        seq: 100,
+        payload: payload,
+      ));
+      expect(session.chatMessages, isEmpty);
+      expect(session.unreadChatCount, 0);
+    });
+
+    test('重复 (senderId, seq) 消息被有界去重静默丢弃', () async {
+      session = build();
+      await session.createRoom();
+
+      session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 2,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '测试者'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '远端伙伴'),
+          ],
+        ).encode(),
+      ));
+
+      final payload = const ChatMessagePayload(text: '去重测试').encode();
+      final frame = Frame(
+        type: FrameType.chat,
+        senderId: 2,
+        seq: 50,
+        payload: payload,
+      );
+
+      // 第一次接收
+      await session.handleIncomingFrame(frame);
+      expect(session.chatMessages.length, 1);
+      expect(session.unreadChatCount, 1);
+
+      // 第二次相同序号接收：应丢弃
+      await session.handleIncomingFrame(frame);
+      expect(session.chatMessages.length, 1);
+      expect(session.unreadChatCount, 1);
+    });
+
+    test('内存历史上限为 100 条，超出时淘汰最旧消息', () async {
+      session = build();
+      await session.createRoom();
+
+      for (int i = 0; i < 105; i++) {
+        await session.sendChat('消息 #$i');
+      }
+
+      expect(session.chatMessages.length, 100);
+      expect(session.chatMessages.first.text, '消息 #5');
+      expect(session.chatMessages.last.text, '消息 #104');
+    });
+
+    test('leave 与 dispose 正确清空聊天状态与流', () async {
+      session = build();
+      await session.createRoom();
+      await session.sendChat('即将清空的消息');
+      expect(session.chatMessages.length, 1);
+
+      await session.leave();
+      expect(session.chatMessages, isEmpty);
+      expect(session.unreadChatCount, 0);
+
+      await session.dispose();
+      expect(session.chatMessages, isEmpty);
     });
   });
 }

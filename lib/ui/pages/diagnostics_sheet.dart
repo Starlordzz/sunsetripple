@@ -22,8 +22,10 @@ class DiagnosticsSheet extends StatelessWidget {
     final s = AppStrings.of(context);
     final bg = isNight ? AppTheme.darkBg : AppTheme.lightBg;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
-    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textPrimary =
+        isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -38,12 +40,14 @@ class DiagnosticsSheet extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                s.diagnosticsTitle,
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  s.diagnosticsTitle,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               IconButton(
@@ -69,14 +73,14 @@ class DiagnosticsSheet extends StatelessWidget {
           const SizedBox(height: 10),
           _MetricRow(
             title: s.packetLossRateTitle,
-            value: "$packetLossRate %",
+            value: "$packetLossRate%",
             cardBg: cardBg,
             textPrimary: textPrimary,
           ),
           const SizedBox(height: 10),
           _MetricRow(
             title: s.audioCodecFormat,
-            value: "Opus 16kHz Mono 20ms",
+            value: s.audioCodecDescription,
             cardBg: cardBg,
             textPrimary: textPrimary,
           ),
@@ -108,8 +112,10 @@ class _MetricRow extends StatelessWidget {
         color: cardBg,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        spacing: 16,
+        runSpacing: 6,
         children: [
           Text(title, style: TextStyle(color: textPrimary, fontSize: 14)),
           Text(
@@ -125,4 +131,3 @@ class _MetricRow extends StatelessWidget {
     );
   }
 }
-

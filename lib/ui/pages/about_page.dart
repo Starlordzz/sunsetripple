@@ -107,7 +107,8 @@ class _AboutPageState extends State<AboutPage> {
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: () {
-                            Clipboard.setData(ClipboardData(text: report.encode()));
+                            Clipboard.setData(
+                                ClipboardData(text: report.encode()));
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(s.reportCopied)),
                             );
@@ -142,7 +143,8 @@ class _AboutPageState extends State<AboutPage> {
     final bgGradient = isNight
         ? [AppTheme.nightAbyss, AppTheme.nightDeepOcean]
         : [AppTheme.lightBg, AppTheme.sunsetCoral.withValues(alpha: 0.15)];
-    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textPrimary =
+        isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
     final textSecondary =
         isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     final cardBg = isNight
@@ -166,7 +168,8 @@ class _AboutPageState extends State<AboutPage> {
             children: [
               // Custom App Bar
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
                     IconButton(
@@ -189,7 +192,8 @@ class _AboutPageState extends State<AboutPage> {
               // Content List
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                   children: [
                     // App Info Header
                     Center(
@@ -201,11 +205,15 @@ class _AboutPageState extends State<AboutPage> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: const LinearGradient(
-                                colors: [AppTheme.sunsetCoral, AppTheme.sunWarmYellow],
+                                colors: [
+                                  AppTheme.sunsetCoral,
+                                  AppTheme.sunWarmYellow
+                                ],
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: AppTheme.sunsetCoral.withValues(alpha: 0.3),
+                                  color: AppTheme.sunsetCoral
+                                      .withValues(alpha: 0.3),
                                   blurRadius: 16,
                                   spreadRadius: 2,
                                 ),
@@ -282,7 +290,8 @@ class _AboutPageState extends State<AboutPage> {
                       title: s.changelogTitle,
                       body: s.changelogBody,
                       isExpanded: _changelogExpanded,
-                      onToggle: () => setState(() => _changelogExpanded = !_changelogExpanded),
+                      onToggle: () => setState(
+                          () => _changelogExpanded = !_changelogExpanded),
                       cardBg: cardBg,
                       borderColor: borderColor,
                       textPrimary: textPrimary,
@@ -296,7 +305,8 @@ class _AboutPageState extends State<AboutPage> {
                       title: s.licenseTitle,
                       body: s.licenseBody,
                       isExpanded: _licenseExpanded,
-                      onToggle: () => setState(() => _licenseExpanded = !_licenseExpanded),
+                      onToggle: () =>
+                          setState(() => _licenseExpanded = !_licenseExpanded),
                       cardBg: cardBg,
                       borderColor: borderColor,
                       textPrimary: textPrimary,
@@ -310,7 +320,8 @@ class _AboutPageState extends State<AboutPage> {
                       title: s.privacyTitle,
                       body: s.privacyBody,
                       isExpanded: _privacyExpanded,
-                      onToggle: () => setState(() => _privacyExpanded = !_privacyExpanded),
+                      onToggle: () =>
+                          setState(() => _privacyExpanded = !_privacyExpanded),
                       cardBg: cardBg,
                       borderColor: borderColor,
                       textPrimary: textPrimary,
@@ -378,9 +389,11 @@ class _AboutPageState extends State<AboutPage> {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 8),
-            Text(
-              s.updateChecking,
-              style: TextStyle(fontSize: 13, color: textSecondary),
+            Flexible(
+              child: Text(
+                s.updateChecking,
+                style: TextStyle(fontSize: 13, color: textSecondary),
+              ),
             ),
           ],
         ),
@@ -401,10 +414,9 @@ class _AboutPageState extends State<AboutPage> {
         ),
       );
     } else if (_updateState is UpdateFailed) {
-      final fail = _updateState as UpdateFailed;
       return Center(
         child: Text(
-          s.updateFailed(fail.message),
+          s.updateCheckFailed,
           style: TextStyle(fontSize: 12, color: Colors.red.shade400),
         ),
       );
@@ -455,7 +467,9 @@ class _AboutPageState extends State<AboutPage> {
                       ),
                     ),
                     Icon(
-                      isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                      isExpanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
                       color: textSecondary,
                       size: 20,
                     ),

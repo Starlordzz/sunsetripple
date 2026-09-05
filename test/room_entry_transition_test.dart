@@ -7,20 +7,21 @@ import 'package:sunset_ripple/ui/pages/session_stage.dart';
 /// 房间那组要到齐，中途每一帧都不许溢出；返回时再原路退回首页。
 void main() {
   const audioChannel = MethodChannel('host.msknet.sunsetripple/audio');
-  const audioEventsChannel = MethodChannel('host.msknet.sunsetripple/audio_events');
+  const audioEventsChannel =
+      MethodChannel('host.msknet.sunsetripple/audio_events');
 
   setUp(() {
     // 单测里没有平台侧实现，把音频通道打桩掉，否则 MissingPluginException
     // 会盖住真正要看的布局问题。
-    final messenger = TestDefaultBinaryMessengerBinding
-        .instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(audioChannel, (_) async => null);
     messenger.setMockMethodCallHandler(audioEventsChannel, (_) async => null);
   });
 
   tearDown(() {
-    final messenger = TestDefaultBinaryMessengerBinding
-        .instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(audioChannel, null);
     messenger.setMockMethodCallHandler(audioEventsChannel, null);
   });
@@ -29,7 +30,9 @@ void main() {
         (w) => w is Text && (w.data == '落日后残波' || w.data == 'SunsetRipple'),
       );
   Finder findCreateWifi() => find.byWidgetPredicate(
-        (w) => w is Text && (w.data == '创建 WiFi 房' || w.data == 'Create WiFi Room'),
+        (w) =>
+            w is Text &&
+            (w.data == '开始 Wi-Fi 畅聊' || w.data == 'Start Wi-Fi Chat'),
       );
   Finder findInCall() => find.byWidgetPredicate(
         (w) => w is Text && (w.data == '通话中' || w.data == 'In call'),
@@ -38,7 +41,10 @@ void main() {
         (w) => w is Text && (w.data == '离开' || w.data == 'Leave'),
       );
   Finder findRoomTitle() => find.byWidgetPredicate(
-        (w) => w is Text && (w.data?.contains('WiFi 房') == true || w.data?.contains('WiFi Room') == true),
+        (w) =>
+            w is Text &&
+            (w.data?.endsWith('的聊天室 · Wi-Fi') == true ||
+                w.data?.endsWith("'s chat · Wi-Fi") == true),
       );
 
   testWidgets('创建房间：首页 UI 离场、背景留场、房间 UI 入场', (tester) async {
@@ -81,7 +87,8 @@ void main() {
     for (var i = 0; i < 14; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)));
   });
 
   testWidgets('离开房间：原路退回首页', (tester) async {
@@ -116,6 +123,7 @@ void main() {
     expect(findTitle(), findsWidgets);
     expect(findCreateWifi(), findsOneWidget);
 
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)));
   });
 }

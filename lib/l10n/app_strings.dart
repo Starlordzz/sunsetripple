@@ -17,61 +17,62 @@ class AppStrings {
 
   // App & Branding
   String get appName => isEn ? 'SunsetRipple' : '落日后残波';
-  String get tagline => isEn ? 'Nearby voice rooms' : '近场语音房';
-  String get nicknameLabel => isEn ? 'Your name' : '你的称呼';
-  String get nicknamePlaceholder => isEn ? 'Enter a nickname' : '输入昵称';
+  String get tagline => isEn ? 'Chat with people nearby' : '和身边的人聊聊';
+  String get nicknameLabel => isEn ? 'What should we call you?' : '怎么称呼你';
+  String get nicknamePlaceholder => isEn ? 'Your nickname' : '留个称呼';
 
   // Modes & Descriptions
-  String get wifiRoom => isEn ? 'WiFi room' : 'WiFi 房';
-  String get wifiDirect => isEn ? 'WiFi Direct' : 'WiFi 直连';
-  String get wifiDescription =>
-      isEn ? 'Router-free, for multi-person conversation' : '无需路由器，适合多人同时通话';
-  String get bluetoothRoom => isEn ? 'Bluetooth room' : '蓝牙房';
-  String get bluetoothDescription =>
-      isEn ? 'Hold to talk for close-range offline work' : '按住说话，适合无网络的近距离协作';
-  String get fullDuplex => isEn ? 'Full duplex' : '全双工';
-  String get pttMode => isEn ? 'PTT mode' : '对讲模式';
+  String get wifiRoom => isEn ? 'Wi-Fi Chat' : 'Wi-Fi 畅聊';
+  String get wifiDirect => isEn ? 'Wi-Fi Direct' : 'Wi-Fi 直连';
+  String get wifiDescription => isEn
+      ? 'Talk freely and send messages over Wi-Fi, a hotspot or a direct connection'
+      : '用 Wi-Fi、热点或设备直连，开口就能聊，也能发消息';
+  String get bluetoothRoom => isEn ? 'Bluetooth Talk' : '蓝牙对讲';
+  String get bluetoothDescription => isEn
+      ? 'Connect over Bluetooth to hold to talk, release to listen and send messages'
+      : '用蓝牙和附近的人连接，按住说，松开听，也能发消息';
+  String get fullDuplex => isEn ? 'Talk freely' : '自由交谈';
+  String get pttMode => isEn ? 'Hold to talk' : '按住说话';
 
   // Actions & Buttons
-  String get createRoom => isEn ? 'Create Room' : '创建房间';
-  String get createWifiRoom => isEn ? 'Create WiFi Room' : '创建 WiFi 房';
-  String get createBleRoom => isEn ? 'Create Bluetooth Room' : '创建蓝牙房';
-  String get joinRoom => isEn ? 'Join' : '加入';
-  String get scanning => isEn ? 'Scanning…' : '正在扫描…';
-  String get scanAgain => isEn ? 'Scan again' : '重新扫描';
+  String get createRoom => isEn ? 'Start a chat' : '开始聊天';
+  String get createWifiRoom => isEn ? 'Start Wi-Fi Chat' : '开始 Wi-Fi 畅聊';
+  String get createBleRoom => isEn ? 'Start Bluetooth Talk' : '开始蓝牙对讲';
+  String get joinRoom => isEn ? 'Join chat' : '加入聊天';
+  String get scanning => isEn ? 'Looking nearby…' : '正在看看附近…';
+  String get scanAgain => isEn ? 'Look again' : '再找一次';
   String get checkMicrophone =>
       isEn ? 'Check microphone and headset' : '检查麦克风与耳机';
-  String get backHome => isEn ? 'Back to home' : '返回首页';
-  String get leaveRoom => isEn ? 'Leave room' : '离开房间';
-  String get mute => isEn ? 'Mute' : '静音';
-  String get unmute => isEn ? 'Unmute' : '开启麦克风';
-  String get micOn => isEn ? 'Mic On' : '麦克风开';
+  String get backHome => isEn ? 'Back to home' : '回到首页';
+  String get leaveRoom => isEn ? 'Leave chat' : '离开聊天';
+  String get mute => isEn ? 'Turn off microphone' : '关闭麦克风';
+  String get unmute => isEn ? 'Turn on microphone' : '开启麦克风';
+  String get micOn => isEn ? 'Microphone is on' : '麦克风已开启';
   String get speaker => isEn ? 'Speaker' : '扬声器';
   String get earpiece => isEn ? 'Earpiece' : '听筒';
-  String get phoneMic => isEn ? 'Phone Mic' : '手机麦';
-  String get headsetMic => isEn ? 'Headset Mic' : '耳机麦';
+  String get phoneMic => isEn ? 'Phone microphone' : '手机麦克风';
+  String get headsetMic => isEn ? 'Headset microphone' : '耳机麦克风';
 
   // Diagnostics & Quality
-  String get diagnosticsTitle =>
-      isEn ? 'Network & Audio Diagnostics' : '网络与音质诊断';
-  String get exportDiagnostics =>
-      isEn ? 'Export Diagnostics' : '导出诊断信息 (可附在 Issue)';
-  String get copyReport => isEn ? 'Copy Diagnostic Report' : '复制诊断报告';
-  String get reportCopied => isEn ? 'Copied to clipboard' : '已复制到剪贴板';
-  String get qualityGood => isEn ? 'Good' : '优良';
+  String get diagnosticsTitle => isEn ? 'Connection & audio' : '连接与音质';
+  String get exportDiagnostics => isEn ? 'Export diagnostic report' : '导出诊断报告';
+  String get copyReport => isEn ? 'Copy report' : '复制报告';
+  String get reportCopied => isEn ? 'Report copied' : '报告已复制';
+  String get qualityGood => isEn ? 'Good' : '良好';
   String get qualityFair => isEn ? 'Fair' : '一般';
   String get qualityPoor => isEn ? 'Poor' : '较差';
 
   // Host Election & Transfer
-  String get transferHost => isEn ? 'Transfer Host' : '转移房主';
-  String get selectNewHost => isEn ? 'Select New Host' : '选择新房主';
+  String get transferHost => isEn ? 'Change host' : '更换房主';
+  String get selectNewHost => isEn ? 'Who will take over?' : '交给谁来接着聊';
   String get transferHostTip =>
-      isEn ? 'Tap member avatar or list to transfer host' : '点击头像或下方列表可转移房主';
-  String get bluetoothTransferUnsupported =>
-      isEn ? 'Host transfer is not supported in Bluetooth rooms' : '蓝牙房暂不支持房主转移';
-  String transferTo(String name) => isEn ? 'Transfer to $name' : '设为房主';
+      isEn ? 'Choose someone to take over the chat' : '选一位成员，接手这场聊天';
+  String get bluetoothTransferUnsupported => isEn
+      ? 'Changing hosts is not yet supported in Bluetooth Talk'
+      : '蓝牙对讲暂时不能更换房主';
+  String transferTo(String name) => isEn ? 'Make host' : '设为房主';
   String transferHostConfirm(String name) =>
-      isEn ? 'Transfer host role to $name?' : '确定将房主身份转移给 $name？';
+      isEn ? 'Let $name take over as host?' : '把房主交给$name？';
   String get hostTag => isEn ? 'Host' : '房主';
   String get memberTag => isEn ? 'Member' : '成员';
   String get cancel => isEn ? 'Cancel' : '取消';
@@ -79,106 +80,151 @@ class AppStrings {
 
   // Status & Notifications
   String roomOnlineCount(int count) =>
-      isEn ? '$count online' : '$count 人在线';
+      isEn ? '$count people here' : '$count 人在这里';
   String get roomConnected => isEn ? 'Connected' : '已连接';
   String get speaking => isEn ? 'Speaking' : '正在说话';
   String get muted => isEn ? 'Muted' : '已静音';
 
   // About & Updates
-  String get aboutTitle => isEn ? 'About & Updates' : '关于与更新';
-  String get aboutProduct => isEn ? 'SunsetRipple Voice Intercom' : '落日后残波 近场对讲';
-  String currentVersion(String ver) => isEn ? 'Version: $ver' : '当前版本: $ver';
+  String get aboutTitle => isEn ? 'About SunsetRipple' : '关于落日后残波';
+  String get aboutProduct =>
+      isEn ? 'SunsetRipple · Chat with people nearby' : '落日后残波 · 和身边的人聊聊';
+  String currentVersion(String ver) =>
+      isEn ? 'Current version: $ver' : '当前版本：$ver';
   String get updateNetworkNote => isEn
-      ? '※ SunsetRipple does not access internet except when checking updates.'
-      : '※ 本软件在对讲过程中完全不联网，仅在点击下方检查更新时才会访问 GitHub。';
-  String get checkUpdate => isEn ? 'Check GitHub Releases' : '检查 GitHub Releases 更新';
-  String get updateIdle => isEn ? 'Click above to check for latest release' : '点击上方按钮获取最新版本';
-  String get updateChecking => isEn ? 'Checking GitHub…' : '正在查询 GitHub…';
-  String get updateCurrent => isEn ? 'Up to date' : '已是最新版本';
-  String updateAvailable(String ver) => isEn ? 'New version available: $ver' : '发现新版本: $ver';
-  String updateFailed(String msg) => isEn ? 'Check failed: $msg' : '检查失败: $msg';
-  String get changelogTitle => isEn ? 'Changelog' : '更新日志 (CHANGELOG)';
+      ? 'Chat over local Wi-Fi or Bluetooth without internet access. Checking for updates connects to GitHub.'
+      : '用本地 Wi-Fi 或蓝牙就能聊，不需要接入互联网。检查更新时，会连接 GitHub。';
+  String get checkUpdate => isEn ? 'Check for updates' : '看看有没有更新';
+  String get updateIdle => isEn ? 'No update check yet' : '还没检查过更新';
+  String get updateChecking =>
+      isEn ? 'Looking for a new version…' : '正在看看有没有新版本…';
+  String get updateCurrent => isEn ? 'You are up to date' : '已经是最新版本了';
+  String updateAvailable(String ver) =>
+      isEn ? 'A new version is here: $ver' : '新版本来了：$ver';
+  String updateFailed(String msg) =>
+      isEn ? 'Could not check for updates: $msg' : '这次没查到更新：$msg';
+  String get updateCheckFailed => isEn
+      ? 'Could not check for updates. Please try again later.'
+      : '这次没查到更新，稍后再试一次';
+  String get changelogTitle => isEn ? 'Recent changes' : '最近的变化';
   String get changelogBody => isEn
-      ? '• 0.1.0-alpha.8:\n  - AES-GCM sealed frames built in (off by default until compatibility is verified)\n  - Bilingual localization\n  - Host transfer on WiFi rooms (Bluetooth rooms still dissolve if the host leaves)\n  - Diagnostics sanitizer & GitHub report export'
-      : '• 0.1.0-alpha.8:\n  - AES-GCM 密封帧已内置（默认关闭，待兼容性验证后启用）\n  - 中英双语\n  - WiFi 房支持房主转移（蓝牙房仍是房主离开即散会）\n  - 诊断脱敏导出';
-  String get licenseTitle => isEn ? 'Open Source License' : '开源协议 (License)';
+      ? '0.1.0-alpha.8\nAES-GCM support added, off by default until compatibility is verified.\nAvailable in Chinese and English.\nWi-Fi Chat can be handed over to another member; Bluetooth Talk ends when the host leaves.\nDiagnostic reports can be exported with sensitive details removed.'
+      : '0.1.0-alpha.8\n加入 AES-GCM 加密能力，目前默认关闭，完成兼容性验证后再启用。\n可以使用中文或英文。\nWi-Fi 畅聊可以交给其他成员继续；蓝牙对讲会在房主离开时结束。\n遇到问题时，可以导出脱敏诊断报告。';
+  String get licenseTitle => isEn ? 'Open source license' : '开源许可';
   String get licenseBody => isEn
-      ? 'Apache License 2.0\nLicensed under the Apache License, Version 2.0.\nhttps://www.apache.org/licenses/LICENSE-2.0'
-      : 'Apache License 2.0\n遵循 Apache 2.0 开源许可证。\nhttps://www.apache.org/licenses/LICENSE-2.0';
-  String get privacyTitle => isEn ? 'Privacy Notice' : '隐私与网络说明';
+      ? 'Apache License 2.0\nSunsetRipple is licensed under Apache License 2.0.\nhttps://www.apache.org/licenses/LICENSE-2.0'
+      : 'Apache License 2.0\n落日后残波采用 Apache License 2.0 开源许可证。\nhttps://www.apache.org/licenses/LICENSE-2.0';
+  String get privacyTitle => isEn ? 'Messages & privacy' : '关于消息与隐私';
   String get privacyBody => isEn
-      ? 'SunsetRipple transmits audio and control data strictly over local Wi-Fi / Bluetooth.\nNo audio or personal data is collected or uploaded.'
-      : '落日后残波仅在本地 WiFi / 蓝牙局域网传输音频与控制指令。\n绝无任何后台音频上传或隐私收集。';
+      ? 'Voice and text travel between devices in the chat over local Wi-Fi or Bluetooth.\nMessages are kept only in memory. Leaving clears the chat history on your device; other members may still have messages from this chat.\nChecking for updates connects to GitHub.'
+      : '声音和文字通过本地 Wi-Fi 或蓝牙，在参与聊天的设备之间传递。\n文字消息只放在内存里。离开后，你这台设备上的聊天记录会清除，其他成员那里仍可能留有本次聊天的消息。\n检查更新时，会连接 GitHub。';
 
   // Theme
   String themeDescription(String current) =>
-      isEn ? 'Theme: $current (Tap to switch)' : '当前主题: $current (点击切换)';
-  String get themeLight => isEn ? 'Sunset Warm' : '暖金落日';
-  String get themeDark => isEn ? 'Moonlit Ocean' : '月夜深海';
+      isEn ? 'Current theme: $current' : '现在是$current';
+  String get themeLight => isEn ? 'Sunset glow' : '落日余晖';
+  String get themeDark => isEn ? 'Moonlit sea' : '月色入海';
 
   // Home & Stage
-  String get appSubheading => isEn
-      ? 'The sun has set, the ripples linger, whispering words unsaid.'
-      : '夕阳已远，涟漪未散，犹诉未尽之言。';
-  String get defaultNickname => isEn ? 'Explorer' : '探索者';
-  String get nicknameValidationEmpty => isEn ? 'Please enter a nickname' : '请输入昵称';
+  String get appSubheading =>
+      isEn ? 'The sun has set. There is still more to say.' : '夕阳落下，话还没说完。';
+  String get defaultNickname => isEn ? 'Sunset watcher' : '看日落的人';
+  String get nicknameValidationEmpty =>
+      isEn ? 'Leave a nickname first' : '先留个称呼吧';
   String get emptyRoomListHint => isEn
-      ? 'No nearby rooms found\nTap the button above to create a room'
-      : '未发现附近的房间\n点击上方按钮即可创建房间';
-  String get nearFieldDirect => isEn ? 'Direct P2P' : '近场直连';
-  String get nearbyWifiRoom => isEn ? 'Nearby WiFi Room' : '附近 WiFi 房';
+      ? 'No chats nearby yet\nStart one and wait for someone nearby to join'
+      : '附近还没有聊天室\n先开一个，等身边的人来聊';
+  String get nearFieldDirect => isEn ? 'Wi-Fi device connection' : 'Wi-Fi 设备直连';
+  String get nearbyWifiRoom => isEn ? 'Nearby Wi-Fi Chat' : '附近的 Wi-Fi 畅聊';
   String get directP2PExplanation => isEn
-      ? 'Direct P2P connects directly without router'
-      : '近场直连将自动建立免网连接并加入';
-  String get scanRooms => isEn ? 'Scan Rooms' : '扫描房间';
-  String get nearbyRoomsTitle => isEn ? 'Nearby Voice Rooms' : '附近的对讲房间';
-  String get detectingRooms => isEn ? 'Probing…' : '正在探测...';
+      ? 'Connect directly over Wi-Fi, without a router'
+      : '用 Wi-Fi 直接连上对方，不用路由器';
+  String get scanRooms => isEn ? 'Look nearby' : '看看附近';
+  String get nearbyRoomsTitle => isEn ? 'Chats nearby' : '附近的聊天室';
+  String get detectingRooms => scanning;
   String get noRoomsDiscoveredHint => isEn
-      ? 'No nearby rooms or devices found\nTap "Scan Rooms" above or join the same hotspot / Bluetooth to discover'
-      : '未发现附近的房间或设备\n点击上方「扫描房间」或同连热点/蓝牙即可自动发现';
+      ? 'No one found nearby yet\nOnce they start a chat, look again'
+      : '还没找到附近的人\n等对方开好聊天，再找一次';
   String get wifiRoomChipSubtitle =>
-      isEn ? 'Same WiFi / Hotspot / Direct · Full Duplex' : '同连WiFi/热点/直连 · 畅聊';
+      isEn ? 'Talk freely, send messages' : '开口就能聊，也能发消息';
   String get bleRoomChipSubtitle =>
-      isEn ? 'Close-range Pairing-free · Hold to talk' : '近场免配对 · 按住对讲';
-  String get nearbyDevice => isEn ? 'Nearby device' : '附近设备';
-  String connectingTo(String target) => isEn ? 'Connecting ($target)...' : '正在连接 ($target)...';
+      isEn ? 'Hold to talk, send messages' : '按住说话，也能发消息';
+  String get nearbyDevice => isEn ? 'Nearby device' : '附近的设备';
+  String connectingTo(String target) =>
+      isEn ? 'Connecting to "$target"…' : '正在连上「$target」…';
   String get directConnectFailed => isEn
-      ? 'Failed to establish Wi-Fi Direct connection. Please get closer and try again.'
-      : '未能成功建立 Wi-Fi Direct 直连，请靠近重试';
+      ? 'Wi-Fi Direct did not connect. Move closer and try again.'
+      : 'Wi-Fi 直连没连上，靠近对方再试一次';
   String get directConnectPermissionFailed => isEn
-      ? 'Direct connection failed. Please make sure the peer accepted the connection.'
-      : '近场连接失败，请确认对端已允许连接';
+      ? 'Wi-Fi Direct did not connect. Check that the other person accepted the connection.'
+      : 'Wi-Fi 直连没连上，请确认对方同意了连接';
   String roomHostInfo(String host, int count, int max) =>
-      isEn ? 'Host: $host · $count/$max devices' : '房主: $host · $count/$max 台';
+      isEn ? 'Host: $host · $count/$max devices' : '房主：$host · $count/$max 台设备';
   String deviceCount(int count, int max) =>
-      isEn ? '$count / $max devices' : '$count / $max 台';
+      isEn ? '$count/$max devices' : '$count/$max 台设备';
   String defaultWifiRoomTitle(String name) =>
-      isEn ? "$name's WiFi Room" : '$name 的 WiFi 房';
+      isEn ? "$name's chat · Wi-Fi" : '$name的聊天室 · Wi-Fi';
   String defaultBleRoomTitle(String name) =>
-      isEn ? "$name's Bluetooth Room" : '$name 的 蓝牙房';
+      isEn ? "$name's chat · Bluetooth" : '$name的聊天室 · 蓝牙';
   String get connecting => isEn ? 'Connecting…' : '正在连接…';
-  String joinFailed(String msg) => isEn ? 'Failed to join: $msg' : '加入房间失败: $msg';
+  String joinFailed(String msg) =>
+      isEn ? 'Could not join this chat: $msg' : '没能加入这场聊天：$msg';
 
   // Stage Header
-  String get tooltipInfoAndUpdates => isEn ? 'About & Updates' : '详情与更新';
-  String get tooltipToggleTheme => isEn ? 'Toggle Day/Night Theme' : '切换昼夜主题';
-  String get tooltipLeaveRoom => isEn ? 'Leave Room' : '离开房间';
-  String get tooltipDiagnostics => isEn ? 'Connection Diagnostics' : '连接诊断';
-  String get hostBroadcastingStatus => isEn ? 'Host · Broadcasting' : '我是房主 · 房间广播中';
-  String get memberConnectedStatus => isEn ? 'Joined · Voice Encrypted' : '已加入房间 · 语音加密互通中';
+  String get tooltipInfoAndUpdates => aboutTitle;
+  String get tooltipToggleTheme =>
+      isEn ? 'Switch sunset and moonlight themes' : '切换落日与月夜';
+  String get tooltipLeaveRoom => leaveRoom;
+  String get tooltipDiagnostics =>
+      isEn ? 'View connection and audio' : '查看连接与音质';
+  String get hostBroadcastingStatus =>
+      isEn ? 'Host · Chat started' : '房主 · 聊天已开始';
+  String get memberConnectedStatus => isEn ? 'You are connected' : '已经连上了';
 
   // Room Audio State
-  String get micMutedStatus => isEn ? 'Microphone muted' : '麦克风已静音';
-  String get speakingStatus => isEn ? 'Speaking…' : '正在说话...';
+  String get micMutedStatus => isEn ? 'Microphone is off' : '麦克风已关闭';
+  String get speakingStatus => speaking;
   String get inCallStatus => isEn ? 'In call' : '通话中';
-  String get pttHoldingToTalk => isEn ? 'Speaking' : '正在讲话';
+  String get pttHoldingToTalk => speaking;
   String get pttHoldToTalk => isEn ? 'Hold to talk' : '按住说话';
   String get leave => isEn ? 'Leave' : '离开';
   String get microphone => isEn ? 'Microphone' : '麦克风';
 
   // Diagnostics Sheet
-  String get currentOnlineMembers => isEn ? 'Online Members' : '当前在线成员';
-  String get roundTripLatency => isEn ? 'RTT Latency' : '往返延迟 (RTT)';
-  String get packetLossRateTitle => isEn ? 'Packet Loss Rate' : '网络丢包率';
-  String get audioCodecFormat => isEn ? 'Audio Codec' : '音频编码格式';
+  String get currentOnlineMembers => isEn ? 'People here now' : '现在在线的成员';
+  String get roundTripLatency => isEn ? 'Round-trip latency' : '往返延迟';
+  String get packetLossRateTitle => isEn ? 'Packet loss' : '丢包率';
+  String get audioCodecFormat => isEn ? 'Audio format' : '音频格式';
+  String get audioCodecDescription =>
+      isEn ? 'Opus · 16 kHz · Mono · 20 ms' : 'Opus · 16 kHz · 单声道 · 20 ms';
+
+  // Room Text Chat
+  String get chatTitle => isEn ? 'Messages' : '消息';
+  String get chatInputPlaceholder => isEn ? 'Say something…' : '说点什么…';
+  String get chatSend => isEn ? 'Send' : '发送';
+  String get chatEmptyHint => isEn ? 'No one has said hello yet' : '还没人说第一句';
+  String get chatMessageTooLong => isEn
+      ? 'This message is a little long. Split it into a few messages.'
+      : '这条有点长，分成几条发吧';
+  String get chatSendFailed => isEn
+      ? 'Something went wrong sending this message. Check the connection and try again.'
+      : '这条消息发送时出了点问题，检查连接后再试一次';
+  String get chatSending => isEn ? 'Sending message' : '消息正在发送';
+  String get chatRecallFailed => isEn
+      ? 'The recall did not finish. Please check the connection.'
+      : '撤回还没完成，请检查一下连接';
+  String get chatFormerMember => isEn ? 'Left the chat' : '已离开';
+  String get tooltipChat => isEn ? 'Open messages' : '打开消息';
+  String get chatButtonLabel => chatTitle;
+  String get chatCloseSheet => isEn ? 'Close messages' : '关闭消息';
+  String chatUnreadBadge(int count) =>
+      isEn ? '$count unread messages' : '$count 条未读消息';
+  String get chatRecall => isEn ? 'Recall' : '撤回';
+  String get chatRecallConfirm =>
+      isEn ? 'Would you like to recall this message?' : '要撤回这条消息吗？';
+  String get chatRecalledTip => isEn ? 'Recall request submitted' : '撤回请求已提交';
+  String formerNameLabel(String name) => isEn ? 'Previously $name' : '之前叫$name';
+  String get hostRoleBadge => hostTag;
+  String get chatSelfBadge => isEn ? 'Me' : '我';
+  String get deviceCodeTooltip => isEn ? 'Device code' : '设备识别码';
 }

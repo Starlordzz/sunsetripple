@@ -6,12 +6,16 @@ import 'package:sunset_ripple/main.dart';
 
 void main() {
   const audioChannel = MethodChannel('host.msknet.sunsetripple/audio');
-  const audioEventsChannel = MethodChannel('host.msknet.sunsetripple/audio_events');
-  const wifiDirectChannel = MethodChannel('host.msknet.sunsetripple/wifi_direct');
-  const wifiDirectEventsChannel = MethodChannel('host.msknet.sunsetripple/wifi_direct_events');
+  const audioEventsChannel =
+      MethodChannel('host.msknet.sunsetripple/audio_events');
+  const wifiDirectChannel =
+      MethodChannel('host.msknet.sunsetripple/wifi_direct');
+  const wifiDirectEventsChannel =
+      MethodChannel('host.msknet.sunsetripple/wifi_direct_events');
 
   setUp(() {
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(audioChannel, (_) async => null);
     messenger.setMockMethodCallHandler(audioEventsChannel, (_) async => null);
     messenger.setMockMethodCallHandler(wifiDirectChannel, (call) async {
@@ -20,11 +24,13 @@ void main() {
       if (call.method == 'discoverPeers') return true;
       return null;
     });
-    messenger.setMockMethodCallHandler(wifiDirectEventsChannel, (_) async => null);
+    messenger.setMockMethodCallHandler(
+        wifiDirectEventsChannel, (_) async => null);
   });
 
   tearDown(() {
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(audioChannel, null);
     messenger.setMockMethodCallHandler(audioEventsChannel, null);
     messenger.setMockMethodCallHandler(wifiDirectChannel, null);
@@ -51,7 +57,7 @@ void main() {
       find.byWidgetPredicate(
         (w) =>
             w is Text &&
-            (w.data == '创建 WiFi 房' || w.data == 'Create WiFi Room'),
+            (w.data == '开始 Wi-Fi 畅聊' || w.data == 'Start Wi-Fi Chat'),
       ),
       findsOneWidget,
     );
@@ -62,7 +68,7 @@ void main() {
     await tester.pump(scanSettle);
 
     final bluetoothChip = find.byWidgetPredicate(
-      (w) => w is Text && (w.data == '蓝牙房' || w.data == 'Bluetooth room'),
+      (w) => w is Text && (w.data == '蓝牙对讲' || w.data == 'Bluetooth Talk'),
     );
     expect(bluetoothChip, findsOneWidget);
 
@@ -75,7 +81,7 @@ void main() {
       find.byWidgetPredicate(
         (w) =>
             w is Text &&
-            (w.data == '创建蓝牙房' || w.data == 'Create Bluetooth Room'),
+            (w.data == '开始蓝牙对讲' || w.data == 'Start Bluetooth Talk'),
       ),
       findsOneWidget,
     );

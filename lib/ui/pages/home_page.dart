@@ -41,7 +41,8 @@ class HomeContent extends StatefulWidget {
 }
 
 class _HomeContentState extends State<HomeContent> {
-  final _nicknameController = TextEditingController(text: "探索者");
+  final _nicknameController = TextEditingController();
+  String? _defaultNickname;
   final _lanDiscovery = LanRoomDiscovery();
   RoomMode _selectedMode = RoomMode.wifiFullDuplex;
   bool _isScanning = false;
@@ -62,6 +63,17 @@ class _HomeContentState extends State<HomeContent> {
       }
     });
     _startScan();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nickname = AppStrings.of(context).defaultNickname;
+    if (_defaultNickname == null ||
+        _nicknameController.text == _defaultNickname) {
+      _nicknameController.text = nickname;
+    }
+    _defaultNickname = nickname;
   }
 
   void _onStageStatusChanged(AnimationStatus status) {
@@ -98,8 +110,10 @@ class _HomeContentState extends State<HomeContent> {
     final s = AppStrings.of(context);
     final isNight = widget.isNight;
     final stage = widget.stage;
-    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textPrimary =
+        isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
 
     return SafeArea(
@@ -108,7 +122,8 @@ class _HomeContentState extends State<HomeContent> {
         behavior: HitTestBehavior.translucent,
         onTap: () => FocusScope.of(context).unfocus(),
         child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics()),
           slivers: [
             SliverToBoxAdapter(
               child: Column(
@@ -128,41 +143,57 @@ class _HomeContentState extends State<HomeContent> {
                           color: cardBg,
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8),
+                            color: isNight
+                                ? const Color(0xFF283A52)
+                                : const Color(0xFFDCCEC8),
                             width: 1.2,
                           ),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.person_outline, size: 24, color: textSecondary),
+                            Icon(Icons.person_outline,
+                                size: 24, color: textSecondary),
                             const SizedBox(width: 12),
                             Expanded(
                               child: TextField(
                                 controller: _nicknameController,
-                                style: TextStyle(color: textPrimary, fontSize: 17),
+                                style:
+                                    TextStyle(color: textPrimary, fontSize: 17),
                                 decoration: InputDecoration(
                                   border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(vertical: 16),
                                   hintText: s.nicknamePlaceholder,
-                                  hintStyle: TextStyle(color: textSecondary, fontSize: 17),
+                                  hintStyle: TextStyle(
+                                      color: textSecondary, fontSize: 17),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: (isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral).withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '#${DeviceCode.current}',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.8,
-                                  color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                            Tooltip(
+                              message:
+                                  '${s.deviceCodeTooltip} (#${DeviceCode.current})',
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 9, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: (isNight
+                                          ? AppTheme.nightSkyBlue
+                                          : AppTheme.sunsetCoral)
+                                      .withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  '#${DeviceCode.current}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.8,
+                                    color: isNight
+                                        ? AppTheme.nightSkyBlue
+                                        : AppTheme.sunsetCoral,
+                                  ),
                                 ),
                               ),
                             ),
@@ -187,9 +218,11 @@ class _HomeContentState extends State<HomeContent> {
                               icon: Icons.wifi,
                               title: s.wifiRoom,
                               subtitle: s.wifiRoomChipSubtitle,
-                              isSelected: _selectedMode == RoomMode.wifiFullDuplex,
+                              isSelected:
+                                  _selectedMode == RoomMode.wifiFullDuplex,
                               isNight: isNight,
-                              onTap: () => setState(() => _selectedMode = RoomMode.wifiFullDuplex),
+                              onTap: () => setState(() =>
+                                  _selectedMode = RoomMode.wifiFullDuplex),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -198,9 +231,11 @@ class _HomeContentState extends State<HomeContent> {
                               icon: Icons.bluetooth,
                               title: s.bluetoothRoom,
                               subtitle: s.bleRoomChipSubtitle,
-                              isSelected: _selectedMode == RoomMode.bluetoothPtt,
+                              isSelected:
+                                  _selectedMode == RoomMode.bluetoothPtt,
                               isNight: isNight,
-                              onTap: () => setState(() => _selectedMode = RoomMode.bluetoothPtt),
+                              onTap: () => setState(
+                                  () => _selectedMode = RoomMode.bluetoothPtt),
                             ),
                           ),
                         ],
@@ -223,9 +258,12 @@ class _HomeContentState extends State<HomeContent> {
                             child: ElevatedButton(
                               onPressed: _onCreateRoom,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy,
+                                backgroundColor: isNight
+                                    ? AppTheme.nightSkyBlue
+                                    : AppTheme.sunsetBurgundy,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 18),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(28),
                                 ),
@@ -234,8 +272,12 @@ class _HomeContentState extends State<HomeContent> {
                               child: FittedBox(
                                 fit: BoxFit.scaleDown,
                                 child: Text(
-                                  _selectedMode == RoomMode.wifiFullDuplex ? s.createWifiRoom : s.createBleRoom,
-                                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                                  _selectedMode == RoomMode.wifiFullDuplex
+                                      ? s.createWifiRoom
+                                      : s.createBleRoom,
+                                  style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ),
@@ -247,10 +289,13 @@ class _HomeContentState extends State<HomeContent> {
                               onPressed: _isScanning ? null : _startScan,
                               style: OutlinedButton.styleFrom(
                                 side: BorderSide(
-                                  color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                                  color: isNight
+                                      ? AppTheme.nightSkyBlue
+                                      : AppTheme.sunsetCoral,
                                   width: 1.6,
                                 ),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 18),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 18),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(28),
                                 ),
@@ -266,14 +311,18 @@ class _HomeContentState extends State<HomeContent> {
                                         height: 18,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2.2,
-                                          color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                                          color: isNight
+                                              ? AppTheme.moonSilverWhite
+                                              : AppTheme.sunsetCoral,
                                         ),
                                       )
                                     else
                                       Icon(
                                         Icons.radar,
                                         size: 21,
-                                        color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                                        color: isNight
+                                            ? AppTheme.moonSilverWhite
+                                            : AppTheme.sunsetCoral,
                                       ),
                                     const SizedBox(width: 6),
                                     Text(
@@ -281,7 +330,9 @@ class _HomeContentState extends State<HomeContent> {
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
-                                        color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                                        color: isNight
+                                            ? AppTheme.moonSilverWhite
+                                            : AppTheme.sunsetCoral,
                                       ),
                                     ),
                                   ],
@@ -322,7 +373,9 @@ class _HomeContentState extends State<HomeContent> {
                             Text(
                               s.detectingRooms,
                               style: TextStyle(
-                                color: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                                color: isNight
+                                    ? AppTheme.nightSkyBlue
+                                    : AppTheme.sunsetCoral,
                                 fontSize: 14,
                               ),
                             ),
@@ -352,7 +405,8 @@ class _HomeContentState extends State<HomeContent> {
 
                     if (totalCount == 0) {
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 32),
                         alignment: Alignment.center,
                         child: Text(
                           s.noRoomsDiscoveredHint,
@@ -369,19 +423,23 @@ class _HomeContentState extends State<HomeContent> {
                     return ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 8),
                       itemCount: totalCount,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         if (index < rooms.length) {
                           final room = rooms[index];
                           return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 16),
                             decoration: BoxDecoration(
                               color: cardBg,
                               borderRadius: BorderRadius.circular(18),
                               border: Border.all(
-                                color: isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8),
+                                color: isNight
+                                    ? const Color(0xFF283A52)
+                                    : const Color(0xFFDCCEC8),
                               ),
                             ),
                             child: Row(
@@ -389,7 +447,8 @@ class _HomeContentState extends State<HomeContent> {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         room.roomName,
@@ -403,8 +462,10 @@ class _HomeContentState extends State<HomeContent> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        s.roomHostInfo(room.hostNickname, room.memberCount, 6),
-                                        style: TextStyle(color: textSecondary, fontSize: 14),
+                                        s.roomHostInfo(room.hostNickname,
+                                            room.memberCount, 6),
+                                        style: TextStyle(
+                                            color: textSecondary, fontSize: 14),
                                       ),
                                     ],
                                   ),
@@ -413,16 +474,21 @@ class _HomeContentState extends State<HomeContent> {
                                 ElevatedButton(
                                   onPressed: () => _onJoinRoom(room),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                                    backgroundColor: isNight
+                                        ? AppTheme.nightSkyBlue
+                                        : AppTheme.sunsetCoral,
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 22, vertical: 14),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(22),
                                     ),
                                   ),
                                   child: Text(
                                     s.joinRoom,
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold),
                                   ),
                                 ),
                               ],
@@ -430,14 +496,19 @@ class _HomeContentState extends State<HomeContent> {
                           );
                         } else {
                           final peer = p2pPeers[index - rooms.length];
-                          final peerTitle = peer.name.isNotEmpty ? s.defaultWifiRoomTitle(peer.name) : s.nearbyWifiRoom;
+                          final peerTitle = peer.name.isNotEmpty
+                              ? s.defaultWifiRoomTitle(peer.name)
+                              : s.nearbyWifiRoom;
                           return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 16),
                             decoration: BoxDecoration(
                               color: cardBg,
                               borderRadius: BorderRadius.circular(18),
                               border: Border.all(
-                                color: isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8),
+                                color: isNight
+                                    ? const Color(0xFF283A52)
+                                    : const Color(0xFFDCCEC8),
                               ),
                             ),
                             child: Row(
@@ -445,7 +516,8 @@ class _HomeContentState extends State<HomeContent> {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         peerTitle,
@@ -460,7 +532,8 @@ class _HomeContentState extends State<HomeContent> {
                                       const SizedBox(height: 4),
                                       Text(
                                         "${s.hostTag}: ${peer.name.isNotEmpty ? peer.name : s.nearbyDevice} · ${s.nearFieldDirect}",
-                                        style: TextStyle(color: textSecondary, fontSize: 14),
+                                        style: TextStyle(
+                                            color: textSecondary, fontSize: 14),
                                       ),
                                     ],
                                   ),
@@ -469,16 +542,21 @@ class _HomeContentState extends State<HomeContent> {
                                 ElevatedButton(
                                   onPressed: () => _onJoinWifiDirectPeer(peer),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral,
+                                    backgroundColor: isNight
+                                        ? AppTheme.nightSkyBlue
+                                        : AppTheme.sunsetCoral,
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 22, vertical: 14),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(22),
                                     ),
                                   ),
                                   child: Text(
                                     s.joinRoom,
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold),
                                   ),
                                 ),
                               ],
@@ -596,13 +674,17 @@ class _HomeContentState extends State<HomeContent> {
     final s = AppStrings.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(s.connectingTo(peer.name.isNotEmpty ? peer.name : peer.address)),
+        content: Text(
+            s.connectingTo(peer.name.isNotEmpty ? peer.name : peer.address)),
         duration: const Duration(seconds: 4),
       ),
     );
 
-    final connectionInfo = await WifiDirectManager.instance.connectAndWait(peer.address);
-    if (connectionInfo == null || !connectionInfo.isConnected || connectionInfo.groupOwnerAddress.isEmpty) {
+    final connectionInfo =
+        await WifiDirectManager.instance.connectAndWait(peer.address);
+    if (connectionInfo == null ||
+        !connectionInfo.isConnected ||
+        connectionInfo.groupOwnerAddress.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -633,7 +715,8 @@ class _HomeContentState extends State<HomeContent> {
     await session.joinRoom(startAudio: false);
 
     if (mounted) {
-      final displayName = peer.name.isNotEmpty ? s.defaultWifiRoomTitle(peer.name) : s.wifiRoom;
+      final displayName =
+          peer.name.isNotEmpty ? s.defaultWifiRoomTitle(peer.name) : s.wifiRoom;
       widget.onEnterRoom(session, displayName);
     }
   }
@@ -658,10 +741,13 @@ class _ModeSelectChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
+    final activeColor =
+        isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
-    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textPrimary =
+        isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
     return InkWell(
       onTap: onTap,
@@ -672,7 +758,9 @@ class _ModeSelectChip extends StatelessWidget {
           color: isSelected ? activeColor.withValues(alpha: 0.12) : cardBg,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isSelected ? activeColor : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
+            color: isSelected
+                ? activeColor
+                : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
             width: isSelected ? 2.0 : 1.0,
           ),
         ),
@@ -681,13 +769,13 @@ class _ModeSelectChip extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, size: 20, color: isSelected ? activeColor : textSecondary),
+                Icon(icon,
+                    size: 20, color: isSelected ? activeColor : textSecondary),
                 const SizedBox(width: 7),
                 Flexible(
                   child: Text(
                     title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                     style: TextStyle(
                       color: isSelected ? activeColor : textPrimary,
                       fontWeight: FontWeight.bold,
@@ -711,4 +799,3 @@ class _ModeSelectChip extends StatelessWidget {
     );
   }
 }
-

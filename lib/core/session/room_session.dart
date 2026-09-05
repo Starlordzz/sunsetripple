@@ -4,12 +4,17 @@ import '../audio/audio_io.dart';
 import '../diagnostics/app_log.dart';
 import '../protocol/frame.dart';
 import '../protocol/frame_type.dart';
+import '../protocol/payloads/chat_delete.dart';
+import '../protocol/payloads/chat_message.dart';
+import '../protocol/payloads/chat_sync.dart';
 import '../protocol/payloads/join_request.dart';
 import '../protocol/payloads/leave.dart';
 import '../protocol/payloads/ptt_state.dart';
 import '../protocol/payloads/roster.dart';
 import '../security/session_handshake.dart';
 import '../transport/room_transport.dart';
+import 'chat_message.dart';
+import 'device_code.dart';
 import 'host_transfer.dart';
 import 'member.dart';
 import 'reconnect_controller.dart';
@@ -25,6 +30,12 @@ class RoomSession {
   /// 上行 Opus 码率。蓝牙房必须压低——BLE L2CAP 扛不住 24k 再乘以转发份数。
   static const int _wifiBitrate = 24000;
   static const int _bluetoothBitrate = 16000;
+
+  /// 纯内存聊天历史上限
+  static const int maxChatHistory = 100;
+
+  /// (senderId, seq) 有界去重队列容量
+  static const int maxDeduplicationKeys = 512;
 
   final AudioIo audioIo;
   final String selfNickname;
@@ -74,6 +85,19 @@ class RoomSession {
   bool _audioStarted = false;
   late ReconnectController _reconnectController;
 
+  // 纯内存聊天状态
+  final List<ChatMessage> _chatMessages = [];
+  final _chatStreamController = StreamController<ChatMessage>.broadcast(sync: true);
+  final _chatListController = StreamController<List<ChatMessage>>.broadcast(sync: true);
+  final _unreadStreamController = StreamController<int>.broadcast(sync: true);
+  int _unreadChatCount = 0;
+  final Set<String> _seenChatKeys = <String>{};
+  final List<String> _seenChatKeyOrder = <String>[];
+
+  // 跨进退房同人身份与曾用名追踪 (基于设备短码)
+  final Map<String, String> _currentNicknameByCode = {};
+  final Map<String, Set<String>> _previousNicknamesByCode = {};
+
   // UI Reactive Streams
   final _stateController = StreamController<RoomState>.broadcast();
   final _membersController = StreamController<List<Member>>.broadcast();
@@ -82,6 +106,11 @@ class RoomSession {
   Stream<RoomState> get stateStream => _stateController.stream;
   Stream<List<Member>> get membersStream => _membersController.stream;
   Stream<double> get waveStream => _waveController.stream;
+  Stream<ChatMessage> get chatStream => _chatStreamController.stream;
+  Stream<List<ChatMessage>> get chatListStream => _chatListController.stream;
+  List<ChatMessage> get chatMessages => List.unmodifiable(_chatMessages);
+  Stream<int> get unreadChatStream => _unreadStreamController.stream;
+  int get unreadChatCount => _unreadChatCount;
 
   RoomState get state => _state;
   bool get isHost => _isHost;
@@ -125,6 +154,7 @@ class RoomSession {
       isHost: true,
     );
     _members[_selfMemberId] = selfMember;
+    _recordMemberIdentity(_selfMemberId, selfNickname);
 
     _updateState(RoomState.inRoom);
     _notifyMembers();
@@ -210,6 +240,15 @@ class RoomSession {
       case FrameType.hostAnnounce:
         _handleHostAnnounce(frame);
         break;
+      case FrameType.chat:
+        _handleChatFrame(frame);
+        break;
+      case FrameType.chatSync:
+        _handleChatSyncFrame(frame);
+        break;
+      case FrameType.chatDelete:
+        _handleChatDeleteFrame(frame);
+        break;
       case FrameType.handshakeHello:
       case FrameType.handshakeConfirm:
       case FrameType.sealed:
@@ -293,8 +332,10 @@ class RoomSession {
       endpoint: existing?.endpoint ?? '',
     );
 
+    _recordMemberIdentity(allocatedId, payload.nickname);
     _broadcastRoster();
     _notifyMembers();
+    _syncChatHistoryTo(allocatedId);
   }
 
   void _handleRoster(Frame frame) {
@@ -303,6 +344,7 @@ class RoomSession {
 
     _members.clear();
     for (final rm in payload.members) {
+      _recordMemberIdentity(rm.memberId, rm.nickname);
       _members[rm.memberId] = Member(
         memberId: rm.memberId,
         nickname: rm.nickname,
@@ -745,6 +787,315 @@ class RoomSession {
     audioIo.setUseBuiltinMic(useBuiltin);
   }
 
+  /// 将未读数重置归零（面板打开或用户浏览时调用）
+  void markChatRead() {
+    if (_unreadChatCount != 0) {
+      _unreadChatCount = 0;
+      if (!_unreadStreamController.isClosed) {
+        _unreadStreamController.add(0);
+      }
+    }
+  }
+
+  /// 发送一条文字消息
+  Future<void> sendChat(String text) async {
+    if (_state != RoomState.inRoom) {
+      throw StateError('Cannot send chat message when not in room.');
+    }
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Chat message text cannot be empty or whitespace-only.');
+    }
+
+    final fullNickname = _members[_selfMemberId]?.nickname ?? selfNickname;
+    final rawCode = DeviceCode.split(fullNickname).$2 ?? DeviceCode.current;
+    final code = DeviceCode.toNumeric(rawCode);
+    final now = DateTime.now();
+    final timestampMs = now.millisecondsSinceEpoch;
+    final seq = _nextSeq();
+    final messageId = '${code}_${timestampMs}_$seq';
+
+    // ChatMessagePayload 会校验 480 字节 UTF-8 上限，超长直接抛出 ArgumentError
+    final payload = ChatMessagePayload(
+      text: trimmed,
+      timestampMs: timestampMs,
+      senderCode: code,
+    );
+    final payloadBytes = payload.encode();
+
+    final frame = Frame(
+      type: FrameType.chat,
+      senderId: _selfMemberId,
+      seq: seq,
+      payload: payloadBytes,
+    );
+
+    // 记录本机发送键值，防止因广播回送导致重复追加
+    _markChatKeySeen(_selfMemberId, seq);
+
+    // 经由标准 sendFrame 发送（若配置了 secureCodec 将自动加密为 sealed 帧）
+    await sendFrame(frame);
+
+    // 本地立即追加一条 isLocal = true 消息
+    _recordMemberIdentity(_selfMemberId, fullNickname);
+    final cleanNickname = _currentNicknameByCode[code] ?? DeviceCode.split(fullNickname).$1;
+    final prevNick = _previousNicknamesByCode[code]?.join('、');
+
+    final localMsg = ChatMessage(
+      messageId: messageId,
+      senderId: _selfMemberId,
+      senderCode: code,
+      senderNickname: cleanNickname,
+      previousNickname: prevNick,
+      seq: seq,
+      text: trimmed,
+      timestamp: now,
+      isLocal: true,
+      isHost: _isHost,
+    );
+    _appendChatMessage(localMsg, isIncoming: false);
+  }
+
+  void _handleChatFrame(Frame frame) {
+    if (_state != RoomState.inRoom) return;
+
+    // 1. 过滤本机回送帧
+    if (frame.senderId == _selfMemberId) return;
+
+    // 2. 过滤未在册成员的帧
+    final sender = _members[frame.senderId];
+    if (sender == null) {
+      AppLog.warn('RoomSession', '收到未在册成员 #${frame.senderId} 的聊天帧，已忽略');
+      return;
+    }
+
+    // 3. 有界去重检查 (senderId, seq)
+    if (_isChatKeySeen(frame.senderId, frame.seq)) {
+      return;
+    }
+    _markChatKeySeen(frame.senderId, frame.seq);
+
+    // 4. 解码 Payload
+    final payload = ChatMessagePayload.decode(frame.payload);
+    if (payload == null) {
+      AppLog.warn('RoomSession', '来自成员 #${frame.senderId} 的聊天帧载荷格式损坏，已忽略');
+      return;
+    }
+
+    // 5. 身份与曾用名关联
+    _recordMemberIdentity(frame.senderId, sender.nickname);
+    final split = DeviceCode.split(sender.nickname);
+    final senderCode = (payload.senderCode != '0000' && payload.senderCode.isNotEmpty)
+        ? DeviceCode.toNumeric(payload.senderCode)
+        : (split.$2 ?? 'M${frame.senderId}');
+    final cleanNickname = _currentNicknameByCode[senderCode] ?? split.$1;
+    final prevNick = _previousNicknamesByCode[senderCode]?.join('、');
+
+    final timestamp = payload.timestampMs != 0
+        ? DateTime.fromMillisecondsSinceEpoch(payload.timestampMs)
+        : DateTime.now();
+    final messageId = '${senderCode}_${timestamp.millisecondsSinceEpoch}_${frame.seq}';
+
+    // 6. 组装并追加消息
+    final msg = ChatMessage(
+      messageId: messageId,
+      senderId: frame.senderId,
+      senderCode: senderCode,
+      senderNickname: cleanNickname,
+      previousNickname: prevNick,
+      seq: frame.seq,
+      text: payload.text,
+      timestamp: timestamp,
+      isLocal: false,
+      isHost: sender.isHost,
+    );
+    _appendChatMessage(msg, isIncoming: true);
+  }
+
+  /// 房主向新加入成员同步现存的历史聊天记录
+  void _syncChatHistoryTo(int targetMemberId) {
+    if (!_isHost) return;
+    for (final msg in _chatMessages) {
+      if (msg.isRecalled) continue;
+      final syncPayload = ChatSyncPayload(
+        targetMemberId: targetMemberId,
+        senderId: msg.senderId,
+        senderCode: msg.senderCode,
+        timestampMs: msg.timestamp.millisecondsSinceEpoch,
+        messageId: msg.messageId,
+        nickname: msg.senderNickname,
+        text: msg.text,
+      );
+      final frame = Frame(
+        type: FrameType.chatSync,
+        senderId: _selfMemberId,
+        seq: _nextSeq(),
+        payload: syncPayload.encode(),
+      );
+      sendFrame(frame);
+    }
+  }
+
+  void _handleChatSyncFrame(Frame frame) {
+    if (_state != RoomState.inRoom && _state != RoomState.connecting) return;
+    final payload = ChatSyncPayload.decode(frame.payload);
+    if (payload == null) return;
+
+    // 仅接收定向发给本机或广播的历史同步帧
+    if (payload.targetMemberId != 0 && payload.targetMemberId != _selfMemberId) {
+      return;
+    }
+
+    // 根据 messageId 去重，防止重复同步
+    if (_chatMessages.any((m) => m.messageId == payload.messageId)) {
+      return;
+    }
+
+    _recordMemberIdentity(payload.senderId, payload.nickname);
+    final cleanNick = _currentNicknameByCode[payload.senderCode] ?? payload.nickname;
+    final prevNick = _previousNicknamesByCode[payload.senderCode]?.join('、');
+
+    final msg = ChatMessage(
+      messageId: payload.messageId,
+      senderId: payload.senderId,
+      senderCode: payload.senderCode,
+      senderNickname: cleanNick,
+      previousNickname: prevNick,
+      seq: 0,
+      text: payload.text,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(payload.timestampMs),
+      isLocal: payload.senderCode == DeviceCode.current,
+      isHost: payload.senderId == 1,
+    );
+
+    _chatMessages.add(msg);
+    _chatMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    if (_chatMessages.length > maxChatHistory) {
+      _chatMessages.removeAt(0);
+    }
+    if (!_chatStreamController.isClosed) {
+      _chatStreamController.add(msg);
+    }
+    if (!_chatListController.isClosed) {
+      _chatListController.add(List.unmodifiable(_chatMessages));
+    }
+  }
+
+  /// 撤回 / 为所有人删除自己发送的消息
+  Future<void> recallMessage(String messageId) async {
+    final idx = _chatMessages.indexWhere((m) => m.messageId == messageId);
+    if (idx == -1) return;
+    final target = _chatMessages[idx];
+
+    final myCode = DeviceCode.toNumeric(DeviceCode.split(selfNickname).$2 ?? DeviceCode.current);
+    // 权限校验：只能删除自己发送的消息
+    if (!target.isLocal && DeviceCode.toNumeric(target.senderCode) != myCode) {
+      throw StateError('Cannot delete messages sent by other members.');
+    }
+
+    // 本地移除
+    _chatMessages.removeAt(idx);
+    if (!_chatListController.isClosed) {
+      _chatListController.add(List.unmodifiable(_chatMessages));
+    }
+
+    // 广播撤回帧给所有人
+    final deletePayload = ChatDeletePayload(
+      senderCode: myCode,
+      messageId: messageId,
+    );
+    final frame = Frame(
+      type: FrameType.chatDelete,
+      senderId: _selfMemberId,
+      seq: _nextSeq(),
+      payload: deletePayload.encode(),
+    );
+    await sendFrame(frame);
+  }
+
+  void _handleChatDeleteFrame(Frame frame) {
+    final payload = ChatDeletePayload.decode(frame.payload);
+    if (payload == null) return;
+
+    final idx = _chatMessages.indexWhere((m) => m.messageId == payload.messageId);
+    if (idx == -1) return;
+
+    final target = _chatMessages[idx];
+    // 校验发起人短码是否与消息作者一致
+    if (DeviceCode.toNumeric(target.senderCode) != DeviceCode.toNumeric(payload.senderCode)) {
+      AppLog.warn('RoomSession', '收到非法撤回请求：发起方 ${payload.senderCode} 试图撤回作者 ${target.senderCode} 的消息');
+      return;
+    }
+
+    _chatMessages.removeAt(idx);
+    if (!_chatListController.isClosed) {
+      _chatListController.add(List.unmodifiable(_chatMessages));
+    }
+  }
+
+  void _recordMemberIdentity(int memberId, String fullNickname) {
+    final split = DeviceCode.split(fullNickname);
+    final cleanNick = split.$1;
+    final code = split.$2 ?? 'M$memberId';
+
+    if (_currentNicknameByCode.containsKey(code)) {
+      final oldNick = _currentNicknameByCode[code]!;
+      if (oldNick != cleanNick) {
+        _previousNicknamesByCode.putIfAbsent(code, () => <String>{}).add(oldNick);
+        _currentNicknameByCode[code] = cleanNick;
+        // 同步更新之前该成员发出的历史消息
+        bool changed = false;
+        for (int i = 0; i < _chatMessages.length; i++) {
+          if (_chatMessages[i].senderCode == code) {
+            _chatMessages[i] = _chatMessages[i].copyWith(
+              senderNickname: cleanNick,
+              previousNickname: _previousNicknamesByCode[code]?.join('、'),
+            );
+            changed = true;
+          }
+        }
+        if (changed && !_chatListController.isClosed) {
+          _chatListController.add(List.unmodifiable(_chatMessages));
+        }
+      }
+    } else {
+      _currentNicknameByCode[code] = cleanNick;
+    }
+  }
+
+  bool _isChatKeySeen(int senderId, int seq) =>
+      _seenChatKeys.contains('$senderId:$seq');
+
+  void _markChatKeySeen(int senderId, int seq) {
+    final key = '$senderId:$seq';
+    if (_seenChatKeys.add(key)) {
+      _seenChatKeyOrder.add(key);
+      if (_seenChatKeyOrder.length > maxDeduplicationKeys) {
+        final oldest = _seenChatKeyOrder.removeAt(0);
+        _seenChatKeys.remove(oldest);
+      }
+    }
+  }
+
+  void _appendChatMessage(ChatMessage msg, {required bool isIncoming}) {
+    _chatMessages.add(msg);
+    if (_chatMessages.length > maxChatHistory) {
+      _chatMessages.removeAt(0);
+    }
+    if (!_chatStreamController.isClosed) {
+      _chatStreamController.add(msg);
+    }
+    if (!_chatListController.isClosed) {
+      _chatListController.add(List.unmodifiable(_chatMessages));
+    }
+    if (isIncoming) {
+      _unreadChatCount++;
+      if (!_unreadStreamController.isClosed) {
+        _unreadStreamController.add(_unreadChatCount);
+      }
+    }
+  }
+
   Future<void> leave() async {
     final leavePayload = LeavePayload();
     final frame = Frame(
@@ -773,6 +1124,19 @@ class RoomSession {
     _highestSeenJoinOrder = 0;
     _transferInProgress = false;
     _nextJoinOrder = 1;
+
+    // 清空聊天状态
+    _chatMessages.clear();
+    _unreadChatCount = 0;
+    _seenChatKeys.clear();
+    _seenChatKeyOrder.clear();
+    if (!_chatListController.isClosed) {
+      _chatListController.add(const []);
+    }
+    if (!_unreadStreamController.isClosed) {
+      _unreadStreamController.add(0);
+    }
+
     _updateState(RoomState.idle);
     _notifyMembers();
   }
@@ -802,6 +1166,12 @@ class RoomSession {
   /// 和 `_notifyMembers`，写的已经是关掉的 controller，直接抛 StateError。
   Future<void> dispose() async {
     await leave();
+    _chatMessages.clear();
+    _seenChatKeys.clear();
+    _seenChatKeyOrder.clear();
+    await _chatStreamController.close();
+    await _chatListController.close();
+    await _unreadStreamController.close();
     await _stateController.close();
     await _membersController.close();
     await _waveController.close();
