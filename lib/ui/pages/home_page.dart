@@ -49,7 +49,9 @@ class _HomeContentState extends State<HomeContent> {
   List<WifiP2pPeer> _p2pPeers = [];
 
   Timer? _scanTimer;
+  Timer? _periodicScanTimer;
   StreamSubscription<List<WifiP2pPeer>>? _p2pSubscription;
+  bool _isHostingWifiDirect = false;
 
   @override
   void initState() {
@@ -78,8 +80,10 @@ class _HomeContentState extends State<HomeContent> {
 
   void _onStageStatusChanged(AnimationStatus status) {
     if (status == AnimationStatus.dismissed) {
+      _stopPeriodicScan();
       _lanDiscovery.stopAdvertising();
       WifiDirectManager.instance.removeGroup();
+      _isHostingWifiDirect = false;
     }
   }
 
@@ -95,10 +99,25 @@ class _HomeContentState extends State<HomeContent> {
     });
   }
 
+  void _startPeriodicScan() {
+    _periodicScanTimer?.cancel();
+    _periodicScanTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (mounted && _isHostingWifiDirect) {
+        WifiDirectManager.instance.discoverPeers();
+      }
+    });
+  }
+
+  void _stopPeriodicScan() {
+    _periodicScanTimer?.cancel();
+    _periodicScanTimer = null;
+  }
+
   @override
   void dispose() {
     widget.stage.removeStatusListener(_onStageStatusChanged);
     _scanTimer?.cancel();
+    _periodicScanTimer?.cancel();
     _p2pSubscription?.cancel();
     _nicknameController.dispose();
     _lanDiscovery.dispose();
@@ -617,7 +636,9 @@ class _HomeContentState extends State<HomeContent> {
     );
 
     if (_selectedMode == RoomMode.wifiFullDuplex) {
+      _isHostingWifiDirect = true;
       unawaited(WifiDirectManager.instance.createGroup());
+      _startPeriodicScan();
       final transport = LanTransport();
       await transport.startHost();
       session.transport = transport;
