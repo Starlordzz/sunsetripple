@@ -103,7 +103,7 @@ void main() {
         find.byWidgetPredicate(
           (w) =>
               w is Text &&
-              (w.data == '创建 WiFi 房' || w.data == 'Create WiFi Room'),
+              (w.data == '开始 Wi-Fi 畅聊' || w.data == 'Start Wi-Fi Chat'),
         ),
         findsOneWidget,
       );

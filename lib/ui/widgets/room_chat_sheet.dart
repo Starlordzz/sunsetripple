@@ -99,13 +99,14 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     setState(() => _isSending = true);
     try {
       await widget.session.sendChat(text);
+      if (!mounted) return;
       _textController.clear();
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(s.chatMessageTooLong),
+            content: Text(s.chatSendFailed),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -138,7 +139,7 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
       ),
     );
 
-    if (confirmed == true) {
+    if (confirmed == true && mounted) {
       try {
         await widget.session.recallMessage(msg.messageId);
         if (mounted) {
@@ -150,7 +151,11 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
           );
         }
       } catch (e) {
-        // Ignored
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(s.chatRecallFailed)),
+          );
+        }
       }
     }
   }
@@ -167,7 +172,8 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     required bool isNight,
   }) {
     final (baseName, codeInNick) = DeviceCode.split(msg.senderNickname);
-    final rawCode = codeInNick ?? (msg.senderCode.isNotEmpty ? msg.senderCode : null);
+    final rawCode =
+        codeInNick ?? (msg.senderCode.isNotEmpty ? msg.senderCode : null);
     final numericCode = rawCode != null ? DeviceCode.toNumeric(rawCode) : '';
 
     return Padding(
@@ -201,8 +207,9 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
               decoration: BoxDecoration(
-                color: (isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral)
-                    .withValues(alpha: 0.18),
+                color:
+                    (isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral)
+                        .withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Row(
@@ -211,7 +218,9 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                   Icon(
                     Icons.star,
                     size: 10,
-                    color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                    color: isNight
+                        ? AppTheme.moonSilverWhite
+                        : AppTheme.sunsetCoral,
                   ),
                   const SizedBox(width: 2),
                   Text(
@@ -219,7 +228,9 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                      color: isNight
+                          ? AppTheme.moonSilverWhite
+                          : AppTheme.sunsetCoral,
                     ),
                   ),
                 ],
@@ -285,27 +296,36 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     final s = AppStrings.of(context);
     final isNight = widget.isNight;
     final bg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
-    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textPrimary =
+        isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     final accentColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral;
 
     final messages = widget.session.chatMessages;
-    final activeMemberIds = widget.session.members.map((m) => m.memberId).toSet();
+    final activeMemberIds =
+        widget.session.members.map((m) => m.memberId).toSet();
 
     // 智能同名检测：统计每个基准名字关联的设备标识码数量
     final baseNameToCodes = <String, Set<String>>{};
     for (final member in widget.session.members) {
       final (base, code) = DeviceCode.split(member.nickname);
       if (code != null) {
-        baseNameToCodes.putIfAbsent(base, () => <String>{}).add(DeviceCode.toNumeric(code));
+        baseNameToCodes
+            .putIfAbsent(base, () => <String>{})
+            .add(DeviceCode.toNumeric(code));
       } else {
-        baseNameToCodes.putIfAbsent(base, () => <String>{}).add('m_${member.memberId}');
+        baseNameToCodes
+            .putIfAbsent(base, () => <String>{})
+            .add('m_${member.memberId}');
       }
     }
     for (final msg in messages) {
       final (base, codeInNick) = DeviceCode.split(msg.senderNickname);
-      final rawCode = codeInNick ?? (msg.senderCode.isNotEmpty ? msg.senderCode : null);
-      final numericCode = rawCode != null ? DeviceCode.toNumeric(rawCode) : 's_${msg.senderId}';
+      final rawCode =
+          codeInNick ?? (msg.senderCode.isNotEmpty ? msg.senderCode : null);
+      final numericCode =
+          rawCode != null ? DeviceCode.toNumeric(rawCode) : 's_${msg.senderId}';
       baseNameToCodes.putIfAbsent(base, () => <String>{}).add(numericCode);
     }
 
@@ -318,10 +338,13 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     final keyboardHeight = viewInsets.bottom;
     final topPadding = mediaQuery.padding.top;
 
-    final double maxSheetHeight = (screenHeight - topPadding - 24).clamp(240.0, screenHeight);
+    final double maxSheetHeight =
+        (screenHeight - topPadding - 24).clamp(240.0, screenHeight);
     final double targetHeight = keyboardHeight > 0
-        ? (screenHeight - keyboardHeight - topPadding - 16).clamp(240.0, maxSheetHeight)
-        : (screenHeight * (isTablet ? 0.65 : 0.72)).clamp(280.0, maxSheetHeight);
+        ? (screenHeight - keyboardHeight - topPadding - 16)
+            .clamp(240.0, maxSheetHeight)
+        : (screenHeight * (isTablet ? 0.65 : 0.72))
+            .clamp(280.0, maxSheetHeight);
 
     return Material(
       color: Colors.transparent,
@@ -339,7 +362,8 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
               height: targetHeight,
               decoration: BoxDecoration(
                 color: bg,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(24)),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.2),
@@ -363,7 +387,8 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
                       child: Row(
                         children: [
                           Icon(
@@ -382,7 +407,8 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                           ),
                           const Spacer(),
                           IconButton(
-                            icon: Icon(Icons.close_rounded, color: textSecondary, size: 22),
+                            icon: Icon(Icons.close_rounded,
+                                color: textSecondary, size: 22),
                             tooltip: s.chatCloseSheet,
                             onPressed: () => Navigator.pop(context),
                           ),
@@ -402,7 +428,8 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: textSecondary.withValues(alpha: 0.75),
+                                    color:
+                                        textSecondary.withValues(alpha: 0.75),
                                     height: 1.5,
                                   ),
                                 ),
@@ -410,25 +437,30 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                             )
                           : ListView.builder(
                               controller: _scrollController,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
                               itemCount: messages.length,
                               itemBuilder: (context, index) {
                                 final msg = messages[index];
                                 final isLocal = msg.isLocal;
-                                final isFormer =
-                                    !isLocal && !activeMemberIds.contains(msg.senderId);
+                                final isFormer = !isLocal &&
+                                    !activeMemberIds.contains(msg.senderId);
 
-                                final (baseName, _) = DeviceCode.split(msg.senderNickname);
+                                final (baseName, _) =
+                                    DeviceCode.split(msg.senderNickname);
                                 final hasConflict =
-                                    (baseNameToCodes[baseName]?.length ?? 0) > 1;
+                                    (baseNameToCodes[baseName]?.length ?? 0) >
+                                        1;
 
                                 return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 6),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 6),
                                   child: Row(
                                     mainAxisAlignment: isLocal
                                         ? MainAxisAlignment.end
                                         : MainAxisAlignment.start,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       // 远端消息头像框
                                       if (!isLocal) ...[
@@ -464,37 +496,53 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
 
                                             // 气泡本体（长按支持撤回）
                                             GestureDetector(
-                                              onLongPress:
-                                                  isLocal ? () => _handleRecall(msg) : null,
+                                              onLongPress: isLocal
+                                                  ? () => _handleRecall(msg)
+                                                  : null,
                                               child: Container(
                                                 constraints: BoxConstraints(
                                                   maxWidth: isTablet
                                                       ? 440
-                                                      : (screenWidth * 0.70).clamp(200.0, 420.0),
+                                                      : (screenWidth * 0.70)
+                                                          .clamp(200.0, 420.0),
                                                 ),
-                                                padding: const EdgeInsets.symmetric(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
                                                   horizontal: 13,
                                                   vertical: 9,
                                                 ),
                                                 decoration: BoxDecoration(
                                                   color: isLocal
                                                       ? (isNight
-                                                          ? AppTheme.nightSkyBlue
-                                                          : AppTheme.sunsetCoral)
+                                                          ? AppTheme
+                                                              .nightSkyBlue
+                                                          : AppTheme
+                                                              .sunsetCoral)
                                                       : (isNight
-                                                          ? const Color(0xFF1E2D44)
-                                                          : const Color(0xFFEFE7DE)),
-                                                  borderRadius: BorderRadius.only(
-                                                    topLeft: const Radius.circular(16),
-                                                    topRight: const Radius.circular(16),
-                                                    bottomLeft: Radius.circular(isLocal ? 16 : 4),
-                                                    bottomRight: Radius.circular(isLocal ? 4 : 16),
+                                                          ? const Color(
+                                                              0xFF1E2D44)
+                                                          : const Color(
+                                                              0xFFEFE7DE)),
+                                                  borderRadius:
+                                                      BorderRadius.only(
+                                                    topLeft:
+                                                        const Radius.circular(
+                                                            16),
+                                                    topRight:
+                                                        const Radius.circular(
+                                                            16),
+                                                    bottomLeft: Radius.circular(
+                                                        isLocal ? 16 : 4),
+                                                    bottomRight:
+                                                        Radius.circular(
+                                                            isLocal ? 4 : 16),
                                                   ),
                                                   border: isLocal
                                                       ? null
                                                       : Border.all(
-                                                          color:
-                                                              textSecondary.withValues(alpha: 0.15),
+                                                          color: textSecondary
+                                                              .withValues(
+                                                                  alpha: 0.15),
                                                           width: 0.6,
                                                         ),
                                                 ),
@@ -503,7 +551,9 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                                                   softWrap: true,
                                                   style: TextStyle(
                                                     fontSize: 14.5,
-                                                    color: isLocal ? Colors.white : textPrimary,
+                                                    color: isLocal
+                                                        ? Colors.white
+                                                        : textPrimary,
                                                     height: 1.35,
                                                   ),
                                                 ),
@@ -534,7 +584,8 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                     // 3. 底部输入与发送栏
                     const Divider(height: 1, thickness: 0.8),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
                       child: Row(
                         children: [
                           Expanded(
@@ -545,12 +596,14 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                                 controller: _textController,
                                 maxLines: 3,
                                 minLines: 1,
-                                style: TextStyle(fontSize: 15, color: textPrimary),
+                                style:
+                                    TextStyle(fontSize: 15, color: textPrimary),
                                 decoration: InputDecoration(
                                   hintText: s.chatInputPlaceholder,
                                   hintStyle: TextStyle(
                                     fontSize: 13.5,
-                                    color: textSecondary.withValues(alpha: 0.65),
+                                    color:
+                                        textSecondary.withValues(alpha: 0.65),
                                   ),
                                   contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 14,
@@ -571,18 +624,21 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
                           ),
                           const SizedBox(width: 8),
                           Semantics(
-                            label: s.chatSend,
+                            label: _isSending ? s.chatSending : s.chatSend,
+                            liveRegion: _isSending,
                             button: true,
                             child: IconButton(
                               icon: _isSending
                                   ? const SizedBox(
                                       width: 20,
                                       height: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
                                     )
-                                  : Icon(Icons.send_rounded, color: accentColor),
-                              tooltip: s.chatSend,
-                              onPressed: _handleSend,
+                                  : Icon(Icons.send_rounded,
+                                      color: accentColor),
+                              tooltip: _isSending ? s.chatSending : s.chatSend,
+                              onPressed: _isSending ? null : _handleSend,
                             ),
                           ),
                         ],

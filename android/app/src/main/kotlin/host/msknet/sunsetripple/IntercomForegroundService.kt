@@ -82,14 +82,12 @@ class IntercomForegroundService : Service() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "对讲进行中",
+            "聊天连接",
             NotificationManager.IMPORTANCE_LOW, // 不出声、不震动，避免干扰通话
         ).apply {
-            description = "对讲通话期间保持麦克风与连接不被系统回收"
+            description = "切到后台后，继续保持聊天连接"
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
@@ -114,7 +112,7 @@ class IntercomForegroundService : Service() {
 
         return builder
             .setContentTitle("落日后残波")
-            .setContentText("对讲进行中")
+            .setContentText("聊天还在继续")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(contentIntent)
             .setOngoing(true)

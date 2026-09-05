@@ -42,7 +42,7 @@ class _SunsetRippleAppState extends State<SunsetRippleApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '落日后残波 SunsetRipple',
+      title: '落日后残波',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
