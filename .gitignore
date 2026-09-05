@@ -21,8 +21,14 @@ keystore.properties.example
 *.hprof
 commandlinetools-*
 scripts/setup-release-signing.sh
-.superpowers/sdd/
+.superpowers/
 docs/superpowers/
+.grok/
+.adb-home/
+.adb-profile/
+.adb-sdk-home/
+.android-adb/
+.android-runtime/
 .vscode/
 .dart_tool/
 docs/ENV_SETUP.md
