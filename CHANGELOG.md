@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased - 2026-09-06
+
+### 重要修复
+
+- **真正修复 Wi-Fi Direct 静默失效**：alpha.10 的更新记录曾声称修复了
+  `WifiDirectPlugin` 遗漏向 Flutter 引擎注册的问题，但该修复从未落进代码。
+  本次在 `MainActivity.configureFlutterEngine` 中完成注册、在
+  `cleanUpFlutterEngine` 中释放，P2P 扫描/建组/直连通道恢复可用。
+
+### 安全加固（局域网内的伪造与越权）
+
+- **入房重连判定改用会话令牌**：原来按昵称匹配「老成员」，同昵称的新设备
+  可以顶掉在册成员的成员号。现在以会话令牌判定重连（`RoomSession` 默认生成
+  16 字节随机令牌，替代全零默认值）；旧版客户端的全零令牌仍按昵称兜底，
+  但仅当在册成员也持有全零令牌时生效，新客户端不受影响。
+- **历史同步帧（chatSync）仅信任房主**：载荷里的 senderId/senderCode 均为
+  自报字段，不校验实际发送者的话，任何成员都能伪造「历史消息」冒充他人发言。
+- **撤回帧（chatDelete）校验帧的实际发送者**：设备码在聊天界面可见且仅
+  3 位数字，仅比对载荷里的 senderCode 时任何成员都能撤回他人消息；现在以
+  发送者在名单中的设备码与消息作者比对。
+- **UDP 语音面白名单**：房主侧新增在册成员号同步（`RoomTransport.
+  updateKnownMemberIds`），不在册 senderId 的 UDP 帧（含端点注册与转发）
+  一律在传输层丢弃，不再依赖会话层事后过滤。
+- **房主侧成员超时清理**：心跳 10 秒未刷新的成员从名单移除并重新广播，
+  修复静默掉线成员永久占用名额、房满 6 人后无人能加入的问题。
+- **发现协议加固**：`ROOM_CLOSED` 仅接受与该房间最后一次广播同源的包；
+  端口/人数/文本长度做边界钳制；发现列表新增 64 条容量上限，抵御伪造
+  广播洪水。
+
+### 修复与优化
+
+- `leave()` 现在通过 `RoomTransport.flush()` 把离房帧真正推到底层链路
+  之后再断开传输，修复 socket 发送缓冲随 `stop()` 被丢弃、对方收不到
+  leave 帧、名单残留幽灵成员的问题。
+- 蓝牙 L2CAP 插件 `MAX_PAYLOAD` 从 1024 对齐到协议上限 512。
+- 移除 `BleL2capTransport` 上无调用方的 PTT 话权 API
+  （`requestPttToken`/`releasePttToken`）。
+- README 测试徽章更新为 118；`.gitignore` 不再忽略
+  `keystore.properties.example`，占位模板随仓库分发。
+
 ## 0.1.0-alpha.11 - 2026-09-04
 
 ### 新功能

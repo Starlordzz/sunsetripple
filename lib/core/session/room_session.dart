@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 import '../audio/audio_io.dart';
 import '../diagnostics/app_log.dart';
@@ -36,6 +37,11 @@ class RoomSession {
 
   /// (senderId, seq) 有界去重队列容量
   static const int maxDeduplicationKeys = 512;
+
+  /// 心跳每 2 秒一次，5 个周期没收到任何帧的成员视为已离开。
+  /// 房主用它清理静默掉线（TCP 断开不可感知）的成员，
+  /// 否则幽灵名额会一直占位，房满 6 人后新成员永远进不来。
+  static const Duration _memberTimeout = Duration(seconds: 10);
 
   final AudioIo audioIo;
   final String selfNickname;
@@ -120,18 +126,42 @@ class RoomSession {
   List<Member> get members => _members.values.toList();
   bool get isFullDuplex => mode == RoomMode.wifiFullDuplex;
 
+  /// 会话令牌：进房时随机生成，同一台设备跨重连保持不变。
+  /// 房主用它判定「老成员重连回来了」——昵称谁都可以填一样的，不能作为身份依据。
+  ///
+  /// 不再默认全零：全零令牌会让所有客户端在房主侧长得一模一样，令牌判定就失效了。
   RoomSession({
     required this.audioIo,
     required this.selfNickname,
     this.mode = RoomMode.wifiFullDuplex,
     Uint8List? sessionToken,
-  }) : sessionToken = sessionToken ?? Uint8List(16) {
+  }) : sessionToken = sessionToken ?? _generateSessionToken() {
     _reconnectController = ReconnectController(
       onAttemptReconnect: _attemptReconnect,
       onMaxRetriesReached: () {
         _updateState(RoomState.disconnected);
       },
     );
+  }
+
+  static Uint8List _generateSessionToken() {
+    final token = Uint8List(16);
+    final rng = Random.secure();
+    for (int i = 0; i < token.length; i++) {
+      token[i] = rng.nextInt(256);
+    }
+    return token;
+  }
+
+  /// 全零令牌是旧版客户端的默认值，不能作为唯一身份。
+  static bool _isZeroToken(Uint8List token) => token.every((b) => b == 0);
+
+  static bool _tokensEqual(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// Create a new room as Host.
@@ -158,6 +188,7 @@ class RoomSession {
 
     _updateState(RoomState.inRoom);
     _notifyMembers();
+    _syncKnownMembersToTransport();
 
     if (startAudio) await this.startAudio();
     _startHeartbeat();
@@ -304,12 +335,28 @@ class RoomSession {
     final payload = JoinRequestPayload.decode(frame.payload);
     if (payload == null) return;
 
-    // Check if rejoining with existing token
+    // 重连判定：令牌相同才认定是「老成员回来了」。昵称谁都可以填一样的，
+    // 不能作为身份依据——同昵称的新人应当拿到新的成员号。
+    // 兼容兜底：旧版客户端的令牌是全零，对这类客户端退回昵称匹配，
+    // 但仅当在册成员也是全零令牌时才生效（新客户端有唯一令牌，不受影响）。
+    final joinToken = payload.sessionToken;
     int allocatedId = 0;
-    for (final entry in _members.entries) {
-      if (entry.value.nickname == payload.nickname) {
-        allocatedId = entry.key;
-        break;
+    if (!_isZeroToken(joinToken)) {
+      for (final entry in _members.entries) {
+        final existing = entry.value.sessionToken;
+        if (existing != null && !_isZeroToken(existing) && _tokensEqual(existing, joinToken)) {
+          allocatedId = entry.key;
+          break;
+        }
+      }
+    } else {
+      for (final entry in _members.entries) {
+        final existing = entry.value.sessionToken;
+        if ((existing == null || _isZeroToken(existing)) &&
+            entry.value.nickname == payload.nickname) {
+          allocatedId = entry.key;
+          break;
+        }
       }
     }
 
@@ -600,6 +647,9 @@ class RoomSession {
   void _broadcastRoster() {
     if (!_isHost) return;
 
+    // 名单变了，传输层的 UDP 白名单也要跟着变：端点注册只认在册成员号。
+    _syncKnownMembersToTransport();
+
     final rosterMembers = _members.values.map((m) {
       int flags = 0;
       if (m.isHost) flags |= 0x01;
@@ -616,6 +666,13 @@ class RoomSession {
       payload: payload.encode(),
     );
     sendFrame(frame);
+  }
+
+  /// 把在册成员号同步给传输层。房主侧的 UDP 端点注册与转发只认这份
+  /// 白名单——不在册的 senderId 一律在传输层丢弃，否则局域网内任何
+  /// 设备都能用伪造的成员号抢先登记语音端点、借房主转发垃圾帧。
+  void _syncKnownMembersToTransport() {
+    transport?.updateKnownMemberIds(_members.keys.toSet());
   }
 
   Future<void> _startAudioPipeline() async {
@@ -667,14 +724,40 @@ class RoomSession {
       );
       sendFrame(frame);
 
-      // 房主定期广播交接快照；成员则检查房主是不是已经失联。
-      // 这一步之前被漏掉了，导致房主掉线后没有任何人接管。
+      // 房主定期广播交接快照、清理失联成员；成员则检查房主是不是已经失联。
+      // 快照广播这步之前被漏掉了，导致房主掉线后没有任何人接管。
       if (_isHost) {
+        pruneStaleMembers();
         _broadcastSnapshot();
       } else {
         checkHostFailover();
       }
     });
+  }
+
+  /// 房主清理静默掉线的成员。心跳每 2 秒一次，10 秒收不到任何心跳
+  /// 即视为离开；不清理的话 TCP 静默断开（WiFi 切换、杀进程）的成员
+  /// 会一直占着名额，房满 6 人后谁都进不来。
+  ///
+  /// 公开而非私有：心跳定时器周期调用，测试与诊断工具也需要手动触发。
+  void pruneStaleMembers() {
+    final now = DateTime.now();
+    final stale = _members.values
+        .where((m) =>
+            m.memberId != _selfMemberId &&
+            now.difference(m.lastActiveAt) > _memberTimeout)
+        .map((m) => m.memberId)
+        .toList();
+    if (stale.isEmpty) return;
+
+    for (final id in stale) {
+      final member = _members.remove(id);
+      AppLog.info('RoomSession', '成员 #$id「${member?.nickname}」心跳超时，已从名单移除');
+      _lastAudioAt.remove(id);
+      audioIo.removeRemoteMember(id);
+    }
+    _notifyMembers();
+    _broadcastRoster();
   }
 
   /// PTT 按住/松开切换。
@@ -941,6 +1024,14 @@ class RoomSession {
     final payload = ChatSyncPayload.decode(frame.payload);
     if (payload == null) return;
 
+    // 历史同步是房主的特权帧：payload 里的 senderId/senderCode 都是自报的，
+    // 不校验实际发送者的话，任何成员都能伪造「历史消息」冒充他人发言。
+    final sender = _members[frame.senderId];
+    if (sender == null || !sender.isHost) {
+      AppLog.warn('RoomSession', '拒绝来自非房主 #${frame.senderId} 的历史同步帧');
+      return;
+    }
+
     // 仅接收定向发给本机或广播的历史同步帧
     if (payload.targetMemberId != 0 && payload.targetMemberId != _selfMemberId) {
       return;
@@ -1021,9 +1112,22 @@ class RoomSession {
     if (idx == -1) return;
 
     final target = _chatMessages[idx];
-    // 校验发起人短码是否与消息作者一致
-    if (DeviceCode.toNumeric(target.senderCode) != DeviceCode.toNumeric(payload.senderCode)) {
-      AppLog.warn('RoomSession', '收到非法撤回请求：发起方 ${payload.senderCode} 试图撤回作者 ${target.senderCode} 的消息');
+    // 权限校验：只比对 payload 里的 senderCode 不够——设备码在聊天界面
+    // 可见且仅 3 位数字，任何成员都能冒填。改为取「帧的实际发送者」在
+    // 名单里的设备码与消息作者比对，冒用他人短码的撤回请求一律无效。
+    final sender = _members[frame.senderId];
+    if (sender == null) {
+      AppLog.warn('RoomSession', '收到不在册成员 #${frame.senderId} 的撤回请求，已忽略');
+      return;
+    }
+    final senderCode = DeviceCode.toNumeric(
+      DeviceCode.split(sender.nickname).$2 ?? 'M${frame.senderId}',
+    );
+    if (senderCode != DeviceCode.toNumeric(target.senderCode)) {
+      AppLog.warn(
+        'RoomSession',
+        '收到非法撤回请求：发起方 #${frame.senderId}（$senderCode）试图撤回 ${target.senderCode} 的消息',
+      );
       return;
     }
 
@@ -1104,7 +1208,12 @@ class RoomSession {
       seq: _nextSeq(),
       payload: leavePayload.encode(),
     );
-    sendFrame(frame);
+    // 离房帧必须先落到对端再拆传输层：sendFrame 只是把字节挂上 socket
+    // 的发送缓冲，下面的 stop() 会销毁链路、连缓冲一起丢弃。flush 是
+    // I/O 完成事件，不用定时器——定时器等待在测试的 FakeAsync 时区里
+    // 会永远挂起。
+    await sendFrame(frame);
+    await transport?.flush();
 
     _speakingWatchTimer?.cancel();
     _speakingWatchTimer = null;

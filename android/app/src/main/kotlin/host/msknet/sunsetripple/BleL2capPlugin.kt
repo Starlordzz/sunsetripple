@@ -64,7 +64,9 @@ class BleL2capPlugin(
         private const val MANUFACTURER_ID = 0xFFFF
 
         private const val FRAME_HEADER_SIZE = 6
-        private const val MAX_PAYLOAD = 1024
+
+        /** 与 Dart 侧 Frame.maxPayloadSize 严格一致：协议帧载荷上限就是 512。 */
+        private const val MAX_PAYLOAD = 512
 
         /** 房主 1 台 + 客户端 5 台。 */
         private const val MAX_PEERS = 5

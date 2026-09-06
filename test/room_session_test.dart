@@ -5,7 +5,10 @@ import 'package:sunset_ripple/core/audio/audio_io.dart';
 import 'package:sunset_ripple/core/ffi/native_core_ffi.dart';
 import 'package:sunset_ripple/core/protocol/frame.dart';
 import 'package:sunset_ripple/core/protocol/frame_type.dart';
+import 'package:sunset_ripple/core/protocol/payloads/chat_delete.dart';
 import 'package:sunset_ripple/core/protocol/payloads/chat_message.dart';
+import 'package:sunset_ripple/core/protocol/payloads/chat_sync.dart';
+import 'package:sunset_ripple/core/protocol/payloads/join_request.dart';
 import 'package:sunset_ripple/core/protocol/payloads/roster.dart';
 import 'package:sunset_ripple/core/session/chat_message.dart';
 import 'package:sunset_ripple/core/session/host_transfer.dart';
@@ -536,6 +539,222 @@ void main() {
       expect(session.unreadChatCount, 0);
 
       await session.dispose();
+      expect(session.chatMessages, isEmpty);
+    });
+  });
+
+  group('入房身份判定（sessionToken）', () {
+    Frame joinFrame(String nickname, Uint8List token, {int seq = 1}) => Frame(
+          type: FrameType.joinReq,
+          senderId: 0,
+          seq: seq,
+          payload: JoinRequestPayload(nickname: nickname, sessionToken: token).encode(),
+        );
+
+    test('同令牌重连复用原成员号，不会变成两个成员', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      final token = Uint8List.fromList(List.generate(16, (i) => i + 1));
+      session.handleIncomingFrame(joinFrame('访客甲', token, seq: 1));
+      expect(session.members.length, 2);
+
+      // 断线重连：同令牌再次入房必须回到原成员号。
+      session.handleIncomingFrame(joinFrame('访客甲', token, seq: 2));
+      expect(session.members.length, 2);
+      expect(
+        session.members.where((m) => m.nickname == '访客甲').length,
+        1,
+      );
+      expect(
+        session.members.firstWhere((m) => m.nickname == '访客甲').memberId,
+        2,
+      );
+    });
+
+    test('同昵称不同令牌是新成员，不能顶掉在册成员的号', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      final tokenA = Uint8List.fromList(List.filled(16, 0xAA));
+      final tokenB = Uint8List.fromList(List.filled(16, 0xBB));
+      session.handleIncomingFrame(joinFrame('访客甲', tokenA, seq: 1));
+      session.handleIncomingFrame(joinFrame('访客甲', tokenB, seq: 2));
+
+      expect(session.members.length, 3,
+          reason: '昵称谁都能填一样，身份只认令牌，后者必须拿新号');
+      expect(
+        session.members.map((m) => m.memberId).toSet(),
+        containsAll(const [1, 2, 3]),
+      );
+    });
+
+    test('全零令牌（旧版客户端）按昵称兜底，但不影响新客户端', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      final zero = Uint8List(16);
+      session.handleIncomingFrame(joinFrame('旧版客人', zero, seq: 1));
+      expect(session.members.length, 2);
+
+      // 旧版客户端重连：全零令牌 + 同昵称 → 复用原号。
+      session.handleIncomingFrame(joinFrame('旧版客人', zero, seq: 2));
+      expect(session.members.length, 2);
+
+      // 新客户端（唯一令牌）顶旧版成员的昵称进来 → 必须拿新号。
+      final token = Uint8List.fromList(List.filled(16, 0xCC));
+      session.handleIncomingFrame(joinFrame('旧版客人', token, seq: 3));
+      expect(session.members.length, 3);
+    });
+  });
+
+  group('房主侧成员超时清理', () {
+    Frame joinFrame(String nickname, Uint8List token, {int seq = 1}) => Frame(
+          type: FrameType.joinReq,
+          senderId: 0,
+          seq: seq,
+          payload: JoinRequestPayload(nickname: nickname, sessionToken: token).encode(),
+        );
+
+    Uint8List token(int seed) => Uint8List.fromList(List.filled(16, seed));
+
+    test('心跳超时的成员被移出名单并重广播', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      session.handleIncomingFrame(joinFrame('失联者', token(0x11), seq: 1));
+      expect(session.members.length, 2);
+
+      // 把成员 #2 的活跃时间拨回超时阈值之前。
+      session.members
+          .firstWhere((m) => m.memberId == 2)
+          .lastActiveAt = DateTime.now().subtract(const Duration(seconds: 11));
+
+      sent.clear();
+      session.pruneStaleMembers();
+
+      expect(session.members.length, 1);
+      expect(
+        sent.where((f) => f.type == FrameType.roster),
+        isNotEmpty,
+        reason: '清理后必须重广播名单，让其余成员同步有人离场',
+      );
+    });
+
+    test('刷新过心跳的成员不会被误清', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      session.handleIncomingFrame(joinFrame('在线者', token(0x22), seq: 1));
+      session.members
+          .firstWhere((m) => m.memberId == 2)
+          .lastActiveAt = DateTime.now().subtract(const Duration(seconds: 11));
+
+      // 心跳刷新活跃时间后再清理，成员应保留。
+      session.handleIncomingFrame(Frame(
+        type: FrameType.heartbeat,
+        senderId: 2,
+        seq: 9,
+        payload: Uint8List(0),
+      ));
+      session.pruneStaleMembers();
+
+      expect(session.members.length, 2);
+    });
+  });
+
+  group('历史同步与撤回的权限校验', () {
+    /// 客户端视角：房主 #1、在册成员 #2（码 321）、#3（码 654）、自己 #4。
+    void seedRoster() {
+      session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 1,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '远端伙伴#321'),
+            RosterMember(memberId: 3, flags: 0x00, nickname: '第三人#654'),
+            RosterMember(memberId: 4, flags: 0x00, nickname: '测试者'),
+          ],
+        ).encode(),
+      ));
+    }
+
+    test('chatSync 仅接受房主发送，普通成员伪造的历史被拒绝', () async {
+      session = build();
+      await session.joinRoom(startAudio: false);
+      seedRoster();
+
+      ChatSyncPayload syncPayload() => const ChatSyncPayload(
+            targetMemberId: 0,
+            senderId: 2,
+            senderCode: '321',
+            timestampMs: 1700000000000,
+            messageId: 'fake_history_1',
+            nickname: '远端伙伴#321',
+            text: '伪造的历史消息',
+          );
+
+      // 普通成员 #2 冒充房主发历史 → 拒绝
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chatSync,
+        senderId: 2,
+        seq: 10,
+        payload: syncPayload().encode(),
+      ));
+      expect(session.chatMessages, isEmpty,
+          reason: '历史同步是房主特权帧，payload 全是自报字段，不能不校验发送者');
+
+      // 真房主 #1 发同样的历史 → 接受
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chatSync,
+        senderId: 1,
+        seq: 11,
+        payload: syncPayload().encode(),
+      ));
+      expect(session.chatMessages.length, 1);
+      expect(session.chatMessages.first.text, '伪造的历史消息');
+      expect(session.chatMessages.first.senderNickname, '远端伙伴');
+    });
+
+    test('chatDelete 校验帧的实际发送者，冒用他人设备码无效', () async {
+      session = build();
+      await session.joinRoom(startAudio: false);
+      seedRoster();
+
+      // 成员 #2（码 321）发一条消息
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chat,
+        senderId: 2,
+        seq: 20,
+        payload: const ChatMessagePayload(
+          text: '作者的消息',
+          timestampMs: 1700000001000,
+          senderCode: '321',
+        ).encode(),
+      ));
+      expect(session.chatMessages.length, 1);
+      final messageId = session.chatMessages.first.messageId;
+
+      // 成员 #3 冒用 #2 的设备码撤回 → 拒绝（帧的实际发送者码是 654）
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chatDelete,
+        senderId: 3,
+        seq: 21,
+        payload: ChatDeletePayload(senderCode: '321', messageId: messageId).encode(),
+      ));
+      expect(session.chatMessages.length, 1,
+          reason: 'payload 里的 senderCode 谁都能填，必须以帧的实际发送者为准');
+
+      // 作者本人 #2 撤回 → 接受
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.chatDelete,
+        senderId: 2,
+        seq: 22,
+        payload: ChatDeletePayload(senderCode: '321', messageId: messageId).encode(),
+      ));
       expect(session.chatMessages, isEmpty);
     });
   });

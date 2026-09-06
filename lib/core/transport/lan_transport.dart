@@ -89,6 +89,10 @@ class LanTransport implements RoomTransport {
 
   int _selfMemberId = 0;
 
+  /// 房主侧在册成员号白名单，来自 [RoomSession] 的名单广播。
+  /// UDP 帧头里的 senderId 是自报的，不在名单里的一律丢弃。
+  final Set<int> _knownMemberIds = <int>{};
+
   final StreamController<Frame> _incoming = StreamController<Frame>.broadcast();
   final StreamController<int> _peerCount = StreamController<int>.broadcast();
 
@@ -122,6 +126,13 @@ class LanTransport implements RoomTransport {
         ),
       );
     }
+  }
+
+  @override
+  void updateKnownMemberIds(Set<int> ids) {
+    _knownMemberIds
+      ..clear()
+      ..addAll(ids);
   }
 
   @override
@@ -339,10 +350,13 @@ class LanTransport implements RoomTransport {
     }
 
     if (_role == TransportRole.host) {
-      if (frame.senderId > 0) {
-        _audioEndpoints[frame.senderId] =
-            _Endpoint(datagram.address, datagram.port);
+      // 白名单：UDP 帧头的 senderId 是自报的，不在册的一律丢弃——
+      // 否则局域网内任何设备都能抢先注册别人的语音端点、借房主转发。
+      if (frame.senderId == 0 || !_knownMemberIds.contains(frame.senderId)) {
+        return;
       }
+      _audioEndpoints[frame.senderId] =
+          _Endpoint(datagram.address, datagram.port);
       // 报到心跳只用来登记端点，控制面已经有一份了。
       if (frame.type == FrameType.heartbeat) return;
 
@@ -446,6 +460,22 @@ class LanTransport implements RoomTransport {
 
   // ---------------------------------------------------------------- 杂项
 
+  @override
+  Future<void> flush() async {
+    // 离房帧走 TCP 控制面；UDP 是数据报语义，没有可刷写的发送缓冲。
+    try {
+      if (_role == TransportRole.client) {
+        await _hostSocket?.flush();
+      } else if (_role == TransportRole.host) {
+        for (final socket in _clientLabels.keys.toList()) {
+          await socket.flush();
+        }
+      }
+    } catch (e) {
+      AppLog.debug(_tag, 'flush 时链路已关闭：$e');
+    }
+  }
+
   void _deliver(Frame frame) {
     if (_incoming.isClosed) return;
     _incoming.add(frame);
@@ -470,6 +500,7 @@ class LanTransport implements RoomTransport {
     }
     _clientLabels.clear();
     _audioEndpoints.clear();
+    _knownMemberIds.clear();
 
     try {
       await _server?.close();

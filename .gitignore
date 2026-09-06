@@ -13,7 +13,6 @@ captures/
 .qa-adb-tools/
 .update-signing/
 keystore.properties
-keystore.properties.example
 *.jks
 *.keystore
 *.p12

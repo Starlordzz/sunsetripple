@@ -17,8 +17,22 @@ abstract class RoomTransport {
   /// `RoomSession.onSendFrame` 挂到这里。
   void send(Frame frame);
 
+  /// 把还没写出的待发帧推到底层链路。
+  ///
+  /// leave 场景专用：`stop()` 会直接销毁链路，socket 发缓冲里的字节会
+  /// 一起被丢掉，离房帧可能到不了对方。flush 是 I/O 完成事件而非定时器，
+  /// 在测试的 FakeAsync 时区里也能正常完成。
+  Future<void> flush() async {}
+
   /// 成员号由房主通过名单帧分配，拿到后同步进来。
   void updateSelfMemberId(int id);
+
+  /// 房主侧：把当前在册成员号同步进来（名单每次变化都会调用）。
+  ///
+  /// UDP 是无连接的，帧头里的 senderId 全凭自报；不用在册名单过滤的话，
+  /// 局域网内任何设备都能用伪造的成员号抢先注册语音端点、借房主转发。
+  /// 没有成员号概念的传输层（蓝牙按链路寻址）可以不覆写。
+  void updateKnownMemberIds(Set<int> ids) {}
 
   /// 本传输层是否支持房主转移。
   ///

@@ -19,6 +19,7 @@ class MainActivity : FlutterActivity() {
 
     private var audioPlugin: PlatformAudioPlugin? = null
     private var blePlugin: BleL2capPlugin? = null
+    private var wifiDirectPlugin: WifiDirectPlugin? = null
     private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -28,6 +29,13 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         blePlugin = BleL2capPlugin(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
+        // alpha.10 的 CHANGELOG 声称修复过「插件未注册导致 P2P 调用静默失效」，
+        // 但修复从未落进代码——Dart 侧所有 wifi_direct 通道调用都会抛
+        // MissingPluginException 并被吞掉，Wi-Fi Direct 房型整个不可用。
+        wifiDirectPlugin = WifiDirectPlugin(
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
@@ -57,6 +65,8 @@ class MainActivity : FlutterActivity() {
         audioPlugin = null
         blePlugin?.dispose()
         blePlugin = null
+        wifiDirectPlugin?.dispose()
+        wifiDirectPlugin = null
         try {
             multicastLock?.let {
                 if (it.isHeld) it.release()

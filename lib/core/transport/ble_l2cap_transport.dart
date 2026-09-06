@@ -54,7 +54,6 @@ class BleL2capTransport implements RoomTransport {
   static const Duration _roomTtl = Duration(seconds: 6);
 
   BleRole _role = BleRole.idle;
-  int? _currentSpeakerId; // PTT 话权令牌
   int _peerCount = 0;
 
   StreamSubscription? _dataSubscription;
@@ -97,7 +96,6 @@ class BleL2capTransport implements RoomTransport {
     int memberCount = 1,
   }) async {
     _role = BleRole.hostPeripheral;
-    _currentSpeakerId = null;
     _sendErrorReported = false;
     _listenIncomingData();
 
@@ -202,23 +200,6 @@ class BleL2capTransport implements RoomTransport {
     }
   }
 
-  // -------------------------------------------------------------- 话权令牌
-
-  /// 蓝牙带宽扛不住多人同时说话，同一时刻只放行一个人。
-  bool requestPttToken(int memberId) {
-    if (_currentSpeakerId == null || _currentSpeakerId == memberId) {
-      _currentSpeakerId = memberId;
-      return true;
-    }
-    return false;
-  }
-
-  void releasePttToken(int memberId) {
-    if (_currentSpeakerId == memberId) {
-      _currentSpeakerId = null;
-    }
-  }
-
   // ------------------------------------------------------------ RoomTransport
 
   @override
@@ -243,6 +224,14 @@ class BleL2capTransport implements RoomTransport {
   /// 转发在原生侧按链路地址完成，不需要成员号映射。
   @override
   void updateSelfMemberId(int id) {}
+
+  /// 蓝牙按链路寻址，没有 UDP 那种自报成员号的白名单需求。
+  @override
+  void updateKnownMemberIds(Set<int> ids) {}
+
+  /// BLE 帧经 invokeMethod 同步过桥，没有可刷写的本地缓冲。
+  @override
+  Future<void> flush() async {}
 
   /// 蓝牙房不支持房主转移。
   ///
@@ -277,7 +266,6 @@ class BleL2capTransport implements RoomTransport {
   @override
   Future<void> stop() async {
     _role = BleRole.idle;
-    _currentSpeakerId = null;
     _sendErrorReported = false;
     _peerCount = 0;
 

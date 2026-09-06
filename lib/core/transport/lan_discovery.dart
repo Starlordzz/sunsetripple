@@ -36,6 +36,14 @@ class LanRoomDiscovery {
   static const int discoveryPort = 8990;
   static const String magicHeader = "SUNSET_RIPPLE_DISCOVERY_V1";
 
+  /// 发现列表容量上限。广播匿名可伪造，过期清理 3.5 秒才跑一轮，
+  /// 没有上限的话伪造洪水能在窗口内灌出上千个假房间。
+  static const int maxDiscoveredRooms = 64;
+
+  /// 房名/昵称展示上限（字符）。广播里的字段不受任何校验，超长文本
+  /// 会撑爆房间卡片的单行布局。
+  static const int maxAdvertisedTextLength = 64;
+
   RawDatagramSocket? _socket;
   Timer? _broadcastTimer;
   Timer? _pruneTimer;
@@ -231,24 +239,41 @@ class LanRoomDiscovery {
       // 广播是发到 255.255.255.255 的，自己也会收到自己的包。
       if (roomId == _selfRoomId) return;
 
-      // 收到解散通知，即刻移除
+      // 收到解散通知，即刻移除。广播谁都能发，只有与该房间最后一次
+      // 广播同源的解散包才算数——否则任何设备都能把别人列表里的
+      // 房间踢掉。
       if (json["action"] == "ROOM_CLOSED") {
-        if (_discoveredRooms.remove(roomId) != null) {
+        final known = _discoveredRooms[roomId];
+        if (known != null &&
+            known.hostAddress.address == datagram.address.address) {
+          _discoveredRooms.remove(roomId);
           AppLog.info(_tag, '收到房间 $roomId 的解散通知，已即时从列表移除');
           _notifyRoomsChanged();
         }
         return;
       }
 
+      final port = json["port"] as int;
+      // 字段边界检查：广播是匿名的，畸形/恶意的大数值不能往下游传。
+      if (port <= 0 || port > 65535) return;
+
       final room = DiscoveredRoom(
         roomId: roomId,
-        roomName: json["roomName"] as String,
-        hostNickname: json["hostNickname"] as String,
+        roomName: _clampText(json["roomName"] as String),
+        hostNickname: _clampText(json["hostNickname"] as String),
         hostAddress: datagram.address,
-        port: json["port"] as int,
-        memberCount: json["members"] as int,
+        port: port,
+        memberCount: ((json["members"] as int?) ?? 0).clamp(0, 99),
         lastSeen: DateTime.now(),
       );
+
+      // 防伪造洪水：过期清理是 3.5 秒一次，短时间灌入大量假 roomId
+      // 会把列表撑爆，超过上限的陌生房间直接不收。
+      if (!_discoveredRooms.containsKey(roomId) &&
+          _discoveredRooms.length >= maxDiscoveredRooms) {
+        AppLog.warn(_tag, '发现列表已满（$maxDiscoveredRooms），忽略新房间 $roomId');
+        return;
+      }
 
       _discoveredRooms[roomId] = room;
       _ensurePruneTimer();
@@ -257,6 +282,13 @@ class LanRoomDiscovery {
     } catch (e) {
       AppLog.warn(_tag, '收到字段不完整的房间广播，已忽略', e);
     }
+  }
+
+  /// 广播字段截断：按字符数钳制，超长的房名/昵称不能进列表 UI。
+  static String _clampText(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.length <= maxAdvertisedTextLength) return trimmed;
+    return trimmed.substring(0, maxAdvertisedTextLength);
   }
 
   void _ensurePruneTimer() {
