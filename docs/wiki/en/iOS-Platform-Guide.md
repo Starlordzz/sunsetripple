@@ -1,13 +1,14 @@
-> 🌐 [English](en/iOS-Platform-Guide.md) | 简体中文
-# SunsetRipple iOS 平台适配指南
+> 🌐 English | [简体中文](../iOS平台适配指南.md)
 
-本文档提供 SunsetRipple 在 iOS 端的原生适配实现方案，包含通话级音频引擎（基于 `AudioUnit VoiceProcessingIO`）与近场 P2P 通信（基于 `MultipeerConnectivity`）。
+# SunsetRipple iOS Platform Guide
+
+This document describes the native adaptation implementation for SunsetRipple on iOS, covering the call-grade audio engine (based on `AudioUnit VoiceProcessingIO`) and near-field P2P communication (based on `MultipeerConnectivity`).
 
 ---
 
-## 1. 通话级音频引擎 (`VoiceProcessingAudioEngine.swift`)
+## 1. Call-Grade Audio Engine (`VoiceProcessingAudioEngine.swift`)
 
-在 iOS 上使用 `kAudioUnitSubType_VoiceProcessingIO` 可以直接调用 iPhone 硬件内置的回声消除（AEC）与环境降噪（NS），提供 16kHz, 16-bit, 单声道 PCM 数据：
+On iOS, `kAudioUnitSubType_VoiceProcessingIO` directly invokes the iPhone's built-in hardware echo cancellation (AEC) and noise suppression (NS), providing 16 kHz, 16-bit, mono PCM data:
 
 ```swift
 import Foundation
@@ -84,9 +85,9 @@ public final class VoiceProcessingAudioEngine {
 
 ---
 
-## 2. 近场 P2P 传输 (`MultipeerTransport.swift`)
+## 2. Near-Field P2P Transport (`MultipeerTransport.swift`)
 
-使用 iOS 内置的 `MultipeerConnectivity` 框架，在附近 iOS 设备间无需连接 Wi-Fi 路由器即可自组网，音频数据以 `.unreliable` 发送，控制信令以 `.reliable` 发送：
+Uses the iOS built-in `MultipeerConnectivity` framework to form a network among nearby iOS devices without connecting to a Wi-Fi router. Audio data is sent as `.unreliable`, and control signaling is sent as `.reliable`:
 
 ```swift
 import Foundation
@@ -141,4 +142,3 @@ public final class MultipeerTransport: NSObject, MCNearbyServiceAdvertiserDelega
     public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {}
 }
 ```
-

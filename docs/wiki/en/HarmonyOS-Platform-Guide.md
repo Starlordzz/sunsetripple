@@ -1,13 +1,14 @@
-> 🌐 [English](en/HarmonyOS-Platform-Guide.md) | 简体中文
-# SunsetRipple HarmonyOS NEXT（纯血鸿蒙）适配指南
+> 🌐 English | [简体中文](../HarmonyOS平台适配指南.md)
 
-本文档提供 SunsetRipple 在 HarmonyOS NEXT 原生环境下的音视频与近场网络适配实现规范。
+# SunsetRipple HarmonyOS NEXT (Pure HarmonyOS) Platform Guide
+
+This document provides the specification for adapting SunsetRipple's audio and near-field networking to the native HarmonyOS NEXT environment.
 
 ---
 
-## 1. 通话级音频采集与播放 (`AudioEngine.ets`)
+## 1. Call-Grade Audio Capture and Playback (`AudioEngine.ets`)
 
-在 HarmonyOS NEXT 中，通过 `@ohos.multimedia.audio` 模块创建 `AudioCapturer` 和 `AudioRenderer`，通过指定 `SOURCE_TYPE_VOICE_COMMUNICATION` 自动启用麒麟芯片与鸿蒙系统的硬件回声消除（AEC）与降噪：
+In HarmonyOS NEXT, an `AudioCapturer` and an `AudioRenderer` are created through the `@ohos.multimedia.audio` module. Specifying `SOURCE_TYPE_VOICE_COMMUNICATION` automatically enables the hardware echo cancellation (AEC) and noise suppression of Kirin chipsets and the HarmonyOS system:
 
 ```typescript
 import audio from '@ohos.multimedia.audio';
@@ -90,9 +91,9 @@ export class HarmonyAudioEngine {
 
 ---
 
-## 2. 鸿蒙 Wi-Fi P2P 组网与 Socket 通信 (`WifiP2pTransport.ets`)
+## 2. HarmonyOS Wi-Fi P2P Networking and Socket Communication (`WifiP2pTransport.ets`)
 
-在 HarmonyOS NEXT 中通过 `@ohos.net.wifi` 进行 P2P 组建与连接：
+In HarmonyOS NEXT, P2P group creation and connection are performed via `@ohos.net.wifi`:
 
 ```typescript
 import wifi from '@ohos.net.wifi';
@@ -122,4 +123,3 @@ export class HarmonyWifiP2pTransport {
   }
 }
 ```
-

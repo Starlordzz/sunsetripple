@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>SunsetRipple UI Showcase</title>
+<style>
+  html,body{margin:0;padding:0;background:transparent;}
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased;}
+  body{font-family:'Segoe UI','Microsoft YaHei','PingFang SC',system-ui,sans-serif;}
+  #stage{display:flex;align-items:center;justify-content:center;gap:42px;}
+  .phone{flex:none;width:290px;height:608px;background:#17171B;border-radius:40px;padding:10px;
+         box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 0 0 2px #2A2A30;}
+  .screen{position:relative;width:270px;height:584px;border-radius:31px;overflow:hidden;background:#F4F1EC;}
+  .punch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:9px;height:9px;border-radius:50%;background:#0B0B10;z-index:60;}
+  .abs{position:absolute;}
+  .hicon{opacity:.95;display:flex;align-items:center;justify-content:center;}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+const params = new URLSearchParams(location.search);
+const lang = params.get('lang') || 'zh';
+const mode = params.get('mode') || 'all';
+
+/* ---------- Material icon paths (24x24) ---------- */
+const ICONS = {
+  info:'M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z',
+  sunny:'M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z',
+  moon:'M12.34 2.02C6.59 1.82 2 6.42 2 12c0 5.52 4.48 10 10 10 3.71 0 6.93-2.02 8.66-5.02-7.51-.25-12.09-8.43-8.32-14.96z',
+  back:'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z',
+  chat:'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z',
+  person:'M12 5.9c1.16 0 2.1.94 2.1 2.1s-.94 2.1-2.1 2.1S9.9 9.16 9.9 8s.94-2.1 2.1-2.1m0 9c2.97 0 6.1 1.46 6.1 2.1v1.1H5.9V17c0-.64 3.13-2.1 6.1-2.1M12 4C9.79 4 8 5.79 8 8s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 9c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4z',
+  wifi:'M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z',
+  bluetooth:'M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z',
+  mic:'M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z',
+  micoff:'M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z',
+  eq:'M7 18h2V6H7v12zm4 4h2V2h-2v20zm-8-8h2v-4H3v4zm12 4h2V6h-2v12zm4-8v4h2v-4h-2z',
+  volume:'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z',
+  callend:'M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.7l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.68-1.36-2.66-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z',
+  star:'M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
+  send:'M2.01 21L23 12 2.01 3 2 10l15 2-15 2z',
+  close:'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'
+};
+function icon(name,size,color){return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}"><path d="${ICONS[name]}"/></svg>`;}
+function radarIcon(size,color){
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="9.2" stroke="${color}" stroke-width="1.7" opacity=".45"/>
+    <path d="M12 5.4a6.6 6.6 0 0 1 6.6 6.6" stroke="${color}" stroke-width="1.9" stroke-linecap="round"/>
+    <circle cx="12" cy="12" r="2" fill="${color}"/>
+    <path d="M12 12l4.4-4.4" stroke="${color}" stroke-width="1.9" stroke-linecap="round"/>
+  </svg>`;
+}
+
+/* ---------- palettes (from lib/ui/theme/app_theme.dart) ---------- */
+const DAY = {
+  bg:'#F4F1EC', card:'#FCFAF7', t1:'#2A2225', t2:'#6E625E', border:'#DCCEC8',
+  accent:'#9B4A52', coral:'#C97C66', leave:'#FF9E90',
+  sky:['#C97C66','#9B4A52','#392832'], cel:'#F3DCAA', celGlow:'243,220,170',
+  speakGlow:'243,156,130'
+};
+const NIGHT = {
+  bg:'#0E1626', card:'#182437', t1:'#E4EBF4', t2:'#8FA2BC', border:'#283A52',
+  accent:'#3C5A8C', coral:'#3C5A8C', leave:'#FF7B92',
+  sky:['#3C5A8C','#24395F','#101A2E'], cel:'#E9EEF7', celGlow:'233,238,247',
+  speakGlow:'107,155,232'
+};
+
+/* ---------- bilingual strings (from lib/l10n/app_strings.dart) ---------- */
+const STR = (lang === 'en') ? {
+  appName:'SunsetRipple', homeSub:'Never Meant.',
+  nickname:'Explorer', deviceCode:'#427',
+  wifiChip:'Wi-Fi Chat', wifiChipSub:'Talk freely, send messages',
+  bleChip:'Bluetooth Talk', bleChipSub:'Hold to talk, send messages',
+  createWifi:'Start Wi-Fi Chat', scan:'Look nearby',
+  nearbyTitle:'Chats nearby',
+  listRoom1:'Ming\u2019s chat · Wi-Fi', listMeta1:'Host: Ming · 3/6 devices',
+  listRoom2:'Dusk\u2019s chat · Wi-Fi', listMeta2:'Host: Dusk · 2/6 devices',
+  join:'Join chat',
+  version:'v0.1.0-alpha.11',
+  roomName:'Explorer\u2019s chat · Wi-Fi', bleRoomName:'Explorer\u2019s chat · Bluetooth',
+  hostStatus:'Host · Chat started',
+  members:[['Explorer',true],['Ming',false],['River',false],['Dusk',false]],
+  speaking:'Speaking', ptt:'Hold to talk',
+  micBtn:'Microphone', spkBtn:'Speaker', leaveBtn:'Leave',
+  chatTitle:'Messages', chatClose:'Close messages',
+  msgOther1:'Ming', msgText1:'The shore breeze feels great',
+  msgSelf:'Yeah, wave after wave',
+  msgOther2:'Dusk', msgText2:'Full bars, no lag at all',
+  inputPh:'Say something\u2026'
+} : {
+  appName:'落日后残波', homeSub:'越过地平线，看海洋辽阔的延绵。',
+  nickname:'探索者', deviceCode:'#427',
+  wifiChip:'Wi-Fi 畅聊', wifiChipSub:'开口就能聊，也能发消息',
+  bleChip:'蓝牙对讲', bleChipSub:'按住说话，也能发消息',
+  createWifi:'开始 Wi-Fi 畅聊', scan:'看看附近',
+  nearbyTitle:'附近的聊天室',
+  listRoom1:'明月的聊天室 · Wi-Fi', listMeta1:'房主：明月 · 3/6 台设备',
+  listRoom2:'晚风的聊天室 · Wi-Fi', listMeta2:'房主：晚风 · 2/6 台设备',
+  join:'加入聊天',
+  version:'v0.1.0-alpha.11',
+  roomName:'探索者的聊天室 · Wi-Fi', bleRoomName:'探索者的聊天室 · 蓝牙',
+  hostStatus:'房主 · 聊天已开始',
+  members:[['探索者',true],['明月',false],['河流',false],['晚风',false]],
+  speaking:'正在说话', ptt:'按住说话',
+  micBtn:'麦克风', spkBtn:'扬声器', leaveBtn:'离开',
+  chatTitle:'消息', chatClose:'关闭消息',
+  msgOther1:'明月', msgText1:'岸边的风好舒服',
+  msgSelf:'嗯，浪一层一层的',
+  msgOther2:'晚风', msgText2:'信号满格，一点也不卡',
+  inputPh:'说点什么…'
+};
+
+/* ---------- celestial header (replicates CelestialCanvas).
+   Everything is clipped to the header box: the sky only fills the top
+   `h` pixels, the page body below stays on the plain scaffold color. ---------- */
+function celestial(P, h, r, cy, waterY, wave, overlay){
+  const scale = r / 52;
+  let paths = '';
+  for(let i=0;i<5;i++){
+    const y = waterY + i*14*scale;
+    const w = ((160 + i*40) + 30*wave) * scale;
+    const alpha = (0.4 - (i/5)*0.28).toFixed(3);
+    const sw = (2.5 - (i/5)*0.8) * Math.max(scale,.8);
+    const startX = 135 - w/2, endX = 135 + w/2;
+    let d = `M ${startX.toFixed(1)} ${y.toFixed(1)}`;
+    for(let x=startX; x<=endX; x+=6){
+      const rel = (x-startX)/w;
+      const off = Math.sin(rel*Math.PI*3 + i) * (2.5 + wave*6);
+      d += ` L ${x.toFixed(1)} ${(y+off).toFixed(2)}`;
+    }
+    paths += `<path d="${d}" stroke="${P.cel}" stroke-opacity="${alpha}" stroke-width="${sw.toFixed(2)}" fill="none" stroke-linecap="round"/>`;
+  }
+  return `
+  <div class="abs" style="top:0;left:0;width:270px;height:${h}px;overflow:hidden;">
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,${P.sky[0]} 0%,${P.sky[1]} 50%,${P.sky[2]} 100%);"></div>
+    <div style="position:absolute;left:${135-r-26}px;top:${cy-r-26}px;width:${(r+26)*2}px;height:${(r+26)*2}px;border-radius:50%;
+         background:radial-gradient(circle, rgba(${P.celGlow},.38) 0%, rgba(${P.celGlow},.16) 46%, rgba(${P.celGlow},0) 70%);"></div>
+    <div style="position:absolute;left:${135-r}px;top:${cy-r}px;width:${r*2}px;height:${r*2}px;border-radius:50%;background:${P.cel};"></div>
+    <svg style="position:absolute;top:0;left:0" width="270" height="${h}">${paths}</svg>
+    ${overlay || ''}
+  </div>`;
+}
+
+/* ---------- screen: home (sunset) ---------- */
+function screenHome(){
+  const P = DAY;
+  const headerOverlay = `
+    <div class="abs" style="top:12px;right:12px;display:flex;gap:14px;">
+      <span class="hicon">${icon('info',19,'#fff')}</span><span class="hicon">${icon('sunny',19,'#fff')}</span>
+    </div>
+    <div class="abs" style="left:20px;right:20px;bottom:13px;">
+      <div style="color:#fff;font-size:20px;font-weight:700;letter-spacing:1px;">${STR.appName}</div>
+      <div style="color:rgba(255,255,255,.88);font-size:10.5px;margin-top:4px;">${STR.homeSub}</div>
+    </div>`;
+  return `
+  ${celestial(P,175,35,73.5,133,0,headerOverlay)}
+
+  <div class="abs" style="left:18px;right:18px;top:191px;height:42px;background:${P.card};border:1.2px solid ${P.border};border-radius:12px;
+       display:flex;align-items:center;padding:0 12px;">
+    ${icon('person',16,P.t2)}
+    <span style="color:${P.t1};font-size:12px;margin-left:9px;">${STR.nickname}</span>
+    <span style="margin-left:auto;background:rgba(201,124,102,.15);color:${P.coral};font-family:Consolas,monospace;
+          font-size:9px;font-weight:700;padding:3px 6px;border-radius:6px;letter-spacing:.5px;">${STR.deviceCode}</span>
+  </div>
+
+  <div class="abs" style="left:18px;right:18px;top:245px;display:flex;gap:9px;">
+    <div style="flex:1;height:70px;background:rgba(155,74,82,.14);border:1.6px solid ${P.accent};border-radius:12px;padding:9px 10px;">
+      <div style="display:flex;align-items:center;gap:5px;">${icon('wifi',13,P.accent)}
+        <span style="color:${P.accent};font-size:11px;font-weight:700;">${STR.wifiChip}</span></div>
+      <div style="color:${P.t2};font-size:8.8px;margin-top:4px;line-height:1.35;">${STR.wifiChipSub}</div>
+    </div>
+    <div style="flex:1;height:70px;background:${P.card};border:1px solid ${P.border};border-radius:12px;padding:9px 10px;">
+      <div style="display:flex;align-items:center;gap:5px;">${icon('bluetooth',13,P.t2)}
+        <span style="color:${P.t1};font-size:11px;font-weight:700;">${STR.bleChip}</span></div>
+      <div style="color:${P.t2};font-size:8.8px;margin-top:4px;line-height:1.35;">${STR.bleChipSub}</div>
+    </div>
+  </div>
+
+  <div class="abs" style="left:18px;right:18px;top:329px;display:flex;gap:9px;">
+    <div style="flex:6;height:40px;background:${P.accent};border-radius:20px;display:flex;align-items:center;justify-content:center;
+         color:#fff;font-size:11.5px;font-weight:700;">${STR.createWifi}</div>
+    <div style="flex:5;height:40px;border:1.4px solid ${P.coral};border-radius:20px;display:flex;align-items:center;justify-content:center;
+         color:${P.coral};font-size:10.5px;font-weight:700;gap:5px;">${radarIcon(13,P.coral)}${STR.scan}</div>
+  </div>
+
+  <div class="abs" style="left:20px;top:388px;color:${P.t2};font-size:10px;font-weight:600;">${STR.nearbyTitle}</div>
+
+  ${[0,1].map(i=>{
+    const name = i===0?STR.listRoom1:STR.listRoom2, meta = i===0?STR.listMeta1:STR.listMeta2;
+    return `<div class="abs" style="left:18px;right:18px;top:${408+i*66}px;height:56px;background:${P.card};
+      border:1.2px solid ${P.border};border-radius:12px;display:flex;align-items:center;padding:0 12px;">
+      <div><div style="color:${P.t1};font-size:11.5px;font-weight:700;">${name}</div>
+      <div style="color:${P.t2};font-size:8.8px;margin-top:3px;">${meta}</div></div>
+      <div style="margin-left:auto;background:${P.coral};color:#fff;font-size:10px;font-weight:700;
+        padding:7px 13px;border-radius:14px;">${STR.join}</div>
+    </div>`;
+  }).join('')}
+
+  <div class="abs" style="left:0;right:0;bottom:10px;text-align:center;color:rgba(110,98,94,.68);
+       font-family:Consolas,monospace;font-size:8.5px;letter-spacing:.5px;">${STR.version}</div>`;
+}
+
+/* ---------- screen: room (wifi duplex day / ble ptt night) ---------- */
+function screenRoom(P, roomName, isPtt, showBadge){
+  const members = STR.members.map(([nick,isHost],idx)=>{
+    const speaking = idx===1;
+    return `<div style="width:56px;display:flex;flex-direction:column;align-items:center;">
+      <div style="width:44px;height:44px;border-radius:50%;background:${P.card};
+        border:${speaking?`2.2px solid ${P.coral}`:`1.2px solid ${P.border}`};
+        ${speaking?`box-shadow:0 0 10px 3px rgba(${P.speakGlow},.45);`:''}
+        display:flex;align-items:center;justify-content:center;">
+        <span style="color:${P.t1};font-size:16px;font-weight:700;">${nick[0]}</span></div>
+      <div style="margin-top:4px;display:flex;align-items:center;gap:2px;max-width:56px;">
+        ${isHost?`<span style="display:flex;">${icon('star',9,P===NIGHT?'#E9EEF7':P.coral)}</span>`:''}
+        <span style="color:${P.t2};font-size:9px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nick}</span>
+      </div></div>`;
+  }).join('');
+
+  const pill = (ic,label,leave)=>`
+    <div style="flex:1;height:46px;border-radius:23px;display:flex;align-items:center;justify-content:center;gap:6px;
+      background:${leave?`rgba(${P===NIGHT?'255,123,146':'255,158,144'},.15)`:P.card};
+      border:1.2px solid ${leave?`rgba(${P===NIGHT?'255,123,146':'255,158,144'},.62)`:P.border};">
+      ${icon(ic,17,leave?P.leave:P.t1)}
+      <span style="color:${leave?P.leave:P.t1};font-size:11px;font-weight:600;">${label}</span></div>`;
+
+  const headerOverlay = `
+    <div class="abs" style="top:13px;left:13px;">${icon('back',20,'#fff')}</div>
+    <div class="abs" style="top:13px;right:13px;display:flex;gap:14px;align-items:center;">
+      <span style="position:relative;display:flex;">${icon('chat',19,'#fff')}
+        ${showBadge?`<span style="position:absolute;top:-6px;right:-7px;background:${P===NIGHT?NIGHT.leave:DAY.coral};color:#fff;
+          font-size:8px;font-weight:700;min-width:13px;height:13px;border-radius:7px;display:flex;align-items:center;justify-content:center;">2</span>`:''}
+      </span>
+      <span class="hicon">${icon('info',19,'#fff')}</span>
+    </div>
+    <div class="abs" style="left:20px;right:20px;bottom:14px;">
+      <div style="color:#fff;font-size:17.5px;font-weight:700;letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${roomName}</div>
+      <div style="color:rgba(255,255,255,.88);font-size:10.5px;margin-top:4px;">${STR.hostStatus}</div>
+    </div>`;
+  return `
+  ${celestial(P,222,44.6,84,160,0.45,headerOverlay)}
+
+  <div class="abs" style="left:0;right:0;top:242px;display:flex;justify-content:center;gap:8px;">${members}</div>
+
+  <div class="abs" style="left:60px;top:336px;width:150px;height:150px;border-radius:50%;background:${P.accent};
+       box-shadow:0 0 36px 12px rgba(${P===NIGHT?'60,90,140':'155,74,82'},.42);
+       display:flex;flex-direction:column;align-items:center;justify-content:center;">
+    ${icon(isPtt?'mic':'eq',40,'#fff')}
+    <div style="color:#fff;font-size:12px;font-weight:600;letter-spacing:1.5px;margin-top:9px;">${isPtt?STR.ptt:STR.speaking}</div>
+  </div>
+
+  <div class="abs" style="left:12px;right:12px;bottom:14px;display:flex;gap:8px;">
+    ${pill('mic',STR.micBtn,false)}${pill('volume',STR.spkBtn,false)}${pill('callend',STR.leaveBtn,true)}
+  </div>`;
+}
+
+/* ---------- screen: chat sheet over night room ---------- */
+function screenChat(){
+  const P = NIGHT;
+  const bubble = (name,text,self)=>`
+    <div style="display:flex;flex-direction:column;align-items:${self?'flex-end':'flex-start'};margin-bottom:12px;">
+      <div style="color:${P.t2};font-size:9px;margin:0 4px 3px;">${name}</div>
+      <div style="max-width:186px;background:${self?'rgba(96,133,190,.38)':`rgba(143,162,188,.14)`};
+        border-radius:${self?'12px 12px 4px 12px':'12px 12px 12px 4px'};padding:8px 11px;
+        color:${P.t1};font-size:11.5px;line-height:1.45;">${text}</div>
+    </div>`;
+  return `
+  ${screenRoom(P, STR.bleRoomName, true, false)}
+  <div class="abs" style="inset:0;background:rgba(4,8,16,.5);z-index:20;"></div>
+  <div class="abs" style="left:0;right:0;bottom:0;height:388px;background:${P.card};border-radius:20px 20px 0 0;
+       box-shadow:0 -8px 30px rgba(0,0,0,.35);z-index:30;padding:8px 16px 12px;">
+    <div style="width:34px;height:4px;border-radius:2.5px;background:rgba(143,162,188,.25);margin:2px auto 0;"></div>
+    <div style="display:flex;align-items:center;margin-top:10px;">
+      <span style="color:${P.t1};font-size:14px;font-weight:600;">${STR.chatTitle}</span>
+      <span style="margin-left:auto;display:flex;">${icon('close',16,P.t2)}</span>
+    </div>
+    <div style="margin-top:14px;">
+      ${bubble(STR.msgOther1,STR.msgText1,false)}
+      ${bubble('',STR.msgSelf,true)}
+      ${bubble(STR.msgOther2,STR.msgText2,false)}
+    </div>
+    <div style="position:absolute;left:14px;right:14px;bottom:12px;display:flex;align-items:center;">
+      <div style="flex:1;height:36px;background:#121B2B;border-radius:18px;display:flex;align-items:center;
+           padding:0 13px;color:${P.t2};font-size:11px;">${STR.inputPh}</div>
+      <div style="width:30px;height:30px;border-radius:50%;background:${P.accent};margin-left:8px;
+           display:flex;align-items:center;justify-content:center;">${icon('send',13,'#fff')}</div>
+    </div>
+  </div>`;
+}
+
+/* ---------- assemble ---------- */
+function phone(inner){return `<div class="phone"><div class="screen">${inner}<div class="punch"></div></div></div>`;}
+
+const screens = {
+  home: phone(screenHome()),
+  wifi: phone(screenRoom(DAY, STR.roomName, false, true)),
+  ble:  phone(screenRoom(NIGHT, STR.bleRoomName, true, true)),
+  chat: phone(screenChat())
+};
+
+const stage = document.getElementById('stage');
+if(mode === 'all'){
+  stage.style.width='1360px'; stage.style.height='708px';
+  stage.innerHTML = screens.home + screens.wifi + screens.ble + screens.chat;
+}else{
+  stage.style.width='360px'; stage.style.height='708px';
+  stage.innerHTML = screens[mode];
+}
+</script>
+</body>
+</html>

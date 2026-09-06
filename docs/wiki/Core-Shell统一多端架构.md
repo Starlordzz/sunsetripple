@@ -1,3 +1,4 @@
+> 🌐 [English](en/Core-Shell-Architecture.md) | 简体中文
 # Core-Shell（核心-外壳）统一多端架构规范
 
 SunsetRipple（落日后残波）采用业界成熟的 **Core-Shell（核心-外壳）** 与 **Ports & Adapters（端口与适配器）** 架构。

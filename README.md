@@ -1,4 +1,10 @@
 <p align="center">
+  <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
+</p>
+
+<br>
+
+<p align="center">
   <br>
   <img src="docs/assets/mark.svg" width="96" alt="落日后残波">
   <br>
@@ -37,13 +43,20 @@
 </p>
 
 <br>
-<br>
 
 ---
 
 <br>
 
 **落日后残波（SunsetRipple）是一款去中心化近场局域语音对讲应用。无须账号与云端服务，语音数据仅在局域物理范围内设备间点对点直连传输；支持最多 6 端即时建链与无痕会话销毁。**
+
+<br>
+
+<p align="center">
+  <img src="docs/screenshots/showcase-zh.png" width="880" alt="落日后残波 · 界面预览">
+  <br>
+  <sub>首页 · Wi-Fi 畅聊房 · 蓝牙对讲（月夜）· 房内消息 —— 界面随系统语言与昼夜主题自动切换</sub>
+</p>
 
 <br>
 
@@ -239,7 +252,7 @@ SunsetRipple/
 
 <br>
 
-完整技术文档参见 **[Wiki 目录](docs/wiki/Home.md)**：
+完整技术文档参见 **[Wiki 目录](docs/wiki/Home.md)**（**[English](docs/wiki/en/Home.md)**，双语同步）：
 
 - [Core-Shell 统一多端架构](docs/wiki/Core-Shell统一多端架构.md)
 - [架构总览](docs/wiki/架构总览.md)
