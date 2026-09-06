@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · 日暮剧场 — SunsetRipple UI 方案</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#17111a; --stage:#1c1518; --panel:#241a1e;
+    --velvet:#7a2f35; --focus:#d96c3f; --gold:#c9a86a;
+    --tx:#f2e8dc; --dim:#8a7a70; --line:rgba(242,232,220,.09);
+  }
+  body{
+    background:#120d10;
+    background-image:radial-gradient(900px 480px at 24% -8%, #33201c 0%, transparent 58%);
+    color:var(--tx); min-height:100vh; padding:60px 28px 90px;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    user-select:none;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+  .back{display:inline-block;color:var(--dim);text-decoration:none;font-size:13px;letter-spacing:.08em}
+  .back:hover{color:var(--focus)}
+  .kicker{font-family:Consolas,monospace;letter-spacing:.38em;font-size:12px;color:var(--focus);margin-top:26px}
+  h1{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:42px;margin:12px 0 10px;letter-spacing:.05em}
+  h1 em{font-style:normal;font-size:13px;letter-spacing:.3em;color:var(--dim);margin-left:12px;text-transform:uppercase;font-family:Consolas,monospace}
+  .sub{color:#b3a79c;font-size:15px;line-height:1.85;max-width:700px}
+  .hint{margin-top:10px;color:#6d6058;font-size:12.5px}
+  .stage{display:flex;gap:56px;justify-content:center;flex-wrap:wrap;margin-top:48px}
+  .shot{display:flex;flex-direction:column;align-items:center;gap:16px}
+  .cap{color:var(--dim);font-size:13px;letter-spacing:.12em}
+
+  .phone{width:342px;height:724px;border-radius:52px;background:#0a0709;padding:10px;
+    box-shadow:0 40px 80px rgba(0,0,0,.7), inset 0 0 0 2px #3a2a26}
+  .screen{position:relative;width:100%;height:100%;border-radius:42px;overflow:hidden;font-size:14px;
+    background:
+      repeating-conic-gradient(rgba(255,255,255,.006) 0% 25%, transparent 0% 50%) 0 0/3px 3px,
+      linear-gradient(180deg,#211719 0%,var(--stage) 100%);
+    cursor:default}
+  .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:104px;height:24px;border-radius:13px;background:#0a0709;z-index:60}
+  .serif{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif}
+
+  /* ══ 首页 · 开演海报 ══ */
+  .h-top{position:absolute;top:64px;left:30px;right:30px;display:flex;justify-content:space-between;align-items:flex-start}
+  .h-top .k{font-family:Consolas,monospace;font-size:10px;letter-spacing:.34em;color:var(--gold)}
+  .rail{position:absolute;top:150px;right:30px;writing-mode:vertical-rl;text-align:center}
+  .rail .rt{font-size:11px;letter-spacing:.42em;color:var(--dim)}
+  .rail .rule{width:1px;height:120px;background:linear-gradient(180deg,var(--gold),transparent);margin:12px auto 0}
+  .big{position:absolute;top:104px;left:30px}
+  .big .l1{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:64px;line-height:1.12;letter-spacing:.04em;color:var(--tx)}
+  .big .l2{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:64px;line-height:1.12;letter-spacing:.04em;
+    color:transparent;-webkit-text-stroke:1.4px var(--focus)}
+  .big .cs{margin-top:14px;font-family:Consolas,monospace;font-size:11px;letter-spacing:.26em;color:var(--dim)}
+
+  .posters{position:absolute;left:0;right:0;top:338px;padding:0 22px;display:flex;flex-direction:column;gap:10px}
+  .poster{display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:12px;
+    border:1px solid var(--line);background:rgba(255,255,255,.022);cursor:pointer;transition:transform .18s}
+  .poster:active{transform:translateX(4px)}
+  .poster .pn{min-width:0;flex:1}
+  .poster .pn b{display:block;font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:19px;font-weight:600;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .poster .pn span{display:block;margin-top:4px;font-size:11px;letter-spacing:.14em;color:var(--dim)}
+  .poster .stub{flex:none;text-align:center;padding:8px 10px;border-left:1px dashed rgba(242,232,220,.28);color:var(--gold);
+    font-size:11px;letter-spacing:.3em;writing-mode:vertical-rl}
+  .poster.now{background:linear-gradient(90deg,rgba(122,47,53,.55),rgba(122,47,53,.12) 70%,transparent);border-color:rgba(201,168,106,.4)}
+  .poster.now .stub{color:var(--tx)}
+  .poster .q{color:var(--focus);font-size:10px;letter-spacing:.3em;display:block;margin-bottom:4px;font-family:Consolas,monospace}
+
+  .modes{position:absolute;left:30px;bottom:54px;font-size:12.5px;letter-spacing:.2em;color:var(--dim)}
+  .modes b{color:var(--tx);font-weight:600;border-bottom:1px solid var(--focus);padding-bottom:4px}
+  .modes span{margin-left:18px}
+  .h-foot{position:absolute;left:30px;right:30px;bottom:26px;display:flex;justify-content:space-between;
+    font-family:Consolas,monospace;font-size:9.5px;letter-spacing:.26em;color:#5c524c}
+  .h-foot b{color:var(--dim);font-weight:400}
+
+  /* ══ 房间 · 灯带 ══ */
+  .r-head{position:absolute;top:60px;left:30px;right:30px}
+  .r-head .k{font-family:Consolas,monospace;font-size:10px;letter-spacing:.34em;color:var(--gold)}
+  .r-head .t{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:29px;margin-top:9px;letter-spacing:.06em}
+  .r-head .s{margin-top:7px;font-size:11.5px;letter-spacing:.2em;color:var(--dim)}
+  .r-head .back{position:absolute;left:0;top:-14px;color:var(--dim);font-family:Consolas,monospace}
+  .lights{position:absolute;left:22px;right:22px;top:196px;display:flex;flex-direction:column;gap:10px}
+  .band{height:55px;border-radius:12px;display:flex;align-items:center;padding:0 18px;
+    background:linear-gradient(90deg,rgba(217,108,63,.22),rgba(217,108,63,.05) 55%,transparent 85%);
+    border:1px solid var(--line)}
+  .band .bn{flex:1;min-width:0}
+  .band .bn b{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:17px;font-weight:600;letter-spacing:.08em}
+  .band .bn span{display:block;margin-top:3px;font-size:10px;letter-spacing:.24em;color:var(--dim);font-family:Consolas,monospace}
+  .band .lv{font-size:9.5px;letter-spacing:.26em;color:var(--dim);font-family:Consolas,monospace}
+  .band.on{background:linear-gradient(90deg,rgba(217,108,63,.8),rgba(201,168,106,.3) 62%,transparent);
+    box-shadow:0 0 36px rgba(217,108,63,.35);border-color:rgba(217,108,63,.4);animation:flick 3.2s ease-in-out infinite}
+  .band.on .bn b{color:#fff4e6}
+  .band.on .lv{color:#ffd9b8}
+  @keyframes flick{0%,100%{opacity:1}50%{opacity:.82}}
+  .status{position:absolute;left:0;right:0;top:540px;text-align:center;
+    font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:19px;letter-spacing:.34em;color:var(--tx)}
+  .footbar{position:absolute;left:16px;right:16px;bottom:64px;height:66px;border-radius:14px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:12px;
+    background:linear-gradient(90deg,#8a3a22,var(--focus) 40%,#e8945e 70%,var(--gold));
+    box-shadow:0 10px 26px rgba(217,108,63,.3), inset 0 1px 0 rgba(255,255,255,.35);
+    color:#241010;font-weight:800;font-size:15px;letter-spacing:.4em;text-indent:.4em;
+    transition:filter .15s, transform .15s}
+  .footbar:active{filter:brightness(1.22);transform:scale(.985)}
+  .footbar .fb-sub{position:absolute;bottom:-26px;left:0;right:0;text-align:center;font-size:10px;letter-spacing:.3em;color:#5c524c;font-family:Consolas,monospace;font-weight:400;text-indent:0}
+  .warm{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 108%, rgba(232,148,94,.4), transparent 62%);opacity:0;transition:opacity .2s;pointer-events:none;z-index:40}
+  .screen:has(.footbar:active) .warm{opacity:1}
+  .r-tab{position:absolute;right:0;top:230px;writing-mode:vertical-rl;font-size:10.5px;letter-spacing:.3em;color:var(--gold);
+    background:rgba(201,168,106,.12);border:1px solid rgba(201,168,106,.3);border-right:none;
+    padding:14px 8px;border-radius:8px 0 0 8px;cursor:pointer;z-index:30}
+
+  .notes{max-width:960px;margin:64px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .note{border:1px solid #3a2a26;border-radius:16px;padding:20px 20px 18px;background:rgba(28,21,24,.72)}
+  .note h3{font-size:12px;letter-spacing:.3em;color:var(--focus);margin-bottom:12px;font-weight:600}
+  .note li{list-style:none;font-size:13px;color:#b3a79c;line-height:1.9}
+  .note li::before{content:"· ";color:var(--focus)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="back" href="index.html">← 全部方案</a>
+    <div class="kicker">PROPOSAL D · DUSK STAGE</div>
+    <h1>日暮剧场<em>Editorial Theatre</em></h1>
+    <p class="sub">黄昏是一场开演的戏：天光是灯光师，每个说话的人被暮色照亮。成员不再是头像，而是一根根舞台灯带；PTT 不再是圆盘，而是一整条脚灯横杆。超大衬线标题、不对称栅格、海报感——几乎不依赖自定义绘制。</p>
+    <p class="hint">※ 静态原型 · 房间页按住底部脚灯横杆试试，整屏会暖一度</p>
+  </header>
+
+  <div class="stage">
+    <!-- ══ 首页 · 今晚场次 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen">
+          <div class="h-top">
+            <span class="k">SEASON · 暮</span>
+            <span class="k" style="color:var(--dim)">19:42</span>
+          </div>
+          <div class="big">
+            <span class="l1">落日后</span><br>
+            <span class="l2">残波</span>
+            <div class="cs">晚舟 · #482 · 开演人</div>
+          </div>
+          <div class="rail"><div class="rt">今晚场次 · 3</div><div class="rule"></div></div>
+
+          <div class="posters">
+            <div class="poster now">
+              <div class="pn"><span class="q">NOW · 3 人在场</span><b>星尘的房间</b><span>主理 星尘 · WIFI 实时场</span></div>
+              <div class="stub">入場</div>
+            </div>
+            <div class="poster">
+              <div class="pn"><span class="q">20:00</span><b>阿澜电台</b><span>主理 阿澜 · 蓝牙按住场</span></div>
+              <div class="stub">入場</div>
+            </div>
+            <div class="poster">
+              <div class="pn"><span class="q">未命名</span><b>远山 · 待开场</b><span>主理 远山 · 1 人在场</span></div>
+              <div class="stub">入場</div>
+            </div>
+          </div>
+
+          <div class="modes"><b>WIFI 实时场</b><span>蓝牙 按住场</span></div>
+          <div class="h-foot"><span><b> + 开新场（建房）</b></span><span>v0.1.0-alpha.10</span></div>
+        </div>
+      </div>
+      <div class="cap">首页 · 今晚场次的海报条</div>
+    </div>
+
+    <!-- ══ 房间 · 灯光面板 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen">
+          <div class="warm"></div>
+          <div class="r-head">
+            <a class="back" href="d-dusk-stage.html">‹ 退场</a>
+            <div class="k">NOW SHOWING</div>
+            <div class="t">星尘的房间</div>
+            <div class="s">WIFI 实时场 · 5 人在场 · 已进行 00:42</div>
+          </div>
+          <div class="r-tab">场刊 · 聊天 2</div>
+
+          <div class="lights">
+            <div class="band on"><div class="bn"><b>星尘</b><span>★ 主理 · 聚光中</span></div><span class="lv">● 在场中</span></div>
+            <div class="band"><div class="bn"><b>晚舟</b><span>你 · #482</span></div><span class="lv">待灯</span></div>
+            <div class="band"><div class="bn"><b>阿澜</b><span>#517</span></div><span class="lv">待灯</span></div>
+            <div class="band"><div class="bn"><b>远山</b><span>#204</span></div><span class="lv">待灯</span></div>
+            <div class="band" style="opacity:.45"><div class="bn"><b>＋</b><span>空位 · 等人入席</span></div><span class="lv">—</span></div>
+          </div>
+
+          <div class="status">全 场 对 讲 中</div>
+
+          <div class="footbar">按 住 说 话<span class="fb-sub">静音 · 扬声器 · 诊断 在场刊抽屉与长按菜单</span></div>
+        </div>
+      </div>
+      <div class="cap">房间 · 一根根被暮色点亮的灯带</div>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div class="note"><h3>布局重构</h3>
+      <li>不对称编辑排版：超大衬线标题占据半屏，右侧竖排「今晚场次」栏</li>
+      <li>房间列表 = 竖叠的演出海报条 + 票根式加入位</li>
+      <li>成员 = 全宽舞台灯带，亮度随音量实时变化</li>
+      <li>PTT = 底部一整条脚灯横杆，按住整屏灯光暖一度</li>
+    </div>
+    <div class="note"><h3>色彩与质感</h3>
+      <li>焦橙 #D96C3F · 剧场红丝绒 · 炭黑 · 暗金描字</li>
+      <li>衬线 display 字体 + 小号加字距 mono 标签</li>
+      <li>背景只剩纯色幕布 + 细噪点，CustomPaint 天空退役</li>
+      <li>夜间 = 「午夜场」：深蓝幕布 + 月光白</li>
+    </div>
+    <div class="note"><h3>动效与状态</h3>
+      <li>标题描边→实心入场，海报条错峰滑入</li>
+      <li>灯带亮度走曲线缓动，说话有轻微呼吸闪烁</li>
+      <li>聊天 = 右侧滑入的「场刊」面板，未读挂在场刊标签上</li>
+      <li>五案中最便宜：重排布局与字体即可拿到 80% 效果</li>
+    </div>
+  </section>
+</div>
+</body>
+</html>

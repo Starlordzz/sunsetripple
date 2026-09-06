@@ -338,21 +338,22 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     final keyboardHeight = viewInsets.bottom;
     final topPadding = mediaQuery.padding.top;
 
-    final double maxSheetHeight =
-        (screenHeight - topPadding - 24).clamp(240.0, screenHeight);
+    // 未唤起键盘时高度占屏幕约 74%（平板 65%），底部紧贴屏幕边缘彻底盖住底层控制栏；
+    // 唤起键盘时，高度自适应键盘上方空间，直接由 viewInsets 驱动，彻底杜绝回落时的时延 Overflow。
+    final double maxAvailableHeight =
+        (screenHeight - topPadding - keyboardHeight - 16).clamp(240.0, screenHeight);
+    final double defaultHeight =
+        (screenHeight * (isTablet ? 0.65 : 0.74)).clamp(280.0, screenHeight);
     final double targetHeight = keyboardHeight > 0
-        ? (screenHeight - keyboardHeight - topPadding - 16)
-            .clamp(240.0, maxSheetHeight)
-        : (screenHeight * (isTablet ? 0.65 : 0.72))
-            .clamp(280.0, maxSheetHeight);
+        ? maxAvailableHeight
+        : defaultHeight.clamp(280.0, screenHeight - topPadding - 16);
 
     return Material(
       color: Colors.transparent,
-      child: AnimatedPadding(
+      child: Padding(
         padding: EdgeInsets.only(bottom: keyboardHeight),
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        child: Center(
+        child: Align(
+          alignment: Alignment.bottomCenter,
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: isTablet ? 620 : double.infinity,
@@ -374,6 +375,7 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
               ),
               child: SafeArea(
                 top: false,
+                bottom: keyboardHeight == 0,
                 child: Column(
                   children: [
                     // 1. 顶部把手与标题栏

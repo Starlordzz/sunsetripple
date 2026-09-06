@@ -349,12 +349,31 @@ class LanTransport implements RoomTransport {
       return;
     }
 
+    if (_role == TransportRole.client) {
+      // 安全校验：客户端只接收来自房主 IP 的语音包
+      if (_hostAddress != null && datagram.address.address != _hostAddress!.address) {
+        AppLog.warn(_tag, '丢弃非房主来源的伪造语音包: ${datagram.address.address}');
+        return;
+      }
+    }
+
     if (_role == TransportRole.host) {
-      // 白名单：UDP 帧头的 senderId 是自报的，不在册的一律丢弃——
-      // 否则局域网内任何设备都能抢先注册别人的语音端点、借房主转发。
+      // 白名单：UDP 帧头的 senderId 是自报的，不在册的一律丢弃
       if (frame.senderId == 0 || !_knownMemberIds.contains(frame.senderId)) {
         return;
       }
+
+      // 防劫持校验：如果该成员已登记过语音端点，且新来源 IP 与既有登记 IP 不一致，拒绝覆盖
+      final existingEndpoint = _audioEndpoints[frame.senderId];
+      if (existingEndpoint != null &&
+          existingEndpoint.address.address != datagram.address.address) {
+        AppLog.warn(
+          _tag,
+          '成员 #${frame.senderId} 的 UDP 来源 IP 突变 (${existingEndpoint.address.address} -> ${datagram.address.address})，疑似仿冒包已拦截',
+        );
+        return;
+      }
+
       _audioEndpoints[frame.senderId] =
           _Endpoint(datagram.address, datagram.port);
       // 报到心跳只用来登记端点，控制面已经有一份了。

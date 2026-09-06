@@ -589,18 +589,23 @@ class _HomeContentState extends State<HomeContent> {
               ),
             ),
 
-            // 6. 版本号
+            // 6. 版本号（随首页元素自然离场）
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 16, bottom: 36),
-                child: Center(
-                  child: Text(
-                    'v${UpdateService.currentVersion}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                      color: textSecondary.withValues(alpha: 0.5),
-                      letterSpacing: 0.8,
+              child: StageExitItem(
+                stage: stage,
+                index: 5,
+                drift: 24,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 16, bottom: 36),
+                  child: Center(
+                    child: Text(
+                      'v${UpdateService.currentVersion}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        color: textSecondary.withValues(alpha: 0.5),
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
                 ),
@@ -623,6 +628,7 @@ class _HomeContentState extends State<HomeContent> {
   String get _identityNickname => DeviceCode.attach(_nickname);
 
   void _onCreateRoom() async {
+    FocusScope.of(context).unfocus();
     final s = AppStrings.of(context);
     final nickname = _nickname;
     final roomName = _selectedMode == RoomMode.wifiFullDuplex
@@ -670,6 +676,7 @@ class _HomeContentState extends State<HomeContent> {
   }
 
   void _onJoinRoom(DiscoveredRoom room) async {
+    FocusScope.of(context).unfocus();
     final session = RoomSession(
       audioIo: widget.audioIo,
       selfNickname: _identityNickname,
@@ -692,6 +699,7 @@ class _HomeContentState extends State<HomeContent> {
   }
 
   void _onJoinWifiDirectPeer(WifiP2pPeer peer) async {
+    FocusScope.of(context).unfocus();
     final s = AppStrings.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

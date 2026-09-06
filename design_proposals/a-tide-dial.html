@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 A · 潮汐电台 | 落日后残波 UI 重构</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#191310; color:#EDE4D6;
+    font-family:"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    padding:44px 28px 90px; -webkit-font-smoothing:antialiased;
+  }
+  .back { color:#B99B6B; text-decoration:none; font-size:13px; letter-spacing:.08em; }
+  .head { max-width:1280px; margin:26px auto 40px; }
+  .kicker { font-size:12px; letter-spacing:.35em; color:#B99B6B; margin-bottom:12px; }
+  h1 { font-size:34px; font-weight:700; letter-spacing:.04em; }
+  h1 .en { font-family:Georgia,serif; font-size:16px; letter-spacing:.3em; color:#8A6F49; margin-left:14px; font-weight:400; }
+  .lede { margin-top:12px; font-size:15px; color:#C9BBAA; max-width:640px; line-height:1.7; }
+  .swatches { display:flex; gap:8px; margin-top:18px; }
+  .swatches i { width:34px; height:34px; border-radius:8px; display:block; box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }
+  .anchor { margin-top:16px; font-size:13px; color:#8F8172; max-width:720px; line-height:1.7; }
+
+  .frames { display:flex; flex-wrap:wrap; gap:46px; justify-content:center; max-width:1280px; margin:0 auto; }
+  .phone { width:352px; }
+  .screen {
+    position:relative; height:726px; border-radius:46px; overflow:hidden;
+    border:10px solid #060504; box-shadow:0 30px 70px rgba(0,0,0,.55);
+    background:linear-gradient(180deg,#2B1D14 0%,#1F140D 100%);
+    padding:14px 20px 20px; display:flex; flex-direction:column;
+  }
+  .screen::after { /* 木纹 */
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(90deg, rgba(0,0,0,.10) 0 2px, transparent 2px 9px);
+    opacity:.35;
+  }
+  .night { background:linear-gradient(180deg,#0C0B09 0%,#080706 100%); }
+  .sbar { display:flex; justify-content:space-between; align-items:center; font-size:11px;
+    color:var(--cream); opacity:.75; font-family:Consolas,monospace; padding:2px 6px 0; z-index:3; position:relative; }
+  figcaption { margin-top:14px; text-align:center; font-size:13px; color:#9C8C79; letter-spacing:.06em; }
+  .note { max-width:1280px; margin:56px auto 0; text-align:center; font-size:12px; color:#6E6152; letter-spacing:.08em; }
+
+  /* 方案内变量 */
+  .screen { --cream:#F2E8D2; --amber:#F2B25C; --brass-hi:#E3C088; --brass:#A97F49; --brass-dk:#6B4E2A;
+    --tick:rgba(242,178,92,.85); --engrave:#3A2A18; }
+  .night { --cream:#D9E4C8; --amber:#9FE870; --brass-hi:#4A443A; --brass:#332F28; --brass-dk:#221F1A;
+    --tick:rgba(159,232,112,.8); --engrave:#0A0A08; }
+
+  /* 铭牌 */
+  .plate { position:relative; z-index:2; margin-top:10px; border-radius:8px; padding:9px 14px;
+    background:linear-gradient(180deg,var(--brass-hi),var(--brass) 55%,var(--brass-dk));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.45), inset 0 -2px 3px rgba(0,0,0,.4), 0 3px 8px rgba(0,0,0,.5);
+    text-align:center; }
+  .plate .en { display:block; font-family:Georgia,serif; font-size:11px; letter-spacing:.42em; color:var(--engrave); }
+  .plate .cn { display:block; margin-top:3px; font-size:11px; letter-spacing:.3em; color:var(--engrave); opacity:.8; }
+
+  /* 琥珀屏 */
+  .window { position:relative; z-index:2; margin-top:12px; border-radius:10px; padding:12px 14px;
+    background:linear-gradient(180deg,#170F09,#100A06);
+    box-shadow:inset 0 0 0 2px rgba(169,127,73,.55), inset 0 0 24px rgba(242,178,92,.12), 0 2px 6px rgba(0,0,0,.5); }
+  .wrow { display:flex; align-items:baseline; gap:12px; font-family:Consolas,monospace; }
+  .wrow .lab { font-size:11px; color:#8A6F49; width:34px; letter-spacing:.2em; }
+  .wrow .val { font-size:15px; color:var(--amber); text-shadow:0 0 10px rgba(242,178,92,.55); letter-spacing:.06em; }
+  .wrow .onair { margin-left:auto; font-size:10px; color:var(--amber); letter-spacing:.25em; animation:blink 1.6s steps(2) infinite; }
+  .wrow.dim .val { font-size:12px; opacity:.75; text-shadow:none; }
+  .wrow + .wrow { margin-top:7px; }
+  @keyframes blink { 50% { opacity:.25; } }
+
+  /* 拨杆 */
+  .levers { position:relative; z-index:2; display:flex; gap:12px; margin-top:14px; }
+  .lever { flex:1; border-radius:8px; padding:9px 12px; background:rgba(0,0,0,.28);
+    box-shadow:inset 0 0 0 1px rgba(169,127,73,.4); display:flex; align-items:center; gap:10px; }
+  .lever .lt { font-size:12px; color:var(--cream); letter-spacing:.1em; }
+  .lever .track { margin-left:auto; width:36px; height:16px; border-radius:8px; background:#0E0A07;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.8); position:relative; }
+  .lever .track i { position:absolute; top:-3px; width:22px; height:22px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, var(--brass-hi), var(--brass-dk)); left:14px;
+    box-shadow:0 2px 4px rgba(0,0,0,.6); }
+  .lever.on .track { background:rgba(242,178,92,.25); }
+  .lever.on .track i { left:0; }
+  .lever .ls { font-size:10px; color:var(--amber); letter-spacing:.1em; width:26px; text-align:right; opacity:.9; }
+
+  /* 调频旋钮 */
+  .dial-wrap { position:relative; z-index:2; width:252px; height:252px; margin:16px auto 0; }
+  .ticks { position:absolute; inset:0; border-radius:50%;
+    background:repeating-conic-gradient(from -90deg, var(--tick) 0deg 1.4deg, transparent 1.4deg 7.5deg);
+    -webkit-mask:radial-gradient(circle, transparent 0 96px, #000 97px 108px, transparent 109px);
+    mask:radial-gradient(circle, transparent 0 96px, #000 97px 108px, transparent 109px); }
+  .room-tag { position:absolute; left:50%; top:50%; width:76px; margin-left:-38px; text-align:center;
+    font-size:11px; letter-spacing:.08em; color:var(--cream); opacity:.65;
+    transform:translate(-50%,-50%) rotate(var(--r)) translateY(-112px); }
+  .room-tag.hot { color:var(--amber); opacity:1; text-shadow:0 0 8px rgba(242,178,92,.6); }
+  .night .room-tag.hot { text-shadow:0 0 8px rgba(159,232,112,.6); }
+  .knob { position:absolute; left:50%; top:50%; width:172px; height:172px; transform:translate(-50%,-50%);
+    border-radius:50%; background:radial-gradient(circle at 35% 28%, var(--brass-hi), var(--brass) 62%, var(--brass-dk));
+    box-shadow:0 10px 26px rgba(0,0,0,.65), inset 0 2px 3px rgba(255,255,255,.4), inset 0 -4px 8px rgba(0,0,0,.45); }
+  .knob::before { content:""; position:absolute; inset:12px; border-radius:50%;
+    background:repeating-conic-gradient(rgba(0,0,0,.16) 0deg 3deg, transparent 3deg 12deg);
+    -webkit-mask:radial-gradient(circle, transparent 0 58%, #000 59%); mask:radial-gradient(circle, transparent 0 58%, #000 59%); }
+  .knob .cap { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:64px; height:64px;
+    border-radius:50%; background:radial-gradient(circle at 40% 32%, #F4E3BF, #C9A76B 70%);
+    box-shadow:inset 0 -3px 6px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.4);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; color:#4A3619; }
+  .night .knob .cap { background:radial-gradient(circle at 40% 32%, #3A3830, #26241E 70%); color:var(--amber); }
+  .knob .cap b { font-family:Georgia,serif; font-size:10px; letter-spacing:.28em; }
+  .knob .cap span { font-size:9px; margin-top:2px; opacity:.8; letter-spacing:.2em; }
+
+  /* 主按钮 */
+  .power { position:relative; z-index:2; margin:18px auto 0; width:230px; text-align:center; padding:13px 0;
+    border-radius:14px; font-size:14px; letter-spacing:.3em; color:#3A2A18; border:none;
+    background:linear-gradient(180deg,var(--brass-hi),var(--brass) 55%,var(--brass-dk));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.5), inset 0 -3px 5px rgba(0,0,0,.4), 0 6px 14px rgba(0,0,0,.55); }
+  .night .power { color:var(--amber); box-shadow:inset 0 0 0 1px rgba(159,232,112,.4), 0 6px 14px rgba(0,0,0,.55); background:#12110D; }
+
+  /* 喇叭格栅 */
+  .grille { position:relative; z-index:2; margin-top:auto; height:44px; border-radius:10px;
+    background-image:radial-gradient(circle, rgba(0,0,0,.6) 1.7px, transparent 2.4px);
+    background-size:13px 13px; background-position:center;
+    box-shadow:inset 0 0 0 1px rgba(169,127,73,.3); }
+  .footline { position:relative; z-index:2; text-align:center; margin-top:10px; font-size:9px;
+    letter-spacing:.4em; color:#8A6F49; font-family:Georgia,serif; }
+
+  /* VU 表 */
+  .vu { position:relative; z-index:2; margin-top:14px; border-radius:10px; height:118px; overflow:hidden;
+    background:linear-gradient(180deg,#F4EAD4,#E8DBBE);
+    box-shadow:inset 0 0 0 3px rgba(169,127,73,.6), inset 0 0 20px rgba(107,78,42,.25); }
+  .vu svg { position:absolute; left:0; top:0; width:100%; height:100%; }
+  .needle { position:absolute; left:50%; bottom:8px; width:2.5px; height:86px; background:#7A2E20;
+    transform-origin:50% 100%; transform:translateX(-50%) rotate(16deg);
+    animation:sway 1.9s ease-in-out infinite alternate; border-radius:2px; }
+  @keyframes sway { from { transform:translateX(-50%) rotate(10deg); } to { transform:translateX(-50%) rotate(24deg); } }
+  .vu .vlabel { position:absolute; left:50%; bottom:14px; transform:translateX(-50%);
+    font-family:Georgia,serif; font-size:11px; letter-spacing:.3em; color:#6B4E2A; }
+
+  /* 频道键位 */
+  .keys { position:relative; z-index:2; display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px; }
+  .key { border-radius:8px; padding:12px 8px 10px; text-align:center; background:rgba(0,0,0,.3);
+    box-shadow:inset 0 0 0 1px rgba(169,127,73,.45), inset 0 2px 5px rgba(0,0,0,.5); }
+  .key .lamp { display:block; width:7px; height:7px; border-radius:50%; margin:0 auto 8px;
+    background:#3A2A18; box-shadow:inset 0 0 2px rgba(0,0,0,.8); }
+  .key.live .lamp { background:var(--amber); box-shadow:0 0 9px rgba(242,178,92,.75); }
+  .night .key.live .lamp { box-shadow:0 0 9px rgba(159,232,112,.75); }
+  .key.talk { background:rgba(242,178,92,.14); box-shadow:inset 0 0 0 1.5px rgba(242,178,92,.7); }
+  .night .key.talk { box-shadow:inset 0 0 0 1.5px rgba(159,232,112,.6); background:rgba(159,232,112,.08); }
+  .key b { display:block; font-size:13px; color:var(--cream); letter-spacing:.12em; font-weight:600; }
+  .key span { display:block; margin-top:4px; font-size:9px; letter-spacing:.18em; color:#8A6F49; }
+  .key.talk span { color:var(--amber); }
+  .key.empty { opacity:.45; }
+
+  /* 话筒拨杆 */
+  .talkbar { position:relative; z-index:2; margin-top:16px; height:56px; border-radius:12px; background:#0E0A07;
+    box-shadow:inset 0 2px 8px rgba(0,0,0,.85), inset 0 0 0 1px rgba(169,127,73,.5);
+    display:flex; align-items:center; padding:0 10px; }
+  .talkbar .handle { flex:1; text-align:center; padding:11px 0; border-radius:8px; font-size:13px; letter-spacing:.4em;
+    color:#3A2A18; background:linear-gradient(180deg,var(--brass-hi),var(--brass) 60%,var(--brass-dk));
+    box-shadow:0 4px 9px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.45); transform:translateY(-2px); }
+  .night .talkbar .handle { color:var(--amber); background:#171611; box-shadow:0 4px 9px rgba(0,0,0,.55), inset 0 0 0 1px rgba(159,232,112,.35); }
+
+  /* 底部开关行 */
+  .switchrow { position:relative; z-index:2; display:flex; align-items:center; justify-content:space-between;
+    margin-top:auto; padding:0 4px; }
+  .switchrow .sw { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--cream); letter-spacing:.14em; opacity:.85; }
+  .switchrow .pill { width:26px; height:13px; border-radius:7px; background:rgba(0,0,0,.6);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.8); position:relative; }
+  .switchrow .pill i { position:absolute; top:1.5px; width:10px; height:10px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, var(--brass-hi), var(--brass-dk)); }
+  .switchrow .pill.on { background:rgba(242,178,92,.3); }
+  .switchrow .pill.on i { right:1.5px; }
+  .switchrow .pill:not(.on) i { left:1.5px; }
+  .switchrow .leave { font-size:11px; letter-spacing:.2em; color:#C97C5B; }
+</style>
+</head>
+<body>
+<a class="back" href="index.html">← 返回五案总览</a>
+<header class="head">
+  <p class="kicker">方案 A</p>
+  <h1>潮汐电台<span class="en">TIDE DIAL</span></h1>
+  <p class="lede">日落时分拧开一台海边电台：整个应用是一台机器，扫描是调频，房间是电台频道，说话是按下话筒拨杆。夜间模式是「深夜频段」，面板熄灯只剩荧光刻度。</p>
+  <div class="swatches">
+    <i style="background:#2B1D14"></i><i style="background:#E3C088"></i><i style="background:#A97F49"></i>
+    <i style="background:#F2B25C"></i><i style="background:#F2E8D2"></i><i style="background:#9FE870"></i>
+  </div>
+  <p class="anchor">实现锚点：废弃日轮水波背景与圆角卡片；首页重排为整机操作台；成员列表变为六个频道键位；PTT 圆盘换成话筒拨杆；CelestialCanvas 由表盘与面板绘制取代。</p>
+</header>
+
+<main class="frames">
+  <!-- A1 首页 -->
+  <figure class="phone">
+    <div class="screen">
+      <div class="sbar"><span>21:47</span><span>98%</span></div>
+      <div class="plate"><span class="en">SUNSET RIPPLE</span><span class="cn">潮汐电台 · MK.II</span></div>
+      <div class="window">
+        <div class="wrow"><span class="lab">呼号</span><span class="val">阿岸-417</span><span class="onair">ON AIR</span></div>
+        <div class="wrow dim"><span class="lab">频段</span><span class="val">FM 92.4 残波台</span></div>
+        <div class="wrow dim"><span class="lab">信号</span><span class="val">扫描中，3 处回波</span></div>
+      </div>
+      <div class="levers">
+        <div class="lever on"><span class="lt">WiFi 房</span><span class="track"><i></i></span><span class="ls">满幅</span></div>
+        <div class="lever"><span class="lt">蓝牙房</span><span class="track"><i class="dn"></i></span><span class="ls">按键</span></div>
+      </div>
+      <div class="dial-wrap">
+        <div class="ticks"></div>
+        <span class="room-tag" style="--r:-48deg">小岛电台</span>
+        <span class="room-tag hot" style="--r:0deg">晚风房</span>
+        <span class="room-tag" style="--r:48deg">南屿</span>
+        <div class="knob"><div class="cap"><b>TUNE</b><span>刻度</span></div></div>
+      </div>
+      <button class="power">开机 · 建房</button>
+      <div class="grille"></div>
+      <div class="footline">AFTERGLOW WAVES RADIO</div>
+    </div>
+    <figcaption>首页 · 调频操作台</figcaption>
+  </figure>
+
+  <!-- A2 房间 -->
+  <figure class="phone">
+    <div class="screen">
+      <div class="sbar"><span>21:47</span><span>98%</span></div>
+      <div class="plate"><span class="en">CH 04 · 晚风房</span><span class="cn">4 人在场 · 满幅对讲</span></div>
+      <div class="vu">
+        <svg viewBox="0 0 220 120" preserveAspectRatio="none">
+          <path d="M28 112 A 88 88 0 0 1 192 112" fill="none" stroke="#8A6F49" stroke-width="2"/>
+          <path d="M163 34 A 88 88 0 0 1 192 112" fill="none" stroke="#A63A2B" stroke-width="2.6"/>
+          <g stroke="#8A6F49" stroke-width="1.4">
+            <line x1="110" y1="22" x2="110" y2="30"/>
+            <line x1="62" y1="36" x2="66" y2="43"/>
+            <line x1="158" y1="36" x2="154" y2="43"/>
+            <line x1="30" y1="80" x2="38" y2="83"/>
+            <line x1="190" y1="80" x2="182" y2="83"/>
+          </g>
+        </svg>
+        <i class="needle"></i><span class="vlabel">VU</span>
+      </div>
+      <div class="keys">
+        <div class="key live"><i class="lamp"></i><b>阿岸</b><span>主持</span></div>
+        <div class="key live talk"><i class="lamp"></i><b>小满</b><span>发言中</span></div>
+        <div class="key live"><i class="lamp"></i><b>舟</b><span>在场</span></div>
+        <div class="key live"><i class="lamp"></i><b>屿</b><span>在场</span></div>
+        <div class="key empty"><i class="lamp"></i><b>空位</b><span>待机</span></div>
+        <div class="key empty"><i class="lamp"></i><b>空位</b><span>待机</span></div>
+      </div>
+      <div class="talkbar"><span class="handle">按住说话</span></div>
+      <div class="switchrow">
+        <span class="sw">扬声器<span class="pill on"><i></i></span></span>
+        <span class="sw">静音<span class="pill"><i></i></span></span>
+        <span class="sw leave">关机退房</span>
+      </div>
+    </div>
+    <figcaption>房间 · VU 表与频道键位</figcaption>
+  </figure>
+
+  <!-- A3 深夜频段 -->
+  <figure class="phone">
+    <div class="screen night">
+      <div class="sbar"><span>23:12</span><span>64%</span></div>
+      <div class="plate"><span class="en">SUNSET RIPPLE</span><span class="cn">深夜频段 · 23:00 后</span></div>
+      <div class="window">
+        <div class="wrow"><span class="lab">呼号</span><span class="val">阿岸-417</span><span class="onair">ON AIR</span></div>
+        <div class="wrow dim"><span class="lab">信号</span><span class="val">扫描中，1 处回波</span></div>
+      </div>
+      <div class="levers">
+        <div class="lever on"><span class="lt">蓝牙房</span><span class="track"><i></i></span><span class="ls">按键</span></div>
+        <div class="lever"><span class="lt">WiFi 房</span><span class="track"><i class="dn"></i></span><span class="ls">满幅</span></div>
+      </div>
+      <div class="dial-wrap">
+        <div class="ticks"></div>
+        <span class="room-tag hot" style="--r:-14deg">夜航船</span>
+        <span class="room-tag" style="--r:44deg">灯塔</span>
+        <div class="knob"><div class="cap"><b>TUNE</b><span>刻度</span></div></div>
+      </div>
+      <button class="power">开机 · 建房</button>
+      <div class="grille"></div>
+      <div class="footline">MIDNIGHT BAND</div>
+    </div>
+    <figcaption>夜间模式 · 深夜频段荧光刻度</figcaption>
+  </figure>
+</main>
+<footer class="note">静态高保真示意，数据均为样例，动效以 CSS 模拟。</footer>
+</body>
+</html>

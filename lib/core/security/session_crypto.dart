@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -153,7 +154,7 @@ class SessionCipher {
   final crypt.SecretKey _secretKey;
   final crypt.AesGcm _aesGcm = crypt.AesGcm.with256bits(nonceLength: nonceBytes);
   final Set<String> _seenNonces = <String>{};
-  final List<String> _nonceOrder = <String>[];
+  final ListQueue<String> _nonceOrder = ListQueue<String>();
   final Random _random = Random.secure();
 
   SessionCipher._(this._secretKey);
@@ -284,9 +285,9 @@ class SessionCipher {
     }
 
     _seenNonces.add(nonceId);
-    _nonceOrder.add(nonceId);
+    _nonceOrder.addLast(nonceId);
     if (_nonceOrder.length > maxSeenNonces) {
-      final oldest = _nonceOrder.removeAt(0);
+      final oldest = _nonceOrder.removeFirst();
       _seenNonces.remove(oldest);
     }
 

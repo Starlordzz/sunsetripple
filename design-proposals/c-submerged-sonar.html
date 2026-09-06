@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · 水下声呐 — SunsetRipple UI 方案</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --abyss:#06121f; --deep:#0b2237; --panel:#0e2a44;
+    --line:rgba(120,180,220,.14); --grid:rgba(120,180,220,.07);
+    --tx:#9fb8cc; --tx-dim:#48627a; --cy:#6fb3d8;
+    --sun:#ff8a4a; --sun-hi:#ffb37e;
+  }
+  body{
+    background:#050d16;
+    background-image:radial-gradient(900px 480px at 50% -8%, #0d2438 0%, transparent 60%);
+    color:#c6d6e2; min-height:100vh; padding:60px 28px 90px;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    user-select:none;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+  .back{display:inline-block;color:#48627a;text-decoration:none;font-size:13px;letter-spacing:.08em}
+  .back:hover{color:var(--sun)}
+  .kicker{font-family:Consolas,monospace;letter-spacing:.38em;font-size:12px;color:var(--sun);margin-top:26px}
+  h1{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:42px;margin:12px 0 10px;letter-spacing:.05em;color:#e4edf4}
+  h1 em{font-style:normal;font-size:13px;letter-spacing:.3em;color:#48627a;margin-left:12px;text-transform:uppercase;font-family:Consolas,monospace}
+  .sub{color:#7d94a8;font-size:15px;line-height:1.85;max-width:700px}
+  .hint{margin-top:10px;color:#48627a;font-size:12.5px}
+  .stage{display:flex;gap:56px;justify-content:center;flex-wrap:wrap;margin-top:48px}
+  .shot{display:flex;flex-direction:column;align-items:center;gap:16px}
+  .cap{color:#48627a;font-size:13px;letter-spacing:.12em}
+
+  .phone{width:342px;height:724px;border-radius:52px;background:#02070d;padding:10px;
+    box-shadow:0 40px 80px rgba(0,0,0,.7), inset 0 0 0 2px #16324a}
+  .screen{position:relative;width:100%;height:100%;border-radius:42px;overflow:hidden;font-size:14px;
+    background:linear-gradient(180deg,var(--deep) 0%,var(--abyss) 60%,#04101c 100%);cursor:default}
+  .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:104px;height:24px;border-radius:13px;background:#02070d;z-index:60}
+
+  /* 透过水面的落日余光 */
+  .sunlight{position:absolute;top:0;left:0;right:0;height:150px;pointer-events:none;z-index:1;
+    background:linear-gradient(180deg, rgba(255,138,74,.34) 0%, rgba(255,138,74,.10) 40%, transparent 100%);
+    filter:blur(1px)}
+  .sunlight::before{content:"";position:absolute;top:-8px;left:14%;width:90px;height:34px;border-radius:50%;background:rgba(255,179,126,.5);filter:blur(14px)}
+  .sunlight::after{content:"";position:absolute;top:2px;right:20%;width:60px;height:24px;border-radius:50%;background:rgba(255,179,126,.32);filter:blur(12px)}
+
+  /* 网格 */
+  .grid-bg{position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:26px 26px;
+    -webkit-mask:radial-gradient(circle at 50% 44%, #000 30%, rgba(0,0,0,.5) 75%, rgba(0,0,0,.25));
+            mask:radial-gradient(circle at 50% 44%, #000 30%, rgba(0,0,0,.5) 75%, rgba(0,0,0,.25))}
+
+  .hud{position:absolute;font-family:Consolas,monospace;font-size:9.5px;letter-spacing:.22em;color:var(--tx-dim);z-index:30}
+  .hud b{color:var(--cy);font-weight:400}
+  .hud.tl{top:52px;left:20px}.hud.tr{top:52px;right:20px;text-align:right}
+  .hud.bl{bottom:34px;left:20px}.hud.br{bottom:34px;right:20px;text-align:right}
+
+  /* ══ 海图 · 首页 ══ */
+  .self{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);z-index:10;text-align:center}
+  .self .dot{width:14px;height:14px;margin:0 auto;border-radius:50%;background:var(--sun);
+    box-shadow:0 0 16px 4px rgba(255,138,74,.55)}
+  .self .ring{position:absolute;left:50%;top:50%;width:14px;height:14px;border-radius:50%;border:1px solid rgba(255,138,74,.5);
+    transform:translate(-50%,-50%);animation:ping 3.2s ease-out infinite}
+  .self .ring.r2{animation-delay:1.6s}
+  .self .lb{margin-top:14px;font-family:Consolas,monospace;font-size:11px;letter-spacing:.2em;color:var(--tx);white-space:nowrap}
+  .self .lb b{color:var(--sun-hi);font-weight:400}
+  @keyframes ping{0%{width:14px;height:14px;opacity:.9}100%{width:130px;height:130px;opacity:0}}
+
+  .buoy{position:absolute;z-index:10;transform:translate(-50%,-50%);text-align:center;cursor:pointer}
+  .buoy .pt{width:9px;height:9px;margin:0 auto;border-radius:2px;transform:rotate(45deg);background:var(--cy);
+    box-shadow:0 0 10px rgba(111,179,216,.6)}
+  .buoy .rip{position:absolute;left:50%;top:50%;width:9px;height:9px;border-radius:50%;border:1px solid rgba(111,179,216,.5);
+    transform:translate(-50%,-50%);animation:ping 3.6s ease-out infinite}
+  .buoy .lb{margin-top:9px;font-family:Consolas,monospace;font-size:9.5px;letter-spacing:.14em;color:var(--tx-dim);white-space:nowrap}
+  .buoy.hot .pt{background:var(--sun);box-shadow:0 0 12px rgba(255,138,74,.75)}
+  .buoy.hot .rip{border-color:rgba(255,138,74,.6)}
+  .buoy.hot .lb{color:var(--sun-hi)}
+  .buoy:active .pt{transform:rotate(45deg) scale(1.3)}
+  .buoy.u1{left:24%;top:26%}.buoy.u2{left:76%;top:36%}.buoy.u3{left:68%;top:62%}.buoy.u4{left:22%;top:64%}
+
+  .sweep{position:absolute;left:50%;top:44%;width:330px;height:330px;transform:translate(-50%,-50%);z-index:5;border-radius:50%;
+    background:conic-gradient(from 0deg, rgba(111,179,216,.16) 0deg, rgba(111,179,216,.05) 40deg, transparent 90deg, transparent 360deg);
+    animation:spin 4.5s linear infinite;pointer-events:none;
+    -webkit-mask:radial-gradient(circle, transparent 34px, #000 35px, #000 97%, transparent);
+            mask:radial-gradient(circle, transparent 34px, #000 35px, #000 97%, transparent)}
+  @keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+  .orbit-line{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);border-radius:50%;border:1px solid var(--line);z-index:4}
+  .orbit-line.o1{width:150px;height:150px}.orbit-line.o2{width:250px;height:250px}.orbit-line.o3{width:330px;height:330px;opacity:.6}
+
+  .anchor{position:absolute;left:50%;bottom:76px;transform:translateX(-50%);z-index:20;cursor:pointer;
+    font-family:Consolas,monospace;font-size:11.5px;letter-spacing:.3em;color:var(--sun-hi);white-space:nowrap;
+    border:1px solid rgba(255,138,74,.5);padding:12px 26px 11px 30px;background:rgba(255,138,74,.07)}
+  .anchor:active{background:rgba(255,138,74,.2);transform:translateX(-50%) scale(.97)}
+  .mode-sw{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);z-index:20;font-family:Consolas,monospace;font-size:11px;letter-spacing:.24em;white-space:nowrap}
+  .mode-sw b{color:var(--cy);font-weight:400;border-bottom:1px solid var(--cy);padding-bottom:3px}
+  .mode-sw span{color:var(--tx-dim);margin-left:16px}
+  .tip{position:absolute;left:0;right:0;top:calc(44% + 92px);text-align:center;z-index:9;font-size:11px;letter-spacing:.4em;color:var(--tx-dim)}
+
+  /* ══ 房间 · 声呐 ══ */
+  .room-cap{position:absolute;top:56px;left:0;right:0;text-align:center;z-index:20}
+  .room-cap .r{font-family:Consolas,monospace;font-size:11px;letter-spacing:.3em;color:var(--cy)}
+  .room-cap .s{margin-top:6px;font-size:12px;letter-spacing:.24em;color:var(--tx-dim)}
+  .core{position:absolute;left:50%;top:47%;transform:translate(-50%,-50%);z-index:20;cursor:pointer;text-align:center}
+  .core .ball{width:118px;height:118px;border-radius:50%;position:relative;
+    background:radial-gradient(circle at 36% 30%, #1b4266 0%, #0e2a44 55%, #071726 100%);
+    box-shadow:0 0 34px rgba(255,138,74,.16), inset 0 0 24px rgba(0,0,0,.6), inset 0 2px 8px rgba(120,180,220,.14);
+    border:1px solid rgba(120,180,220,.2);transition:transform .15s ease, box-shadow .15s ease}
+  .core .ball::after{content:"";position:absolute;inset:-1px;border-radius:50%;
+    background:radial-gradient(circle at 50% -20%, rgba(255,138,74,.28), transparent 55%)}
+  .core .t{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+  .core .t b{font-family:Consolas,monospace;font-size:12px;letter-spacing:.3em;color:var(--sun-hi);font-weight:400}
+  .core .t span{font-size:10px;letter-spacing:.28em;color:var(--tx-dim)}
+  .core:active .ball{transform:scale(.94);box-shadow:0 0 54px rgba(255,138,74,.5), inset 0 0 24px rgba(0,0,0,.6)}
+  .core:active .t span{color:var(--sun-hi)}
+  .member{position:absolute;z-index:10;transform:translate(-50%,-50%);text-align:center}
+  .member .d{width:8px;height:8px;margin:0 auto;border-radius:50%;background:var(--cy);box-shadow:0 0 8px rgba(111,179,216,.5)}
+  .member .lb{margin-top:7px;font-size:9.5px;letter-spacing:.14em;color:var(--tx-dim);white-space:nowrap;font-family:Consolas,monospace}
+  .member.talking .d{background:var(--sun);box-shadow:0 0 12px rgba(255,138,74,.8)}
+  .member.talking .lb{color:var(--sun-hi)}
+  .member.talking .rip{position:absolute;left:50%;top:4px;width:8px;height:8px;border-radius:50%;border:1px solid rgba(255,138,74,.55);
+    transform:translate(-50%,-50%);animation:ping 2s ease-out infinite}
+  .member.talking .rip.r2{animation-delay:1s}
+  .m1{left:50%;top:27%}.m2{left:79%;top:39%}.m3{left:72%;top:66%}.m4{left:29%;top:65%}.m5{left:21%;top:38%}
+  .side{position:absolute;z-index:20;font-family:Consolas,monospace;font-size:10.5px;letter-spacing:.2em;color:var(--tx-dim)}
+  .side b{color:var(--tx);font-weight:400}
+  .side:active{color:var(--sun-hi)}
+  .side.l{left:16px;writing-mode:vertical-rl;line-height:2.6}
+  .side.r{right:16px;writing-mode:vertical-rl;line-height:2.6}
+  .voice{position:absolute;left:18px;bottom:88px;z-index:20;font-family:Consolas,monospace;font-size:9.5px;letter-spacing:.14em;color:var(--tx-dim);line-height:2.1}
+  .voice b{color:var(--tx);font-weight:400}
+  .voice .bar{display:inline-block;width:3px;margin-right:5px;background:var(--cy);vertical-align:1px;animation:vq 1s ease-in-out infinite}
+  .voice .bar:nth-child(2){animation-delay:.2s}.voice .bar:nth-child(3){animation-delay:.4s}
+  @keyframes vq{0%,100%{height:5px}50%{height:11px}}
+
+  .notes{max-width:960px;margin:64px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .note{border:1px solid #16324a;border-radius:16px;padding:20px 20px 18px;background:rgba(10,26,42,.6)}
+  .note h3{font-size:12px;letter-spacing:.3em;color:var(--sun);margin-bottom:12px;font-weight:600}
+  .note li{list-style:none;font-size:13px;color:#7d94a8;line-height:1.9}
+  .note li::before{content:"· ";color:var(--sun)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="back" href="index.html">← 全部方案</a>
+    <div class="kicker">PROPOSAL C · SUBMERGED SONAR</div>
+    <h1>水下声呐<em>Sonar Instrument</em></h1>
+    <p class="sub">落日之后你沉到了水面之下：抬头是透过水面晃动的最后一缕橙光，身边的世界靠声呐感知——残波即声呐环。整套界面从插画感翻转为仪器感：近乎单色的深海蓝、细线网格、mono 仪表字，唯一的 accent 是那一线橙。</p>
+    <p class="hint">※ 静态原型 · 中央声呐球可按住试 PTT；浮标可点</p>
+  </header>
+
+  <div class="stage">
+    <!-- ══ 海图 · 首页 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen">
+          <div class="sunlight"></div>
+          <div class="grid-bg"></div>
+          <div class="orbit-line o1"></div><div class="orbit-line o2"></div><div class="orbit-line o3"></div>
+          <div class="sweep"></div>
+
+          <div class="hud tl">SCAN · 06s<br><b>MODE WIFI</b></div>
+          <div class="hud tr">DEPTH -12.4m<br><b>SIGNAL 3/3</b></div>
+          <div class="hud bl">SUNSETRIPPLE v0.1.0-alpha.10</div>
+          <div class="hud br">BUOYS · 04</div>
+
+          <div class="self">
+            <span class="ring"></span><span class="ring r2"></span>
+            <div class="dot"></div>
+            <div class="lb"><b>你</b> · 晚舟 #482</div>
+          </div>
+
+          <div class="buoy hot u1"><span class="rip"></span><div class="pt"></div><div class="lb">星尘的房间 ·3</div></div>
+          <div class="buoy u2"><span class="rip"></span><div class="pt"></div><div class="lb">阿澜电台 ·2</div></div>
+          <div class="buoy u3"><span class="rip"></span><div class="pt"></div><div class="lb">远山 ·未命名 ·1</div></div>
+          <div class="buoy u4"><span class="rip"></span><div class="pt"></div><div class="lb">信号弱 · 不可达</div></div>
+
+          <div class="tip">点 按 浮 标 · 加 入</div>
+          <div class="mode-sw"><b>WIFI</b><span>BLE</span></div>
+          <div class="anchor">长按投锚 · 建房</div>
+        </div>
+      </div>
+      <div class="cap">首页 · 一张海图</div>
+    </div>
+
+    <!-- ══ 房间 · 声呐 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen">
+          <div class="sunlight"></div>
+          <div class="grid-bg"></div>
+          <div class="orbit-line o1"></div><div class="orbit-line o2"></div><div class="orbit-line o3"></div>
+
+          <div class="room-cap"><div class="r">晚舟的房间 ★</div><div class="s">6 轨道 · 全双工 · 在线 5</div></div>
+
+          <div class="core">
+            <div class="ball"></div>
+            <div class="t"><b>PTT</b><span>按住下沉 · 发信</span></div>
+          </div>
+
+          <div class="member talking m1"><span class="rip"></span><span class="rip r2"></span><div class="d"></div><div class="lb">阿澜 · 发言中</div></div>
+          <div class="member m2"><div class="d"></div><div class="lb">星尘</div></div>
+          <div class="member m3"><div class="d"></div><div class="lb">远山</div></div>
+          <div class="member m4"><div class="d"></div><div class="lb">拾贝</div></div>
+          <div class="member m5"><div class="d"></div><div class="lb">南屿</div></div>
+
+          <div class="side l">[ 静音 ]<br>[ 扬声器 ]</div>
+          <div class="side r">[ 上浮 ]<br>[ 诊断 ]</div>
+
+          <div class="voice">
+            <span class="bar"></span><span class="bar"></span><span class="bar"></span> <b>阿澜</b> ▸ 00:07<br>
+            <span class="bar" style="animation:none;opacity:.4"></span><span class="bar" style="animation:none;opacity:.4"></span><span class="bar" style="animation:none;opacity:.4"></span> <b>星尘</b> ▸ 00:03
+          </div>
+          <div class="hud bl" style="left:auto;right:20px;text-align:right">CH 06 · WIFI DUPLEX</div>
+        </div>
+      </div>
+      <div class="cap">房间 · 同心轨道与声呐球</div>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div class="note"><h3>布局重构</h3>
+      <li>首页 = 全屏海图：自己是原点，房间是浮标，扫掠恒转</li>
+      <li>建房 = 长按投锚，房型 = 锚链色（WIFI/BLE 刻度切换）</li>
+      <li>成员分布在同心轨道环上（真环形布局，替代横排头像）</li>
+      <li>退房改叫「上浮」，聊天是左舷滚动的声纹消息流</li>
+    </div>
+    <div class="note"><h3>色彩与质感</h3>
+      <li>深海近单色 #06121F→#0B2237 + 细线网格，卡片与圆角容器清零</li>
+      <li>全 App 唯一 accent = 水面透下的那线橙 #FF8A4A</li>
+      <li>mono + tabular 数字，全部组件 Canvas 绘制</li>
+      <li>信号强度 = 环的密度，音量 = 波纹亮度</li>
+    </div>
+    <div class="note"><h3>动效与状态</h3>
+      <li>声呐扫掠恒转，新浮标从暗到亮浮现</li>
+      <li>说话 = 声呐环扩散；PTT = 按下声呐球下沉、辉光增强</li>
+      <li>进房转场 = 「下潜」：整屏水波折射模糊一拍</li>
+      <li>与现有暖色日轮反差最大，等于换了一个世界</li>
+    </div>
+  </section>
+</div>
+</body>
+</html>

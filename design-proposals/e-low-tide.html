@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · 退潮滩涂 — SunsetRipple UI 方案</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --paper:#f2eee9; --paper-deep:#ece7e0; --ink:#3a3430; --dim:#8d857e;
+    --sun:#c96f4a; --sun-hi:#d98a5e; --line:#d8d0c6; --faint:#b8afa4;
+  }
+  body{
+    background:#e9e4dd;
+    background-image:radial-gradient(900px 460px at 30% -8%, #f6f2ec 0%, transparent 60%);
+    color:var(--ink); min-height:100vh; padding:60px 28px 90px;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    user-select:none;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+  .back{display:inline-block;color:var(--faint);text-decoration:none;font-size:13px;letter-spacing:.08em}
+  .back:hover{color:var(--sun)}
+  .kicker{font-family:Consolas,monospace;letter-spacing:.38em;font-size:12px;color:var(--sun);margin-top:26px}
+  h1{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:42px;margin:12px 0 10px;letter-spacing:.05em;color:var(--ink)}
+  h1 em{font-style:normal;font-size:13px;letter-spacing:.3em;color:var(--faint);margin-left:12px;text-transform:uppercase;font-family:Consolas,monospace}
+  .sub{color:#6f665e;font-size:15px;line-height:1.85;max-width:680px}
+  .hint{margin-top:10px;color:var(--faint);font-size:12.5px}
+  .stage{display:flex;gap:56px;justify-content:center;flex-wrap:wrap;margin-top:48px}
+  .shot{display:flex;flex-direction:column;align-items:center;gap:16px}
+  .cap{color:var(--dim);font-size:13px;letter-spacing:.12em}
+
+  .phone{width:342px;height:724px;border-radius:52px;background:#d5cec5;padding:10px;
+    box-shadow:0 36px 70px rgba(90,75,60,.35), inset 0 0 0 2px #efeae2}
+  .screen{position:relative;width:100%;height:100%;border-radius:42px;overflow:hidden;font-size:14px;
+    background:linear-gradient(180deg,var(--paper) 0%,var(--paper-deep) 100%);cursor:default}
+  .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:104px;height:24px;border-radius:13px;background:#d5cec5;z-index:60}
+  .mono{font-family:Consolas,monospace}
+
+  /* 地平线 */
+  .horizon{position:absolute;left:0;right:0;height:1px;background:var(--line);z-index:5}
+  .horizon::before{content:"";position:absolute;left:0;right:0;top:-14px;height:14px;
+    background:linear-gradient(180deg,transparent,rgba(201,111,74,.07))}
+  .horizon::after{content:"";position:absolute;left:0;right:0;top:1px;height:40px;
+    background:linear-gradient(180deg,rgba(201,111,74,.05),transparent)}
+
+  /* ══ 首页 ══ */
+  .h1-home{position:absolute;left:32px;top:78px}
+  .h1-home .t{font-weight:300;font-size:31px;letter-spacing:.24em;color:var(--ink)}
+  .h1-home .cs{margin-top:12px;font-size:11.5px;letter-spacing:.3em;color:var(--dim)}
+
+  /* 落日按钮：唯一的圆形，唯一的 accent */
+  .home-sun{position:absolute;left:0;right:0;top:38%;transform:translateY(-50%);z-index:20;
+    display:flex;flex-direction:column;align-items:center}
+  .sun{width:78px;height:78px;border-radius:50%;cursor:pointer;position:relative;
+    background:radial-gradient(circle at 42% 34%, var(--sun-hi), var(--sun) 68%);
+    box-shadow:0 6px 26px rgba(201,111,74,.4);
+    animation:breathe 4.6s ease-in-out infinite;transition:transform .16s ease, box-shadow .16s ease}
+  .sun:active{transform:translateY(5px) scale(.96);box-shadow:0 2px 12px rgba(201,111,74,.45)}
+  @keyframes breathe{0%,100%{box-shadow:0 6px 26px rgba(201,111,74,.4)}50%{box-shadow:0 10px 36px rgba(201,111,74,.58)}}
+  .sun-label{margin-top:10px;font-size:11.5px;letter-spacing:.44em;text-indent:.44em;color:var(--sun)}
+  .reflect{position:absolute;left:50%;top:calc(38% + 8px);transform:translateX(-50%);width:52px;height:96px;z-index:6;
+    background:linear-gradient(180deg,rgba(201,111,74,.34),rgba(201,111,74,.05) 70%,transparent);
+    filter:blur(7px);border-radius:50%}
+
+  .h-modes{position:absolute;left:32px;top:calc(38% - 74px);font-size:13px;letter-spacing:.2em;color:var(--dim);z-index:10}
+  .h-modes b{color:var(--ink);font-weight:600;border-bottom:1px solid var(--sun);padding-bottom:4px}
+  .h-modes span{margin-left:16px}
+
+  .rows{position:absolute;left:32px;right:32px;top:calc(38% + 92px);display:flex;flex-direction:column;gap:20px}
+  .row{display:flex;align-items:baseline;gap:10px;font-size:14.5px;color:var(--ink)}
+  .row .lead{flex:1;border-bottom:1px dotted var(--faint);transform:translateY(-4px)}
+  .row .meta{font-size:11px;letter-spacing:.08em;color:var(--dim)}
+  .row .join{font-size:12px;letter-spacing:.24em;color:var(--sun);cursor:pointer}
+  .row .join:active{opacity:.6}
+  .rows .quiet{font-size:11.5px;letter-spacing:.3em;color:var(--faint)}
+
+  .scanline{position:absolute;left:20%;right:20%;top:calc(38% + 130px);z-index:6;text-align:center;
+    font-size:10.5px;letter-spacing:.4em;color:var(--faint)}
+  .scanline i{display:block;width:120px;height:12px;margin:0 auto 10px;border-radius:50%;
+    border:1px solid rgba(201,111,74,.35);animation:rip 3.4s ease-out infinite}
+  @keyframes rip{0%{width:70px;opacity:.7}100%{width:190px;opacity:0}}
+  .h-foot{position:absolute;left:32px;right:32px;bottom:40px;display:flex;justify-content:space-between;
+    font-size:10px;letter-spacing:.24em;color:var(--faint)}
+
+  /* ══ 房间 ══ */
+  .r-cs{position:absolute;left:32px;top:66px;font-size:11px;letter-spacing:.3em;color:var(--dim);z-index:10}
+  .r-quit{position:absolute;right:32px;top:64px;font-size:12px;letter-spacing:.3em;color:var(--dim);cursor:pointer;z-index:10}
+  .r-quit:active{color:var(--sun)}
+
+  .names{position:absolute;left:0;right:0;top:calc(44% - 72px);display:flex;justify-content:center;gap:13px;z-index:10}
+  .nm{font-size:12.5px;letter-spacing:.06em;color:var(--ink);text-align:center}
+  .nm small{display:block;margin-top:5px;font-size:9px;letter-spacing:.3em;color:var(--faint)}
+  .nm.host small{color:var(--sun)}
+  .nm.talking{color:var(--sun);text-shadow:0 0 18px rgba(201,111,74,.55)}
+  .nm.talking small{color:var(--sun)}
+
+  /* 半没入水中的落日 = PTT */
+  .sunwrap2{position:absolute;left:0;right:0;top:44%;z-index:20}
+  .sun-half{position:absolute;left:50%;top:0;width:84px;height:42px;transform:translate(-50%,-42px);overflow:hidden}
+  .sun-half i{display:block;width:84px;height:84px;border-radius:50%;margin-top:0;
+    background:radial-gradient(circle at 44% 32%, var(--sun-hi), var(--sun) 66%);
+    box-shadow:0 0 30px rgba(201,111,74,.4);animation:breathe 4.6s ease-in-out infinite}
+  .rip2{position:absolute;left:50%;top:1px;width:90px;height:22px;transform:translate(-50%,-50%);border-radius:50%;
+    border:1px solid rgba(201,111,74,.4);animation:rip 3s ease-out infinite;pointer-events:none}
+  .rip2.r2{animation-delay:1.5s}
+  .sun-hit{position:absolute;left:50%;top:0;width:120px;height:120px;transform:translate(-50%,-60px);cursor:pointer;z-index:21;border-radius:50%}
+  .sun-hit:active ~ .ptt-label b{color:var(--sun)}
+  .ptt-label{position:absolute;left:0;right:0;top:76px;text-align:center;font-size:12px;letter-spacing:.44em;color:var(--dim);z-index:9}
+  .ptt-label b{color:var(--ink);font-weight:600;transition:color .15s}
+
+  .r-modes{position:absolute;left:0;right:0;top:calc(44% + 120px);text-align:center;font-size:11px;letter-spacing:.36em;color:var(--faint);z-index:9}
+  .verbs{position:absolute;left:0;right:0;bottom:66px;display:flex;justify-content:center;gap:44px;z-index:10}
+  .verbs span{font-size:13.5px;letter-spacing:.3em;color:var(--ink);cursor:pointer;padding-bottom:6px;border-bottom:1px solid transparent}
+  .verbs span:hover{border-bottom-color:var(--line)}
+  .verbs span:active{color:var(--sun);border-bottom-color:rgba(201,111,74,.5)}
+  .verbs .chat{color:var(--dim)}
+  .r-foot{position:absolute;left:32px;right:32px;bottom:40px;display:flex;justify-content:space-between;
+    font-size:10px;letter-spacing:.24em;color:var(--faint)}
+
+  .notes{max-width:960px;margin:64px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .note{border:1px solid var(--line);border-radius:16px;padding:20px 20px 18px;background:rgba(255,253,250,.66)}
+  .note h3{font-size:12px;letter-spacing:.3em;color:var(--sun);margin-bottom:12px;font-weight:600}
+  .note li{list-style:none;font-size:13px;color:#6f665e;line-height:1.9}
+  .note li::before{content:"· ";color:var(--sun)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="back" href="index.html">← 全部方案</a>
+    <div class="kicker">PROPOSAL E · LOW TIDE</div>
+    <h1>退潮滩涂<em>One Horizon Line</em></h1>
+    <p class="sub">日落后一小时，潮退了，湿沙滩上还留着最后的光。整个 App 只有一条贯穿始终的地平线：线上是天空区（身份与信息），线下是倒影区（操作）。一轮落日既是建房键也是 PTT——按住它说话，它会继续下沉，涟漪加密。其余全部交给留白。</p>
+    <p class="hint">※ 静态原型 · 落日按钮可按住试试（首页整圆 / 房间半轮）</p>
+  </header>
+
+  <div class="stage">
+    <!-- ══ 首页 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen">
+          <div class="horizon" style="top:38%"></div>
+          <div class="h1-home"><div class="t">落日后残波</div><div class="cs mono">晚舟 · #482</div></div>
+          <div class="h-modes"><b>WiFi 实时</b><span>蓝牙 按住</span></div>
+
+          <div class="reflect"></div>
+          <div class="home-sun">
+            <div class="sun"></div>
+            <div class="sun-label">建 房</div>
+          </div>
+
+          <div class="rows">
+            <div class="row">星尘的房间<span class="lead"></span><span class="meta">星尘 · <span class="mono">3/6</span> 人</span><span class="join">加入</span></div>
+            <div class="row">阿澜电台<span class="lead"></span><span class="meta">阿澜 · <span class="mono">2/6</span> 人</span><span class="join">加入</span></div>
+            <div class="quiet">扫描中 · 每 6 秒一次</div>
+          </div>
+
+          <div class="h-foot"><span>昵称点上方姓名栏修改</span><span class="mono">v0.1.0-alpha.10</span></div>
+        </div>
+      </div>
+      <div class="cap">首页 · 天空区信息，倒影区操作</div>
+    </div>
+
+    <!-- ══ 房间 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen">
+          <div class="horizon" style="top:44%"></div>
+          <div class="r-cs mono">星尘的房间 · WIFI</div>
+          <div class="r-quit">退房 ›</div>
+
+          <div class="names">
+            <div class="nm talking">阿澜<small>发言中</small></div>
+            <div class="nm">星尘<small>主理</small></div>
+            <div class="nm">晚舟<small>你</small></div>
+            <div class="nm">远山<small>&nbsp;</small></div>
+            <div class="nm">拾贝<small>&nbsp;</small></div>
+            <div class="nm">南屿<small>&nbsp;</small></div>
+          </div>
+
+          <div class="sunwrap2" style="top:44%">
+            <div class="sun-half"><i></i></div>
+            <i class="rip2"></i><i class="rip2 r2"></i>
+            <div class="sun-hit"></div>
+            <div class="ptt-label"><b>按住落日</b> · 说话</div>
+          </div>
+          <div class="r-modes">蓝牙房 · PTT</div>
+
+          <div class="verbs"><span>静音</span><span>扬声器</span><span class="chat">场刊 · 2</span></div>
+          <div class="r-foot"><span>已对讲 00:42</span><span class="mono">2/6 空 位</span></div>
+        </div>
+      </div>
+      <div class="cap">房间 · 半轮落日即 PTT</div>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div class="note"><h3>布局重构</h3>
+      <li>一条 1px 地平线贯穿全 App，线上 = 天空区，线下 = 倒影区</li>
+      <li>无卡片无描边：房间是制表位对齐的细线文本行</li>
+      <li>成员不做头像，是地平线上方六个错落的细线名字</li>
+      <li>控制条缩成三个纯文字动词：静音 / 扬声器 / 退房</li>
+    </div>
+    <div class="note"><h3>色彩与质感</h3>
+      <li>暖灰白底 #F2EEE9 + 唯一 accent 焦橙 #C96F4A</li>
+      <li>夜间 = 「月下银滩」：近黑蓝底 + 银白圆月</li>
+      <li>层级全靠字号 / 字重 / 透明度，阴影至多一层同色淡影</li>
+      <li>全 App 只保留太阳 / 月亮一个图形</li>
+    </div>
+    <div class="note"><h3>动效与状态</h3>
+      <li>所有动效共用一个「潮汐呼吸」慢正弦节奏</li>
+      <li>按住落日 = 继续下沉、涟漪加密；WiFi 房圆日随音量呼吸</li>
+      <li>空状态只有一行小字：「附近很安静」</li>
+      <li>气质向：安静、工具感，适合当 App 的长期语言</li>
+    </div>
+  </section>
+</div>
+</body>
+</html>

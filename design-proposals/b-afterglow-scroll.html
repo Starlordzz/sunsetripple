@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · 暮色长卷 — SunsetRipple UI 方案</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --sky1:#f2a35e; --sky2:#d96a4a; --sky3:#8f4a5e; --sky4:#4a3a5e;
+    --paper:#f5ead9; --ink:#33253a; --ink-soft:#6b5568; --seal:#b8452f;
+    --water1:#6b4462; --water2:#402e4c;
+  }
+  body{
+    background:#efe4d2;
+    background-image:radial-gradient(900px 460px at 70% -6%, #f7d9b0 0%, transparent 60%);
+    color:#33253a; min-height:100vh; padding:60px 28px 90px;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    user-select:none;
+  }
+  .wrap{max-width:1280px;margin:0 auto}
+  .back{display:inline-block;color:#9a7a55;text-decoration:none;font-size:13px;letter-spacing:.08em}
+  .back:hover{color:var(--seal)}
+  .kicker{font-family:Consolas,monospace;letter-spacing:.38em;font-size:12px;color:#b8452f;margin-top:26px}
+  h1{font-family:"Kaiti SC",KaiTi,STKaiti,"楷体","Noto Serif SC",SimSun,serif;font-size:42px;margin:12px 0 10px;letter-spacing:.06em}
+  h1 em{font-style:normal;font-size:13px;letter-spacing:.3em;color:#9a8468;margin-left:12px;text-transform:uppercase;font-family:Consolas,monospace}
+  .sub{color:#6b5b4a;font-size:15px;line-height:1.85;max-width:700px}
+  .hint{margin-top:10px;color:#a08a68;font-size:12.5px}
+  .stage{display:flex;gap:34px;justify-content:center;flex-wrap:wrap;margin-top:48px;align-items:flex-start}
+  .shot{display:flex;flex-direction:column;align-items:center;gap:16px}
+  .cap{color:#9a8468;font-size:13px;letter-spacing:.12em}
+
+  .phone{width:330px;height:700px;border-radius:50px;background:#241a26;padding:10px;
+    box-shadow:0 36px 70px rgba(60,30,40,.45), inset 0 0 0 2px #4a3550}
+  .screen{position:relative;width:100%;height:100%;border-radius:40px;overflow:hidden;font-size:14px;cursor:default}
+  .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:100px;height:23px;border-radius:12px;background:#241a26;z-index:60}
+
+  /* 纸纹噪点 */
+  .grain{position:absolute;inset:0;z-index:40;pointer-events:none;opacity:.5;
+    background-image:repeating-conic-gradient(rgba(120,80,60,.05) 0% 25%, transparent 0% 50%);
+    background-size:3px 3px;mix-blend-mode:multiply}
+
+  /* ══ 第一段 · 题首 ══ */
+  .p1{background:linear-gradient(178deg,var(--sky1) 0%,var(--sky2) 34%,var(--sky3) 62%,var(--sky4) 100%)}
+  .p1 .sun{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:130px;height:130px;border-radius:50%;
+    background:radial-gradient(circle,#ffe9c0 0%,#ffca7e 55%,rgba(255,202,126,0) 74%);
+    filter:blur(2px)}
+  .p1 .horizon{position:absolute;left:0;right:0;top:58%;height:42%;
+    background:linear-gradient(180deg,rgba(74,42,66,.35),rgba(38,24,48,.88) 70%);
+    box-shadow:0 -1px 0 rgba(255,225,190,.5)}
+  .p1 .horizon::before{content:"";position:absolute;top:16px;left:12%;width:34%;height:2px;border-radius:2px;background:rgba(255,220,180,.35);box-shadow:0 14px 0 -1px rgba(255,220,180,.22), 0 30px 0 -2px rgba(255,220,180,.14)}
+  .p1 .horizon::after{content:"";position:absolute;top:40px;right:14%;width:24%;height:2px;border-radius:2px;background:rgba(255,220,180,.3);box-shadow:0 12px 0 -1px rgba(255,220,180,.2)}
+  .p1 .vtitle{position:absolute;right:34px;top:96px;writing-mode:vertical-rl;
+    font-family:"Kaiti SC",KaiTi,STKaiti,"楷体",serif;font-size:15px;letter-spacing:.5em;color:rgba(255,240,222,.85)}
+  .p1 .title{position:absolute;left:34px;top:118px;
+    font-family:"Kaiti SC",KaiTi,STKaiti,"楷体",serif;color:#fff3e2}
+  .p1 .title .t1{font-size:58px;letter-spacing:.08em;display:block;text-shadow:0 2px 18px rgba(120,40,40,.4)}
+  .p1 .title .t2{font-size:58px;letter-spacing:.08em;display:block;margin-top:6px}
+  .p1 .title .t2 b{font-weight:normal;color:#ffd9a0}
+  .p1 .callsign{position:absolute;left:36px;bottom:118px;font-family:Consolas,monospace;font-size:12px;letter-spacing:.28em;color:rgba(255,240,222,.75)}
+  .seal{display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:9px;
+    background:linear-gradient(160deg,#c65037,#a83520);color:#fff2e4;
+    font-family:"Kaiti SC",KaiTi,STKaiti,"楷体",serif;font-size:17px;line-height:1.15;text-align:center;
+    box-shadow:0 4px 12px rgba(90,20,20,.4);cursor:pointer}
+  .seal:active{transform:scale(.94)}
+  .p1 .seal{position:absolute;right:38px;bottom:104px}
+  .p1 .go{position:absolute;left:0;right:0;bottom:44px;text-align:center;font-size:12px;letter-spacing:.5em;color:rgba(255,240,222,.6);animation:drift 2.6s ease-in-out infinite}
+  @keyframes drift{0%,100%{transform:translateX(-8px);opacity:.6}50%{transform:translateX(8px);opacity:1}}
+
+  /* ══ 第二段 · 水岸房源 ══ */
+  .p2{background:linear-gradient(178deg,#e08a5a 0%,#a85a62 40%,var(--water1) 72%,var(--water2) 100%)}
+  .p2 .waterline{position:absolute;left:0;right:0;top:44%;height:56%;
+    background:linear-gradient(180deg,rgba(60,38,66,.25),rgba(24,16,36,.9) 80%);box-shadow:0 -1px 0 rgba(255,220,180,.4)}
+  .p2 .head{position:absolute;left:30px;top:78px;color:#fff3e2}
+  .p2 .head .k{font-size:11px;letter-spacing:.4em;color:rgba(255,240,222,.65);display:block;margin-bottom:8px}
+  .p2 .head .t{font-family:"Kaiti SC",KaiTi,STKaiti,"楷体",serif;font-size:27px;letter-spacing:.12em}
+  .p2 .callsign{position:absolute;right:30px;top:82px;font-family:Consolas,monospace;font-size:11px;letter-spacing:.2em;color:rgba(255,240,222,.7)}
+  .boat{position:absolute;z-index:10}
+  .tag-boat{display:block;background:rgba(245,234,217,.92);color:var(--ink);border-radius:7px;padding:6px 11px 5px;
+    font-size:12px;letter-spacing:.06em;white-space:nowrap;box-shadow:0 4px 10px rgba(40,16,40,.35)}
+  .tag-boat small{color:#8a6a52;font-family:Consolas,monospace;margin-left:6px}
+  .tag-boat.hot{background:#fff6e6;box-shadow:0 4px 16px rgba(255,190,120,.4)}
+  .hull{width:96px;height:19px;margin-top:9px;background:#2c1c34;border-radius:0 0 48px 48px / 0 0 18px 18px}
+  .hull::before{content:"";position:absolute;left:44px;top:-12px;width:8px;height:14px;border-radius:3px;background:#2c1c34}
+  .lamp-boat{position:absolute;left:47px;top:-16px;width:7px;height:7px;border-radius:50%;background:#ffd27a;box-shadow:0 0 12px 5px rgba(255,179,94,.55)}
+  .ripple{position:absolute;left:50%;top:100%;width:96px;height:26px;transform:translate(-50%,-46%);border-radius:50%;
+    border:1px solid rgba(245,234,217,.55);animation:rip 3s ease-out infinite}
+  .ripple.r2{animation-delay:1.5s}
+  @keyframes rip{0%{width:70px;height:16px;opacity:.8}100%{width:190px;height:52px;opacity:0}}
+  .b1{left:34px;top:212px}.b2{left:150px;top:330px}.b3{left:64px;top:452px}
+  .p2 .modes{position:absolute;left:30px;bottom:104px;color:rgba(255,240,222,.85);font-size:13px;letter-spacing:.2em}
+  .p2 .modes b{color:#ffd9a0;border-bottom:1px solid rgba(255,217,160,.7);padding-bottom:3px;font-weight:600}
+  .p2 .modes span{opacity:.65;margin-left:14px}
+  .p2 .seal{position:absolute;right:32px;bottom:96px}
+  .p2 .go{position:absolute;left:0;right:0;bottom:42px;text-align:center;font-size:12px;letter-spacing:.5em;color:rgba(255,240,222,.55);animation:drift 2.6s ease-in-out infinite}
+
+  /* ══ 第三段 · 残波对讲 ══ */
+  .p3{background:linear-gradient(178deg,#6e4468 0%,#4c3158 46%,#2c2044 100%)}
+  .p3 .water{position:absolute;left:0;right:0;top:40%;bottom:0;cursor:pointer;
+    background:linear-gradient(180deg,rgba(40,26,58,.4),rgba(16,10,30,.94) 75%);
+    box-shadow:0 -1px 0 rgba(255,214,180,.45)}
+  .p3 .water::before{content:"";position:absolute;top:12px;left:10%;right:10%;height:1px;background:rgba(255,214,180,.28);box-shadow:0 16px 0 rgba(255,214,180,.16), 0 34px 0 rgba(255,214,180,.09)}
+  .p3 .moon{position:absolute;right:44px;top:60px;width:58px;height:58px;border-radius:50%;
+    background:radial-gradient(circle at 40% 36%,#fdf6ea,#d8cfc2 70%);box-shadow:0 0 26px 10px rgba(240,235,220,.18)}
+  .p3 .vlabel{position:absolute;left:26px;top:86px;writing-mode:vertical-rl;font-size:12px;letter-spacing:.5em;color:rgba(245,234,217,.6);font-family:"Kaiti SC",KaiTi,STKaiti,"楷体",serif}
+  .figures{position:absolute;left:0;right:0;top:calc(40% - 66px);display:flex;justify-content:center;gap:19px;z-index:10}
+  .fig{position:relative;width:26px;text-align:center}
+  .fig .body{position:relative;width:26px;height:56px;margin:0 auto}
+  .fig .body::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:13px;height:13px;border-radius:50%;background:#1c1226}
+  .fig .body::after{content:"";position:absolute;top:14px;left:50%;transform:translateX(-50%);width:24px;height:42px;border-radius:11px 11px 5px 5px;background:#1c1226}
+  .fig .nm{margin-top:7px;font-size:11px;letter-spacing:.1em;color:rgba(245,234,217,.75)}
+  .fig.talking .body::before,.fig.talking .body::after{background:#2e1c38;box-shadow:0 0 14px rgba(255,190,120,.35)}
+  .fig.talking .nm{color:#ffca7e}
+  .fig.talking .rip{position:absolute;left:50%;top:56px;width:40px;height:12px;transform:translate(-50%,0);border-radius:50%;
+    border:1px solid rgba(255,202,126,.7);animation:rip 2.2s ease-out infinite}
+  .fig.talking .rip.r2{animation-delay:1.1s}
+  .fig .star{position:absolute;top:-13px;left:50%;transform:translateX(-50%);font-size:10px;color:#ffca7e}
+  .ptt-hint{position:absolute;left:0;right:0;top:57%;text-align:center;font-size:12.5px;letter-spacing:.4em;color:rgba(255,214,180,.5);z-index:10}
+  .p3 .seal-talk{position:absolute;left:50%;top:56%;transform:translate(-50%,-50%) rotate(-6deg);z-index:20;opacity:0;transition:opacity .18s;
+    width:96px;height:96px;border-radius:14px;border:2px solid rgba(255,202,126,.9);color:#ffca7e;
+    display:flex;align-items:center;justify-content:center;font-family:"Kaiti SC",KaiTi,STKaiti,"楷体",serif;font-size:24px;letter-spacing:.2em;
+    background:rgba(60,24,40,.35);backdrop-filter:blur(2px)}
+  .p3 .water:active ~ * .seal-talk,.p3:has(.water:active) .seal-talk{opacity:1}
+  .rocks{position:absolute;left:0;right:0;bottom:40px;display:flex;justify-content:center;gap:14px;z-index:10}
+  .rock{padding:10px 16px;font-size:12px;letter-spacing:.16em;color:rgba(245,234,217,.85);cursor:pointer;
+    background:linear-gradient(180deg,#3a2a4e,#241a36);border-radius:46% 54% 52% 48% / 60% 58% 42% 40%;
+    box-shadow:0 5px 12px rgba(0,0,0,.4)}
+  .rock:active{transform:scale(.94)}
+  .p3 .chat-v{position:absolute;right:22px;top:150px;writing-mode:vertical-rl;font-size:11px;letter-spacing:.34em;color:rgba(245,234,217,.55)}
+
+  .notes{max-width:1100px;margin:64px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .note{border:1px solid #d8c3a2;border-radius:16px;padding:20px 20px 18px;background:rgba(255,250,240,.6)}
+  .note h3{font-size:12px;letter-spacing:.3em;color:#b8452f;margin-bottom:12px;font-weight:600}
+  .note li{list-style:none;font-size:13px;color:#6b5b4a;line-height:1.9}
+  .note li::before{content:"· ";color:#b8452f}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="back" href="index.html">← 全部方案</a>
+    <div class="kicker">PROPOSAL B · AFTERGLOW SCROLL</div>
+    <h1>暮色长卷<em>Horizontal Scroll</em></h1>
+    <p class="sub">把整个界面画成一幅横向展卷的暮色水彩：纵向滚动整体废弃，导航变成「展卷」。题首是落日与呼号，向左展开是水岸与一叶叶载着房间的小舟，再向左进入「残波段」——成员站在水岸线上，谁说话，谁脚下荡开涟漪。</p>
+    <p class="hint">※ 静态原型 · 第三段按住水面可试 PTT 印章反馈；红色方印均为可点元素</p>
+  </header>
+
+  <div class="stage">
+    <!-- ══ 卷一 · 题首 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen p1">
+          <div class="sun"></div>
+          <div class="horizon"></div>
+          <div class="vtitle">暮色四合 · 潮声渐近</div>
+          <div class="title"><span class="t1">落日</span><span class="t2">后<b>残波</b></span></div>
+          <div class="callsign">晚舟 · #482</div>
+          <div class="seal">入卷</div>
+          <div class="go">向左展卷 →</div>
+          <div class="grain"></div>
+        </div>
+      </div>
+      <div class="cap">卷一 · 题首与呼号</div>
+    </div>
+
+    <!-- ══ 卷二 · 水岸房源 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen p2">
+          <div class="waterline"></div>
+          <div class="head"><span class="k">水岸 · 附近</span><span class="t">三舟泊岸</span></div>
+          <div class="callsign">晚舟 · #482</div>
+
+          <div class="boat b1"><span class="tag-boat hot">星尘的房间<small>·3人</small></span><i class="lamp-boat"></i><div class="hull"></div><i class="ripple"></i><i class="ripple r2"></i></div>
+          <div class="boat b2"><span class="tag-boat">阿澜电台<small>·2人</small></span><i class="lamp-boat"></i><div class="hull"></div><i class="ripple"></i><i class="ripple r2"></i></div>
+          <div class="boat b3"><span class="tag-boat">远山 · 未命名<small>·1人</small></span><i class="lamp-boat"></i><div class="hull"></div><i class="ripple"></i><i class="ripple r2"></i></div>
+
+          <div class="modes"><b>WiFi · 实时</b><span>蓝牙 · 按住</span></div>
+          <div class="seal">建房</div>
+          <div class="go">→ 展至残波段</div>
+          <div class="grain"></div>
+        </div>
+      </div>
+      <div class="cap">卷二 · 房间泊在水面</div>
+    </div>
+
+    <!-- ══ 卷三 · 残波对讲 ══ -->
+    <div class="shot">
+      <div class="phone"><div class="notch"></div>
+        <div class="screen p3">
+          <div class="moon"></div>
+          <div class="vlabel">残波段 · 对讲</div>
+          <div class="chat-v">场刊 · 聊天</div>
+
+          <div class="figures">
+            <div class="fig"><span class="star">★</span><div class="body"></div><div class="nm">晚舟</div></div>
+            <div class="fig talking"><div class="body"></div><div class="nm">阿澜</div><i class="rip"></i><i class="rip r2"></i></div>
+            <div class="fig"><div class="body"></div><div class="nm">远山</div></div>
+            <div class="fig"><div class="body"></div><div class="nm">拾贝</div></div>
+            <div class="fig"><div class="body"></div><div class="nm">南屿</div></div>
+          </div>
+
+          <div class="water"></div>
+          <div class="ptt-hint">按 住 水 面 · 说 话</div>
+          <div class="seal-talk">在说话</div>
+
+          <div class="rocks">
+            <span class="rock">静音</span><span class="rock">场刊</span><span class="rock">退房</span>
+          </div>
+          <div class="grain"></div>
+        </div>
+      </div>
+      <div class="cap">卷三 · 岸上的人与按住的水面</div>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div class="note"><h3>布局重构</h3>
+      <li>纵向滚动整体废弃，导航 = 横向展卷（题首 / 水岸 / 残波三段）</li>
+      <li>附近房间是一叶叶泊岸小舟，扫描时水面持续向外荡涟漪</li>
+      <li>建房 / 房型 = 画卷落款印章与墨字，无按钮无卡片</li>
+      <li>成员站在水岸线上，按住水面任意处即 PTT</li>
+    </div>
+    <div class="note"><h3>色彩与质感</h3>
+      <li>焦橘→绯红→灰紫的大面积水彩晕染，打破均匀渐变</li>
+      <li>纸纹噪点覆盖全屏（multiply 混合），墨色 #33253A 文字</li>
+      <li>楷体/宋体大字 + 竖排标签，层级全靠留白与浓淡</li>
+      <li>夜间卷 = 「月下残波」：青灰 + 银白月轮</li>
+    </div>
+    <div class="note"><h3>动效与状态</h3>
+      <li>转场 = 展卷：水平位移 + 晕染遮罩擦除</li>
+      <li>说话 = 脚下涟漪晕开，消息到达 = 墨迹在卷上洇开</li>
+      <li>空状态 = 「附近无舟」，一行小字 + 空水面</li>
+      <li>代价提示：导航模型改为横向 Page 结构，工程量五案最大</li>
+    </div>
+  </section>
+</div>
+</body>
+</html>

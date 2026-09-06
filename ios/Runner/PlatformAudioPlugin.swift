@@ -261,11 +261,15 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     private func handleRemoteFrameData(_ data: Data) {
         guard data.count >= 6 else { return }
-        // 帧头协议：前 4 字节为发送方 ID，后 2 字节为序号
-        let senderId = Int(data[0]) | (Int(data[1]) << 8) | (Int(data[2]) << 16) | (Int(data[3]) << 24)
-        let payload = data.subdata(in: 6..<data.count)
+        // 二进制帧协议：[0]=Type, [1]=SenderId, [2..3]=Seq(BigEndian), [4..5]=Len(BigEndian)
+        let senderId = Int(data[1])
+        let seq = (Int(data[2]) << 8) | Int(data[3])
+        let payloadLength = (Int(data[4]) << 8) | Int(data[5])
 
-        // 解码 payload 为 16-bit PCM 采样
+        guard payloadLength > 0, data.count >= 6 + payloadLength else { return }
+        let payload = data.subdata(in: 6..<(6 + payloadLength))
+
+        // 解码或缓冲（注：若集成 Opus，此处应送入 Opus 解码器；在过渡期至少需做好内存安全边界）
         var pcmSamples = [Int16](repeating: 0, count: PlatformAudioPlugin.frameSamples)
         let sampleBytes = min(payload.count, PlatformAudioPlugin.bytesPerFrame)
         payload.withUnsafeBytes { rawPtr in
@@ -282,7 +286,6 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
             remoteQueues[senderId] = []
         }
         remoteQueues[senderId]?.append(pcmSamples)
-        // 抖动缓冲区保护：限制最多保留 10 帧 (200ms)，防止累积延迟
         if let count = remoteQueues[senderId]?.count, count > 10 {
             remoteQueues[senderId]?.removeFirst(count - 10)
         }

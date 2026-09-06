@@ -115,11 +115,19 @@ class _CelestialPainter extends CustomPainter {
 
     final celestialColor = isNight ? AppTheme.moonSilverWhite : AppTheme.sunWarmYellow;
 
-    // Outer Glow
+    // Outer Glow: GPU RadialGradient shader instead of expensive MaskFilter.blur
+    final glowRadius = radius + 26;
     final glowPaint = Paint()
-      ..color = celestialColor.withValues(alpha: 0.25 + 0.15 * math.sin(wavePhase))
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28);
-    canvas.drawCircle(celestialCenter, radius + 14, glowPaint);
+      ..shader = RadialGradient(
+        colors: [
+          celestialColor.withValues(alpha: 0.38 + 0.12 * math.sin(wavePhase)),
+          celestialColor.withValues(alpha: 0.0),
+        ],
+        stops: const [0.55, 1.0],
+      ).createShader(
+        Rect.fromCircle(center: celestialCenter, radius: glowRadius),
+      );
+    canvas.drawCircle(celestialCenter, glowRadius, glowPaint);
 
     // Main Circle
     final mainPaint = Paint()..color = celestialColor;
@@ -131,16 +139,17 @@ class _CelestialPainter extends CustomPainter {
     // 波纹跟着天体一起变大，转场时整片背景才像是同一个东西在缩放。
     final rippleScale = radius / 52.0;
 
+    final ripplePaint = Paint()..style = PaintingStyle.stroke;
+
     for (int i = 0; i < rippleCount; i++) {
       final y = waterY + i * 14 * rippleScale;
       final progress = i / rippleCount;
       final waveWidth = ((160 + i * 40) + 30 * waveIntensity) * rippleScale;
       final alpha = (0.4 - progress * 0.28).clamp(0.0, 1.0);
 
-      final ripplePaint = Paint()
+      ripplePaint
         ..color = celestialColor.withValues(alpha: alpha)
-        ..strokeWidth = 2.5 - progress * 0.8
-        ..style = PaintingStyle.stroke;
+        ..strokeWidth = 2.5 - progress * 0.8;
 
       final path = Path();
       final startX = size.width / 2 - waveWidth / 2;

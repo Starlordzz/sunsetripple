@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>落日后残波 · 五套 UI 重构方案</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#151009;
+    background-image:radial-gradient(1100px 560px at 50% -8%, #33200f 0%, transparent 62%);
+    color:#efe6da;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    min-height:100vh; padding:72px 32px 90px;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+  .kicker{font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;letter-spacing:.38em;font-size:12px;color:#d98a5e}
+  h1{font-family:"Noto Serif SC","Source Han Serif SC","Songti SC",STSong,SimSun,serif;font-size:46px;font-weight:700;margin:16px 0 12px;letter-spacing:.05em}
+  .sub{color:#a99c8e;font-size:15px;line-height:1.85;max-width:660px}
+  .grid{margin-top:52px;display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px}
+  a.card{
+    display:block;text-decoration:none;color:inherit;
+    border:1px solid #2e2620;border-radius:20px;padding:28px 26px 24px;
+    background:linear-gradient(180deg,#1d1712,#16110d);
+    transition:transform .25s ease,border-color .25s ease, box-shadow .25s ease;
+    position:relative;overflow:hidden;
+  }
+  a.card:hover{transform:translateY(-5px);border-color:rgba(201,111,74,.45);box-shadow:0 18px 44px rgba(0,0,0,.45)}
+  .letter{font-family:"JetBrains Mono",Consolas,monospace;font-size:12px;letter-spacing:.34em;color:#8d8175;margin-bottom:16px}
+  .name{font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:27px;margin-bottom:4px}
+  .en{font-size:12px;letter-spacing:.24em;color:#6f6459;text-transform:uppercase;margin-left:8px}
+  .desc{font-size:13.5px;color:#a99c8e;line-height:1.8;min-height:96px;margin-top:10px}
+  .chips{display:flex;gap:6px;margin-top:18px}
+  .chips i{width:24px;height:24px;border-radius:7px;display:block;border:1px solid rgba(255,255,255,.09)}
+  .tags{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .tags span{font-size:11px;color:#8d8175;border:1px solid #352c24;border-radius:99px;padding:4px 10px;letter-spacing:.06em}
+  .tags .cost{border-style:dashed;color:#c98a5e}
+  .foot{margin-top:56px;color:#6f6459;font-size:12.5px;line-height:1.9;border-top:1px solid #261f19;padding-top:20px}
+  .foot b{color:#a99c8e;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">SUNSETRIPPLE · UI REDESIGN × 5</div>
+  <h1>落日后残波 · 五套重构方案</h1>
+  <p class="sub">同一主题的五种隐喻切入点：日落海边的老电台、一幅横向展卷的水彩、水面之下的声呐、一场开演的黄昏、退潮后的滩涂。五案在布局骨架、色彩体系与交互形态上互不重叠，均为纯 UI 层重构——房间会话、传输与协议逻辑不动。</p>
+
+  <div class="grid">
+    <a class="card" href="a-tide-dial.html">
+      <div class="letter">PROPOSAL A</div>
+      <div class="name">潮汐电台<span class="en">Tide Dial</span></div>
+      <p class="desc">整个 App 是一台日落海边的老式对讲电台：扫描是调频，附近房间是旋钮上的刻度，说话是按下话筒杆，谁在发声看面板上的频道指示灯。</p>
+      <div class="chips"><i style="background:#b08d57"></i><i style="background:#e8a75d"></i><i style="background:#f0e4cf"></i><i style="background:#4a3423"></i><i style="background:#8fe08f"></i></div>
+      <div class="tags"><span>拟物操作台</span><span>频率旋钮</span><span>VU 指针表</span><span class="cost">重构量 · 大</span></div>
+    </a>
+
+    <a class="card" href="b-afterglow-scroll.html">
+      <div class="letter">PROPOSAL B</div>
+      <div class="name">暮色长卷<span class="en">Afterglow Scroll</span></div>
+      <p class="desc">把整个界面画成一幅横向展卷的暮色水彩：纵向滚动整体废弃，成员站在水岸线上，谁说话，谁脚下荡开一圈晕染的涟漪。</p>
+      <div class="chips"><i style="background:#f2a35e"></i><i style="background:#d96a4a"></i><i style="background:#8f4a5e"></i><i style="background:#f5ead9"></i><i style="background:#b8452f"></i></div>
+      <div class="tags"><span>横向卷轴</span><span>水彩晕染</span><span>印章落款</span><span class="cost">重构量 · 特大</span></div>
+    </a>
+
+    <a class="card" href="c-submerged-sonar.html">
+      <div class="letter">PROPOSAL C</div>
+      <div class="name">水下声呐<span class="en">Submerged Sonar</span></div>
+      <p class="desc">落日之后沉到水面之下：抬头是透过水面晃动的最后一缕橙光，身边的一切靠声呐感知——残波即声呐环，从插画感翻转为仪器感。</p>
+      <div class="chips"><i style="background:#06121f"></i><i style="background:#0b2237"></i><i style="background:#9fb8cc"></i><i style="background:#ff8a4a"></i></div>
+      <div class="tags"><span>全屏海图</span><span>同心轨道</span><span>仪表 mono 字</span><span class="cost">重构量 · 大</span></div>
+    </a>
+
+    <a class="card" href="d-dusk-stage.html">
+      <div class="letter">PROPOSAL D</div>
+      <div class="name">日暮剧场<span class="en">Dusk Stage</span></div>
+      <p class="desc">黄昏是一场开演的戏：成员是一根根舞台灯带，说话的人被聚光灯打亮，PTT 是一整条脚灯横杆。五案中排版驱动最强、工程量最小的一案。</p>
+      <div class="chips"><i style="background:#1c1518"></i><i style="background:#d96c3f"></i><i style="background:#c9a86a"></i><i style="background:#7a2f35"></i><i style="background:#f2e8dc"></i></div>
+      <div class="tags"><span>海报式排版</span><span>舞台灯带</span><span>脚灯 PTT</span><span class="cost">重构量 · 中</span></div>
+    </a>
+
+    <a class="card" href="e-low-tide.html">
+      <div class="letter">PROPOSAL E</div>
+      <div class="name">退潮滩涂<span class="en">Low Tide</span></div>
+      <p class="desc">退潮后的湿沙滩：一条地平线贯穿整个 App，一轮落日既是建房键也是 PTT——按住它说话时它会继续下沉，其余全部交给留白。</p>
+      <div class="chips"><i style="background:#f2eee9"></i><i style="background:#3a3430"></i><i style="background:#c96f4a"></i><i style="background:#dcd5cc"></i></div>
+      <div class="tags"><span>地平线轴</span><span>单点强调色</span><span>潮汐呼吸</span><span class="cost">重构量 · 中</span></div>
+    </a>
+  </div>
+
+  <div class="foot">
+    <b>使用说明</b> · 每页用手机框模型展示「首页 + 房间」两块核心界面；旋钮、拨杆、声呐球、脚灯、落日按钮都可以按住试试（纯 CSS 按压反馈）。原型只示意布局与视觉，不代表最终实现精度。<br>
+    <b>共同约束</b> · 五案均为纯 UI 层重构：<span style="font-family:Consolas,monospace">RoomSession / 传输 / 协议 / 加密</span> 完全不动，改动范围是 <span style="font-family:Consolas,monospace">lib/ui/</span> 全目录、<span style="font-family:Consolas,monospace">main.dart</span> 主题挂载与 <span style="font-family:Consolas,monospace">stage_choreography.dart</span> 转场编排。
+  </div>
+</div>
+</body>
+</html>

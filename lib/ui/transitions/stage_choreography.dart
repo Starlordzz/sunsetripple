@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 /// 整段转场由 [SessionStage] 的单个 0→1 进度驱动，这里把这条时间轴切成三段：
 ///
 /// ```
-/// 0.00        0.40 0.52                    1.00
+/// 0.00        0.46 0.32                    1.00
 ///  |--- 首页 UI 依次离场 ---|
-///        0.18 |------- 背景挪动/放大 -------| 0.72
+///        0.06 |------- 背景挪动/放大 -------| 0.80
 ///                  |------ 房间 UI 依次入场 ------|
 /// ```
 ///
@@ -17,21 +17,22 @@ class StageChoreography {
   const StageChoreography._();
 
   /// 一次完整进房转场的时长。退场走反向，稍快一些。
-  static const Duration enterDuration = Duration(milliseconds: 1050);
-  static const Duration exitDuration = Duration(milliseconds: 640);
+  static const Duration enterDuration = Duration(milliseconds: 550);
+  static const Duration exitDuration = Duration(milliseconds: 400);
 
   // --- 第一段：首页元素离场 ---
   static const double _homeExitFirstStart = 0.0;
-  static const double _homeExitStagger = 0.045;
-  static const double _homeExitSpan = 0.22;
+  static const double _homeExitStagger = 0.04;
+  static const double _homeExitSpan = 0.30;
 
   // --- 第二段：背景形变 ---
-  static const Interval background = Interval(0.18, 0.72, curve: Curves.easeInOutCubic);
+  static const Interval background =
+      Interval(0.06, 0.80, curve: Curves.easeInOutCubic);
 
   // --- 第三段：房间元素入场 ---
-  static const double _roomEnterFirstStart = 0.52;
-  static const double _roomEnterStagger = 0.07;
-  static const double _roomEnterSpan = 0.26;
+  static const double _roomEnterFirstStart = 0.32;
+  static const double _roomEnterStagger = 0.08;
+  static const double _roomEnterSpan = 0.38;
 
   /// 第 [index] 个首页元素的离场区间。索引越大越晚走。
   static Interval homeExit(int index) {
@@ -54,7 +55,7 @@ class StageChoreography {
   }
 }
 
-/// 首页元素的离场：随进度往下沉、缩一点、淡出。
+/// 首页元素的离场：随进度往下沉、淡出。
 ///
 /// 接的是 [Animation] 而不是每帧算好的 double：[child] 只建一次，
 /// 每帧重建的只有外面这层 Opacity/Transform。首页那棵树里有 ListView 和
@@ -72,7 +73,7 @@ class StageExitItem extends StatelessWidget {
     required this.stage,
     required this.index,
     required this.child,
-    this.drift = 32,
+    this.drift = 18,
   });
 
   @override
@@ -82,18 +83,26 @@ class StageExitItem extends StatelessWidget {
       animation: stage,
       child: child,
       builder: (context, child) {
-        final t = interval.transform(stage.value.clamp(0.0, 1.0));
-        if (t >= 1.0) return const SizedBox.shrink();
+        final stageVal = stage.value;
+        // 整段转场彻底落位时完全撤出渲染树，节省内存与合成开销
+        if (stageVal >= 1.0) return const SizedBox.shrink();
+
+        final t = interval.transform(stageVal.clamp(0.0, 1.0));
+        // 单个元素离场完毕但在整段动画落位前，保持原尺寸透明占位，
+        // 彻底杜绝垂直列表因元素高度归零而引发剧烈跳动和重排抖动
+        if (t >= 1.0) {
+          return Opacity(
+            opacity: 0.0,
+            child: child!,
+          );
+        }
         if (t <= 0.0) return child!;
 
         return Opacity(
-          opacity: 1.0 - t,
+          opacity: (1.0 - t).clamp(0.0, 1.0),
           child: Transform.translate(
             offset: Offset(0, drift * t),
-            child: Transform.scale(
-              scale: 1.0 - 0.04 * t,
-              child: child,
-            ),
+            child: child,
           ),
         );
       },
@@ -120,7 +129,7 @@ class StageEnterItem extends StatelessWidget {
     required this.stage,
     required this.index,
     required this.child,
-    this.rise = 28,
+    this.rise = 20,
     this.fromScale = 1.0,
   });
 
@@ -131,20 +140,32 @@ class StageEnterItem extends StatelessWidget {
       animation: stage,
       child: child,
       builder: (context, child) {
-        final t = interval.transform(stage.value.clamp(0.0, 1.0));
+        final stageVal = stage.value;
+        final t = interval.transform(stageVal.clamp(0.0, 1.0));
         if (t >= 1.0) return child!;
         // 还没轮到它出场，占住位置但不画，免得布局在入场瞬间跳一下。
-        if (t <= 0.0) return Opacity(opacity: 0, child: child);
+        if (t <= 0.0) {
+          return Opacity(
+            opacity: 0.0,
+            child: child!,
+          );
+        }
+
+        final translated = Transform.translate(
+          offset: Offset(0, rise * (1.0 - t)),
+          child: child,
+        );
+
+        final scaled = fromScale != 1.0
+            ? Transform.scale(
+                scale: fromScale + (1.0 - fromScale) * t,
+                child: translated,
+              )
+            : translated;
 
         return Opacity(
-          opacity: t,
-          child: Transform.translate(
-            offset: Offset(0, rise * (1.0 - t)),
-            child: Transform.scale(
-              scale: fromScale + (1.0 - fromScale) * t,
-              child: child,
-            ),
-          ),
+          opacity: t.clamp(0.0, 1.0),
+          child: scaled,
         );
       },
     );

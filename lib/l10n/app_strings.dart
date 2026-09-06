@@ -128,7 +128,7 @@ class AppStrings {
   // Home & Stage
   String get appSubheading =>
       isEn ? 'The sun has set. There is still more to say.' : '夕阳落下，话还没说完。';
-  String get defaultNickname => isEn ? 'Sunset watcher' : '看日落的人';
+  String get defaultNickname => isEn ? 'Explorer' : '探索者';
   String get nicknameValidationEmpty =>
       isEn ? 'Leave a nickname first' : '先留个称呼吧';
   String get emptyRoomListHint => isEn

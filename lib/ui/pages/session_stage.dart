@@ -281,6 +281,7 @@ class _SessionStageState extends State<SessionStage>
 
     // 进房之后水波跟着说话音量起伏。
     return StreamBuilder<double>(
+      key: const ValueKey('header_wave_stream'),
       stream: session.waveStream,
       initialData: 0.0,
       builder: (context, snapshot) => canvasFor(snapshot.data ?? 0.0),
@@ -289,13 +290,13 @@ class _SessionStageState extends State<SessionStage>
 
   List<Widget> _buildHomeHeaderOverlay(double stage) {
     final s = AppStrings.of(context);
-    // 标题比正文早一点走，页面像是从上往下被抽走的。
-    final t = const Interval(0.0, 0.26, curve: Curves.easeInCubic)
+    // 标题随首页元素顺畅淡出抽走
+    final t = const Interval(0.0, 0.32, curve: Curves.easeInCubic)
         .transform(stage.clamp(0.0, 1.0));
     if (t >= 1.0) return const [];
 
-    Widget fade(Widget child, {double drift = 24}) => Opacity(
-          opacity: 1.0 - t,
+    Widget fade(Widget child, {double drift = 16}) => Opacity(
+          opacity: (1.0 - t).clamp(0.0, 1.0),
           child: Transform.translate(offset: Offset(0, drift * t), child: child),
         );
 
@@ -376,12 +377,12 @@ class _SessionStageState extends State<SessionStage>
 
   List<Widget> _buildRoomHeaderOverlay(RoomSession session, double stage) {
     final s = AppStrings.of(context);
-    final t = const Interval(0.56, 0.92, curve: Curves.easeOutCubic)
+    final t = const Interval(0.32, 0.85, curve: Curves.easeOutCubic)
         .transform(stage.clamp(0.0, 1.0));
     if (t <= 0.0) return const [];
 
-    Widget rise(Widget child, {double from = 20}) => Opacity(
-          opacity: t,
+    Widget rise(Widget child, {double from = 14}) => Opacity(
+          opacity: t.clamp(0.0, 1.0),
           child: Transform.translate(
             offset: Offset(0, from * (1.0 - t)),
             child: child,

@@ -15,7 +15,7 @@ void main() {
       expect(s.transferHostConfirm('Alice'), '把房主交给Alice？');
       expect(s.roomOnlineCount(3), '3 人在这里');
       expect(s.appSubheading, contains('夕阳落下'));
-      expect(s.defaultNickname, '看日落的人');
+      expect(s.defaultNickname, '探索者');
       expect(s.scanRooms, '看看附近');
       expect(s.nearbyRoomsTitle, '附近的聊天室');
       expect(s.wifiRoom, 'Wi-Fi 畅聊');
@@ -55,7 +55,7 @@ void main() {
       expect(s.transferHostConfirm('Alice'), 'Let Alice take over as host?');
       expect(s.roomOnlineCount(3), '3 people here');
       expect(s.appSubheading, contains('The sun has set'));
-      expect(s.defaultNickname, 'Sunset watcher');
+      expect(s.defaultNickname, 'Explorer');
       expect(s.scanRooms, 'Look nearby');
       expect(s.nearbyRoomsTitle, 'Chats nearby');
       expect(s.wifiRoom, 'Wi-Fi Chat');

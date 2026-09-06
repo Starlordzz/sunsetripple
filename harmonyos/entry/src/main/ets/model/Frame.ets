@@ -13,7 +13,10 @@ export enum FrameType {
   HOST_SNAPSHOT = 8,
   HANDSHAKE_HELLO = 9,
   HANDSHAKE_CONFIRM = 10,
-  SEALED = 11
+  SEALED = 11,
+  CHAT = 12,
+  CHAT_SYNC = 13,
+  CHAT_DELETE = 14
 }
 
 export class Frame {

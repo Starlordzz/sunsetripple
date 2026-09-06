@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 B · 暮色长卷 | 落日后残波 UI 重构</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#201B16; color:#EDE4D6;
+    font-family:"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    padding:44px 28px 90px; -webkit-font-smoothing:antialiased;
+  }
+  .back { color:#C98A5B; text-decoration:none; font-size:13px; letter-spacing:.08em; }
+  .head { max-width:1280px; margin:26px auto 40px; }
+  .kicker { font-size:12px; letter-spacing:.35em; color:#C98A5B; margin-bottom:12px; }
+  h1 { font-size:34px; font-weight:700; letter-spacing:.04em; }
+  h1 .en { font-family:Georgia,serif; font-size:16px; letter-spacing:.3em; color:#9A6B44; margin-left:14px; font-weight:400; }
+  .lede { margin-top:12px; font-size:15px; color:#CDBDA9; max-width:660px; line-height:1.7; }
+  .swatches { display:flex; gap:8px; margin-top:18px; }
+  .swatches i { width:34px; height:34px; border-radius:8px; display:block; box-shadow:inset 0 0 0 1px rgba(255,255,255,.1); }
+  .anchor { margin-top:16px; font-size:13px; color:#8F8172; max-width:720px; line-height:1.7; }
+
+  .frames { display:flex; flex-wrap:wrap; gap:46px; justify-content:center; max-width:1280px; margin:0 auto; }
+  .phone { width:352px; }
+  .screen {
+    position:relative; height:726px; border-radius:46px; overflow:hidden;
+    border:10px solid #0B0908; box-shadow:0 30px 70px rgba(0,0,0,.55);
+    background:#F3EBDD; padding:14px 22px 22px; color:#33291F;
+  }
+  /* 宣纸纹理 */
+  .screen::before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
+    background:
+      repeating-linear-gradient(0deg, rgba(120,100,70,.035) 0 1px, transparent 1px 26px),
+      repeating-linear-gradient(90deg, rgba(120,100,70,.03) 0 1px, transparent 1px 31px); }
+  .sbar { position:relative; z-index:5; display:flex; justify-content:space-between; font-size:11px;
+    color:#33291F; opacity:.55; font-family:Consolas,monospace; padding:2px 6px 0; }
+  figcaption { margin-top:14px; text-align:center; font-size:13px; color:#9C8C79; letter-spacing:.06em; }
+  .note { max-width:1280px; margin:56px auto 0; text-align:center; font-size:12px; color:#6E6152; letter-spacing:.08em; }
+
+  .kai { font-family:"KaiTi","STKaiti","楷体",Georgia,serif; }
+
+  /* ===== 卷一 · 暮色 ===== */
+  .wash { position:absolute; inset:0; pointer-events:none;
+    background:
+      radial-gradient(130% 55% at 80% -8%, rgba(196,74,38,.42), rgba(196,74,38,.1) 46%, transparent 68%),
+      radial-gradient(70% 35% at 8% 2%, rgba(118,84,124,.18), transparent 62%),
+      radial-gradient(90% 30% at 50% 108%, rgba(107,122,133,.16), transparent 60%); }
+  .scroll-title { position:absolute; z-index:3; top:96px; right:34px; writing-mode:vertical-rl;
+    font-size:42px; letter-spacing:.22em; color:#3A2C20; font-weight:400; }
+  .scroll-title em { font-style:normal; color:#B44A2A; }
+  .colophon { position:absolute; z-index:3; left:30px; top:110px; width:120px; }
+  .colophon p { font-size:13px; line-height:2; color:#5C4E3E; }
+  .colophon .small { font-size:11px; color:#8A7A66; margin-top:10px; letter-spacing:.06em; }
+  .seal { width:46px; height:46px; margin-top:16px; background:#A63A2B; color:#F3EBDD; border-radius:6px;
+    writing-mode:vertical-rl; display:flex; align-items:center; justify-content:center;
+    font-size:15px; letter-spacing:.1em; transform:rotate(-3deg);
+    box-shadow:0 2px 6px rgba(90,30,20,.3); }
+  .swipe-hint { position:absolute; z-index:3; bottom:34px; left:0; right:0; display:flex; align-items:center;
+    justify-content:center; gap:12px; color:#7C6B56; font-size:12px; letter-spacing:.3em; }
+  .swipe-hint i { display:block; width:54px; height:1px; background:#B4A48C; position:relative; }
+  .swipe-hint i::after { content:""; position:absolute; right:-1px; top:-3.5px; width:8px; height:8px;
+    border-top:1px solid #B4A48C; border-right:1px solid #B4A48C; transform:rotate(45deg); }
+
+  /* ===== 卷二 · 房源 ===== */
+  .scroll-head { position:relative; z-index:3; margin-top:16px; display:flex; justify-content:space-between; align-items:baseline; }
+  .scroll-head .t { font-size:22px; letter-spacing:.14em; color:#3A2C20; }
+  .scan-note { position:relative; z-index:3; margin-top:8px; font-size:12.5px; color:#8A6E52; letter-spacing:.04em; }
+  .water { position:absolute; left:0; right:0; bottom:0; height:52%; z-index:1;
+    background:linear-gradient(180deg, rgba(124,138,147,.06), rgba(124,138,147,.22) 60%, rgba(90,108,120,.3)); }
+  .water svg { position:absolute; left:0; width:100%; }
+  .boat { position:absolute; z-index:3; width:118px; text-align:center; }
+  .boat .slip { display:inline-block; writing-mode:vertical-rl; font-size:12.5px; letter-spacing:.14em;
+    color:#3A2C20; background:rgba(250,244,232,.92); padding:10px 5px; border-radius:3px;
+    box-shadow:0 1px 4px rgba(90,70,50,.25); margin-bottom:6px; min-height:64px; }
+  .boat .slip b { font-weight:400; }
+  .boat .slip .num { color:#8A7A66; font-size:10px; margin-top:6px; font-family:Consolas,monospace; }
+  .boat.full .slip b { color:#B44A2A; }
+  .boat svg { display:block; margin:0 auto; }
+  .found { position:absolute; z-index:3; left:22px; right:22px; bottom:118px; display:flex; align-items:center; gap:14px; }
+  .found .stamp-btn { width:58px; height:58px; background:#A63A2B; color:#F3EBDD; border-radius:8px;
+    display:flex; align-items:center; justify-content:center; writing-mode:vertical-rl; font-size:14px;
+    letter-spacing:.12em; transform:rotate(-2deg); box-shadow:0 3px 8px rgba(90,30,20,.35); }
+  .found .modes { font-size:12px; color:#5C4E3E; line-height:2; letter-spacing:.06em; }
+  .found .modes b { font-weight:400; color:#3A2C20; border-bottom:2px solid #B44A2A; padding-bottom:2px; }
+
+  /* ===== 卷三 · 房间 ===== */
+  .room-head { position:relative; z-index:3; margin-top:14px; text-align:center; }
+  .room-head .t { font-size:20px; letter-spacing:.2em; color:#3A2C20; }
+  .room-head .s { font-size:11px; color:#8A7A66; letter-spacing:.24em; margin-top:6px; }
+  .shore { position:absolute; z-index:3; left:0; right:0; top:196px; display:flex; justify-content:center; gap:34px; }
+  .figure { position:relative; width:30px; text-align:center; }
+  .figure .head { width:15px; height:15px; border-radius:50%; background:#4A4038; margin:0 auto; }
+  .figure .body { width:30px; height:24px; border-radius:15px 15px 5px 5px; background:#4A4038; margin-top:3px; }
+  .figure figcaption, .figure .nm { display:block; margin-top:6px; font-size:11px; color:#5C4E3E; letter-spacing:.1em; }
+  .figure.speaking .head, .figure.speaking .body { background:#7A4432; }
+  .figure.speaking .nm { color:#B44A2A; }
+  .figure.speaking::before, .figure.speaking::after { content:""; position:absolute; left:50%; bottom:-7px;
+    width:34px; height:12px; border:1.2px solid rgba(180,74,42,.55); border-radius:50%;
+    transform:translateX(-50%); animation:ripple 2.8s ease-out infinite; }
+  .figure.speaking::after { animation-delay:1.4s; }
+  @keyframes ripple { from { opacity:.9; transform:translateX(-50%) scale(.5); } to { opacity:0; transform:translateX(-50%) scale(1.9); } }
+  .hold-water { position:absolute; z-index:3; left:0; right:0; top:318px; text-align:center; }
+  .hold-water .ring { width:74px; height:74px; margin:0 auto 12px; border:1.4px solid rgba(180,74,42,.5);
+    border-radius:50%; animation:pulse 3.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform:scale(.94); opacity:.55; } 50% { transform:scale(1.05); opacity:1; } }
+  .hold-water p { font-size:19px; letter-spacing:.3em; color:#4A3A2C; }
+  .hold-water .sub { font-size:11px; color:#8A7A66; letter-spacing:.2em; margin-top:8px; }
+  .chat-slip { position:absolute; z-index:3; right:18px; top:250px; writing-mode:vertical-rl; font-size:12px;
+    letter-spacing:.12em; color:#5C4E3E; background:rgba(250,244,232,.9); padding:14px 6px;
+    border-radius:3px; box-shadow:0 1px 4px rgba(90,70,50,.25); }
+  .reef-row { position:absolute; z-index:3; left:0; right:0; bottom:44px; display:flex; justify-content:center; gap:16px; }
+  .reef { padding:12px 20px; background:#57504A; color:#F3EBDD; font-size:13px; letter-spacing:.22em;
+    border-radius:46% 54% 52% 48% / 58% 52% 48% 42%; box-shadow:0 3px 8px rgba(60,50,40,.3); }
+  .reef.warm { background:#B44A2A; }
+</style>
+</head>
+<body>
+<a class="back" href="index.html">← 返回五案总览</a>
+<header class="head">
+  <p class="kicker">方案 B</p>
+  <h1>暮色长卷<span class="en">AFTERGLOW SCROLL</span></h1>
+  <p class="lede">把整个应用画成一幅横轴暮色山水：导航不是页面跳转，而是展卷。落日、残波、成员与聊天都住在同一幅画的不同段落里，层级全靠留白与浓淡，没有卡片与边框。</p>
+  <div class="swatches">
+    <i style="background:#F3EBDD"></i><i style="background:#C44A26"></i><i style="background:#B44A2A"></i>
+    <i style="background:#3A2C20"></i><i style="background:#7C8A93"></i><i style="background:#A63A2B"></i>
+  </div>
+  <p class="anchor">实现锚点：纵向滚动整体废弃，改为横向卷轴导航；成员由头像轨变为水岸剪影，说话即脚下晕开涟漪；建房是落款印章；房间内按住水面即说话。</p>
+</header>
+
+<main class="frames">
+  <!-- B1 卷一 -->
+  <figure class="phone">
+    <div class="screen">
+      <div class="sbar"><span>21:47</span><span>98%</span></div>
+      <div class="wash"></div>
+      <div class="colophon">
+        <p class="kai">日已沉，波未平。<br>呼号 阿岸-417</p>
+        <p class="small">农历七月廿四 · 退潮</p>
+        <div class="seal kai">阿岸之印</div>
+      </div>
+      <h2 class="scroll-title kai">落日后<em>残波</em></h2>
+      <div class="swipe-hint"><span>向左展卷</span><i></i></div>
+    </div>
+    <figcaption>卷一 · 暮色（首页题跋段）</figcaption>
+  </figure>
+
+  <!-- B2 卷二 房源 -->
+  <figure class="phone">
+    <div class="screen">
+      <div class="sbar"><span>21:47</span><span>98%</span></div>
+      <div class="water">
+        <svg style="top:8%" viewBox="0 0 320 24" preserveAspectRatio="none"><path d="M0 12 Q 20 4 40 12 T 80 12 T 120 12 T 160 12 T 200 12 T 240 12 T 280 12 T 320 12" fill="none" stroke="#6B7A85" stroke-width="1" opacity=".4"/></svg>
+        <svg style="top:34%" viewBox="0 0 320 24" preserveAspectRatio="none"><path d="M0 12 Q 20 20 40 12 T 80 12 T 120 12 T 160 12 T 200 12 T 240 12 T 280 12 T 320 12" fill="none" stroke="#6B7A85" stroke-width="1" opacity=".3"/></svg>
+        <svg style="top:62%" viewBox="0 0 320 24" preserveAspectRatio="none"><path d="M0 12 Q 20 4 40 12 T 80 12 T 120 12 T 160 12 T 200 12 T 240 12 T 280 12 T 320 12" fill="none" stroke="#6B7A85" stroke-width="1" opacity=".22"/></svg>
+      </div>
+      <div class="scroll-head kai"><span class="t">残波集</span><span style="font-size:11px;color:#8A7A66;letter-spacing:.2em;">附近三叶舟</span></div>
+      <p class="scan-note kai">水面正泛起涟漪，三叶舟在附近漂着。</p>
+      <div class="boat kai" style="left:26px; top:200px;">
+        <span class="slip"><b>晚风房</b><span class="num">4/6</span></span>
+        <svg width="112" height="34" viewBox="0 0 112 34"><path d="M8 14 Q 56 26 104 14 L 90 27 Q 56 33 22 27 Z" fill="#4A3B2C"/><line x1="56" y1="14" x2="56" y2="2" stroke="#4A3B2C" stroke-width="2"/></svg>
+      </div>
+      <div class="boat full kai" style="right:24px; top:250px;">
+        <span class="slip"><b>南屿小聚</b><span class="num">6/6 满</span></span>
+        <svg width="104" height="32" viewBox="0 0 104 32"><path d="M8 13 Q 52 24 96 13 L 83 25 Q 52 31 21 25 Z" fill="#4A3B2C"/><line x1="52" y1="13" x2="52" y2="2" stroke="#4A3B2C" stroke-width="2"/></svg>
+      </div>
+      <div class="boat kai" style="left:52px; top:352px;">
+        <span class="slip"><b>夜航船</b><span class="num">1/6</span></span>
+        <svg width="96" height="30" viewBox="0 0 96 30"><path d="M7 12 Q 48 22 89 12 L 77 23 Q 48 28 19 23 Z" fill="#4A3B2C"/><line x1="48" y1="12" x2="48" y2="2" stroke="#4A3B2C" stroke-width="2"/></svg>
+      </div>
+      <div class="found">
+        <div class="stamp-btn kai">落座成房</div>
+        <p class="modes kai"><b>WiFi 满幅</b>，声起即波<br>蓝牙按键，按住说话</p>
+      </div>
+    </div>
+    <figcaption>卷二 · 房源（扁舟即房间）</figcaption>
+  </figure>
+
+  <!-- B3 卷三 房间 -->
+  <figure class="phone">
+    <div class="screen">
+      <div class="sbar"><span>21:48</span><span>97%</span></div>
+      <div class="water" style="height:56%;">
+        <svg style="top:6%" viewBox="0 0 320 24" preserveAspectRatio="none"><path d="M0 12 Q 20 4 40 12 T 80 12 T 120 12 T 160 12 T 200 12 T 240 12 T 280 12 T 320 12" fill="none" stroke="#6B7A85" stroke-width="1.2" opacity=".45"/></svg>
+        <svg style="top:40%" viewBox="0 0 320 24" preserveAspectRatio="none"><path d="M0 12 Q 20 20 40 12 T 80 12 T 120 12 T 160 12 T 200 12 T 240 12 T 280 12 T 320 12" fill="none" stroke="#6B7A85" stroke-width="1" opacity=".3"/></svg>
+        <svg style="top:72%" viewBox="0 0 320 24" preserveAspectRatio="none"><path d="M0 12 Q 20 4 40 12 T 80 12 T 120 12 T 160 12 T 200 12 T 240 12 T 280 12 T 320 12" fill="none" stroke="#6B7A85" stroke-width="1" opacity=".2"/></svg>
+      </div>
+      <div class="room-head"><p class="t kai">晚风房</p><p class="s">满幅水面 · 四人在场</p></div>
+      <div class="shore">
+        <div class="figure"><span class="head"></span><span class="body"></span><span class="nm">阿岸</span></div>
+        <div class="figure speaking"><span class="head"></span><span class="body"></span><span class="nm">小满</span></div>
+        <div class="figure"><span class="head"></span><span class="body"></span><span class="nm">舟</span></div>
+        <div class="figure"><span class="head"></span><span class="body"></span><span class="nm">屿</span></div>
+      </div>
+      <div class="hold-water">
+        <div class="ring"></div>
+        <p class="kai">按住水面，说话</p>
+        <p class="sub kai">满幅水面，声起即波</p>
+      </div>
+      <div class="chat-slip kai">舟：到岸边了</div>
+      <div class="reef-row">
+        <span class="reef kai">静音</span>
+        <span class="reef kai">扬声器</span>
+        <span class="reef warm kai">退卷</span>
+      </div>
+    </div>
+    <figcaption>卷三 · 房间（剪影立于水岸）</figcaption>
+  </figure>
+</main>
+<footer class="note">静态高保真示意，数据均为样例，动效以 CSS 模拟。</footer>
+</body>
+</html>

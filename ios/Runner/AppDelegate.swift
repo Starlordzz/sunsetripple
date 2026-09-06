@@ -8,6 +8,8 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    PlatformAudioPlugin.register(with: self.registrar(forPlugin: "PlatformAudioPlugin")!)
+    BleL2capPlugin.register(with: self.registrar(forPlugin: "BleL2capPlugin")!)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

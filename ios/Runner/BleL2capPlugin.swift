@@ -8,7 +8,7 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
     private static let dataChannelName = "host.msknet.sunsetripple/ble_l2cap_data"
     private static let scanChannelName = "host.msknet.sunsetripple/ble_l2cap_scan"
 
-    public static let serviceUuid = CBUUID(string: "FFFF")
+    public static let serviceUuid = CBUUID(string: "7f75d4e0-7a46-4d74-9f8d-1e4bc5e4b004")
     public static let companyId: UInt16 = 0xFFFF
 
     private var methodChannel: FlutterMethodChannel?
@@ -73,7 +73,7 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             let supported = (centralManager?.state == .poweredOn || centralManager == nil)
             result(supported)
 
-        case "startHost":
+        case "startAdvertising", "startHost":
             guard let args = call.arguments as? [String: Any],
                   let roomName = args["roomName"] as? String else {
                 result(FlutterError(code: "INVALID_ARGS", message: "缺少房间名称参数", details: nil))
@@ -95,9 +95,9 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             stopScan()
             result(true)
 
-        case "connect":
+        case "connectL2cap", "connect":
             guard let args = call.arguments as? [String: Any],
-                  let address = args["deviceAddress"] as? String,
+                  let address = (args["address"] as? String) ?? (args["deviceAddress"] as? String),
                   let psm = args["psm"] as? Int else {
                 result(FlutterError(code: "INVALID_ARGS", message: "缺少连接参数", details: nil))
                 return
@@ -105,6 +105,12 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             connect(address: address, psm: psm) { success in
                 result(success)
             }
+
+        case "stop":
+            stopHost()
+            disconnect()
+            stopScan()
+            result(true)
 
         case "disconnect":
             disconnect()
