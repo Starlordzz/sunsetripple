@@ -66,6 +66,10 @@ class WifiDirectManager {
 
   bool _isListening = false;
 
+  // 上次推送的设备列表指纹。周期性重扫会把同一批设备反复推上来，
+  // 不去重的话首页的房间列表会被整棵重建（含退场转场期间）。
+  String? _lastPeersSignature;
+
   WifiDirectManager._internal();
 
   Future<bool> isSupported() async {
@@ -100,7 +104,12 @@ class WifiDirectManager {
                     .toList() ??
                 [];
             if (!_peersController.isClosed) {
-              _peersController.add(peerList);
+              final signature =
+                  peerList.map((p) => '${p.address}|${p.name}').join(';');
+              if (signature != _lastPeersSignature) {
+                _lastPeersSignature = signature;
+                _peersController.add(peerList);
+              }
             }
           } else if (type == 'connection') {
             final info = WifiP2pConnectionInfo.fromMap(event);

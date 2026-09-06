@@ -79,9 +79,14 @@ class StageExitItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final interval = StageChoreography.homeExit(index);
+    // RepaintBoundary 把子树缓存成独立图层：转场期间每帧只有外面这层
+    // Opacity/Transform 在变，缓存的位图直接带着透明度合成，不用每帧把
+    // 按钮、文字、边框整棵重新光栅化一遍。没有这层，透明度动画的代价
+    // 会随子树大小线性涨，是转场掉帧的主因。
+    final content = RepaintBoundary(child: child);
     return AnimatedBuilder(
       animation: stage,
-      child: child,
+      child: content,
       builder: (context, child) {
         final stageVal = stage.value;
         // 整段转场彻底落位时完全撤出渲染树，节省内存与合成开销
@@ -136,9 +141,13 @@ class StageEnterItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final interval = StageChoreography.roomEnter(index);
+    // 同 StageExitItem：子树缓存成图层，转场帧只合成，不重光栅。
+    // 落位后这层边界保留着，房间内的常规重建（音浪、名单流）也只在
+    // 自己的图层里重画，不会波及整棵前景。
+    final content = RepaintBoundary(child: child);
     return AnimatedBuilder(
       animation: stage,
-      child: child,
+      child: content,
       builder: (context, child) {
         final stageVal = stage.value;
         final t = interval.transform(stageVal.clamp(0.0, 1.0));

@@ -108,8 +108,8 @@ class AppStrings {
       : '这次没查到更新，稍后再试一次';
   String get changelogTitle => isEn ? 'Recent changes' : '最近的变化';
   String get changelogBody => isEn
-      ? '0.1.0-alpha.8\nAES-GCM support added, off by default until compatibility is verified.\nAvailable in Chinese and English.\nWi-Fi Chat can be handed over to another member; Bluetooth Talk ends when the host leaves.\nDiagnostic reports can be exported with sensitive details removed.'
-      : '0.1.0-alpha.8\n加入 AES-GCM 加密能力，目前默认关闭，完成兼容性验证后再启用。\n可以使用中文或英文。\nWi-Fi 畅聊可以交给其他成员继续；蓝牙对讲会在房主离开时结束。\n遇到问题时，可以导出脱敏诊断报告。';
+      ? '0.1.0-alpha.11\nIn-room text messaging added: memory-only, cleared on leave.\nWi-Fi Direct plugin registration fixed; LAN spoofing defenses hardened.\nRoom enter/exit animations are much smoother on low-end devices.\nLauncher name now follows the system language.'
+      : '0.1.0-alpha.11\n新增房内文字消息：纯内存存储，退房即毁。\n修复 Wi-Fi Direct 插件注册，加固局域网防伪造与越权。\n进出房转场动画在中低端机上明显更流畅。\n桌面应用名随系统语言切换。';
   String get licenseTitle => isEn ? 'Open source license' : '开源许可';
   String get licenseBody => isEn
       ? 'Apache License 2.0\nSunsetRipple is licensed under Apache License 2.0.\nhttps://www.apache.org/licenses/LICENSE-2.0'
@@ -127,7 +127,7 @@ class AppStrings {
 
   // Home & Stage
   String get appSubheading =>
-      isEn ? 'The sun has set. There is still more to say.' : '夕阳落下，话还没说完。';
+      isEn ? 'Never Meant.' : '越过地平线，看海洋辽阔的延绵。';
   String get defaultNickname => isEn ? 'Explorer' : '探索者';
   String get nicknameValidationEmpty =>
       isEn ? 'Leave a nickname first' : '先留个称呼吧';

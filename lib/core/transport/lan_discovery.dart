@@ -56,6 +56,11 @@ class LanRoomDiscovery {
   Stream<List<DiscoveredRoom>> get roomsStream => _roomsController.stream;
   List<DiscoveredRoom> get currentRooms => _discoveredRooms.values.toList();
 
+  // 上次发出的列表指纹。广播每秒都会刷新 lastSeen 并重建房间对象，
+  // 但 UI 关心的字段往往没变；不去重的话首页列表（含退场转场期间）
+  // 会被按秒整棵重建。
+  String? _lastRoomsSignature;
+
   bool get isListening => _socket != null;
 
   /// 开始监听 UDP 8990 上的房间广播。
@@ -314,9 +319,14 @@ class LanRoomDiscovery {
   }
 
   void _notifyRoomsChanged() {
-    if (!_roomsController.isClosed) {
-      _roomsController.add(_discoveredRooms.values.toList());
-    }
+    if (_roomsController.isClosed) return;
+    final signature = _discoveredRooms.values
+        .map((r) => '${r.roomId}|${r.roomName}|${r.hostNickname}|'
+            '${r.hostAddress.address}|${r.port}|${r.memberCount}')
+        .join(';');
+    if (signature == _lastRoomsSignature) return;
+    _lastRoomsSignature = signature;
+    _roomsController.add(_discoveredRooms.values.toList());
   }
 
   Future<void> stop() async {

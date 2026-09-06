@@ -109,6 +109,10 @@ class RoomSession {
   final _membersController = StreamController<List<Member>>.broadcast();
   final _waveController = StreamController<double>.broadcast();
 
+  // 音浪只喂 UI，33ms 一帧（约 30Hz）足够顺滑。采集回调本身 25~50Hz，
+  // 不限频的话背景水波和对讲盘的重绘节奏会被音频帧拖着走，转场期间抢帧。
+  int _lastWaveUiEmitMs = 0;
+
   Stream<RoomState> get stateStream => _stateController.stream;
   Stream<List<Member>> get membersStream => _membersController.stream;
   Stream<double> get waveStream => _waveController.stream;
@@ -690,7 +694,11 @@ class RoomSession {
         if (!shouldTransmit) return;
 
         if (!_waveController.isClosed) {
-          _waveController.add(level);
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          if (nowMs - _lastWaveUiEmitMs >= 33) {
+            _lastWaveUiEmitMs = nowMs;
+            _waveController.add(level);
+          }
         }
 
         sendFrame(Frame(

@@ -230,34 +230,39 @@ class _HomeContentState extends State<HomeContent> {
                     index: 1,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _ModeSelectChip(
-                              icon: Icons.wifi,
-                              title: s.wifiRoom,
-                              subtitle: s.wifiRoomChipSubtitle,
-                              isSelected:
-                                  _selectedMode == RoomMode.wifiFullDuplex,
-                              isNight: isNight,
-                              onTap: () => setState(() =>
-                                  _selectedMode = RoomMode.wifiFullDuplex),
+                      // IntrinsicHeight + stretch：两张卡等高，以内容较多的
+                      // 那张为准；否则中英文折行数不同时一高一低不齐整。
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: _ModeSelectChip(
+                                icon: Icons.wifi,
+                                title: s.wifiRoom,
+                                subtitle: s.wifiRoomChipSubtitle,
+                                isSelected:
+                                    _selectedMode == RoomMode.wifiFullDuplex,
+                                isNight: isNight,
+                                onTap: () => setState(() =>
+                                    _selectedMode = RoomMode.wifiFullDuplex),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _ModeSelectChip(
-                              icon: Icons.bluetooth,
-                              title: s.bluetoothRoom,
-                              subtitle: s.bleRoomChipSubtitle,
-                              isSelected:
-                                  _selectedMode == RoomMode.bluetoothPtt,
-                              isNight: isNight,
-                              onTap: () => setState(
-                                  () => _selectedMode = RoomMode.bluetoothPtt),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _ModeSelectChip(
+                                icon: Icons.bluetooth,
+                                title: s.bluetoothRoom,
+                                subtitle: s.bleRoomChipSubtitle,
+                                isSelected:
+                                    _selectedMode == RoomMode.bluetoothPtt,
+                                isNight: isNight,
+                                onTap: () => setState(
+                                    () => _selectedMode = RoomMode.bluetoothPtt),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

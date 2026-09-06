@@ -14,7 +14,7 @@ void main() {
       expect(s.headsetMic, '耳机麦克风');
       expect(s.transferHostConfirm('Alice'), '把房主交给Alice？');
       expect(s.roomOnlineCount(3), '3 人在这里');
-      expect(s.appSubheading, contains('夕阳落下'));
+      expect(s.appSubheading, contains('越过地平线'));
       expect(s.defaultNickname, '探索者');
       expect(s.scanRooms, '看看附近');
       expect(s.nearbyRoomsTitle, '附近的聊天室');
@@ -54,7 +54,7 @@ void main() {
       expect(s.headsetMic, 'Headset microphone');
       expect(s.transferHostConfirm('Alice'), 'Let Alice take over as host?');
       expect(s.roomOnlineCount(3), '3 people here');
-      expect(s.appSubheading, contains('The sun has set'));
+      expect(s.appSubheading, contains('Never Meant'));
       expect(s.defaultNickname, 'Explorer');
       expect(s.scanRooms, 'Look nearby');
       expect(s.nearbyRoomsTitle, 'Chats nearby');

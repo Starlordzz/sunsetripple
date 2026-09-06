@@ -178,11 +178,17 @@ class _SessionStageState extends State<SessionStage>
                   audioIo: _audioIo,
                   onEnterRoom: _onEnterRoom,
                 ),
-                builder: (context, child) => Offstage(
-                  offstage: _stage.value >= 1.0,
-                  child: IgnorePointer(
-                    ignoring: _stage.value > 0.0,
-                    child: child,
+                builder: (context, child) => TickerMode(
+                  // 落位后首页整组进 Offstage，但 Offstage 不会暂停 ticker：
+                  // 扫描转圈这类动画会继续在看不见的地方每帧重绘，抢走
+                  // 合成器的时间。退场开始时这里再放开。
+                  enabled: _stage.value < 1.0,
+                  child: Offstage(
+                    offstage: _stage.value >= 1.0,
+                    child: IgnorePointer(
+                      ignoring: _stage.value > 0.0,
+                      child: child,
+                    ),
                   ),
                 ),
               ),
@@ -297,7 +303,11 @@ class _SessionStageState extends State<SessionStage>
 
     Widget fade(Widget child, {double drift = 16}) => Opacity(
           opacity: (1.0 - t).clamp(0.0, 1.0),
-          child: Transform.translate(offset: Offset(0, drift * t), child: child),
+          child: Transform.translate(
+            offset: Offset(0, drift * t),
+            // 文字与按钮缓存成图层，转场帧只带透明度合成，不逐帧重光栅。
+            child: RepaintBoundary(child: child),
+          ),
         );
 
     return [
@@ -385,7 +395,7 @@ class _SessionStageState extends State<SessionStage>
           opacity: t.clamp(0.0, 1.0),
           child: Transform.translate(
             offset: Offset(0, from * (1.0 - t)),
-            child: child,
+            child: RepaintBoundary(child: child),
           ),
         );
 

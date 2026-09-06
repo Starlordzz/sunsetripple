@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用名默认走英文；中文由 values-zh 覆盖。桌面图标名随系统语言切换。 -->
+<resources>
+    <string name="app_name">SunsetRipple</string>
+</resources>

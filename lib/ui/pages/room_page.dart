@@ -121,56 +121,71 @@ class _RoomContentState extends State<RoomContent> {
 
   Widget _buildDuplexDisc(bool isNight, double size) {
     final s = AppStrings.of(context);
-    return StreamBuilder<double>(
-      stream: widget.session.waveStream,
-      initialData: 0.0,
-      builder: (context, snapshot) {
-        final wave = snapshot.data ?? 0.0;
-        final activeColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
-        final isSpeaking = wave > 0.05 && !widget.session.isMuted;
+    final activeColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
 
-        return Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: activeColor,
-            boxShadow: [
-              BoxShadow(
-                color: activeColor.withValues(alpha: 0.35 + wave * 0.4),
-                blurRadius: 24 + wave * 30,
-                spreadRadius: 4 + wave * 14,
+    // 光晕做在外层、参数固定：BoxShadow 的模糊是这里最贵的绘制，若
+    // blurRadius/spreadRadius 跟着音量逐帧变，GPU 就得逐帧重做高斯模糊——
+    // 退场动画期间音频还没停，wave 流 30~50Hz 推送，正好和转场抢帧。
+    // 动态感改由圆盘轻微缩放表达：缩放只动合成器的变换矩阵，近乎免费。
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: activeColor.withValues(alpha: 0.42),
+            blurRadius: 28,
+            spreadRadius: 6,
+          ),
+        ],
+      ),
+      child: StreamBuilder<double>(
+        stream: widget.session.waveStream,
+        initialData: 0.0,
+        builder: (context, snapshot) {
+          final wave = (snapshot.data ?? 0.0).clamp(0.0, 1.0);
+          final isSpeaking = wave > 0.05 && !widget.session.isMuted;
+
+          return Transform.scale(
+            scale: 1.0 + wave * 0.04,
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: activeColor,
               ),
-            ],
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  widget.session.isMuted
-                      ? Icons.mic_off
-                      : (isSpeaking ? Icons.graphic_eq : Icons.mic),
-                  size: size * 0.28,
-                  color: Colors.white,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      widget.session.isMuted
+                          ? Icons.mic_off
+                          : (isSpeaking ? Icons.graphic_eq : Icons.mic),
+                      size: size * 0.28,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      widget.session.isMuted
+                          ? s.micMutedStatus
+                          : (isSpeaking ? s.speakingStatus : s.inCallStatus),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: (size * 0.085).clamp(15.0, 18.0),
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  widget.session.isMuted
-                      ? s.micMutedStatus
-                      : (isSpeaking ? s.speakingStatus : s.inCallStatus),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: (size * 0.085).clamp(15.0, 18.0),
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
