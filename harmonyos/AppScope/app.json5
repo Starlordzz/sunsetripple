@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "host.msknet.sunsetripple",
     "vendor": "sunsetripple",
-    "versionCode": 11,
-    "versionName": "0.1.0-alpha.10",
+    "versionCode": 12,
+    "versionName": "0.1.0-alpha.11",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }

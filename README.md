@@ -25,7 +25,7 @@
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
   <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B%20(%E5%8E%9F%E7%94%9F%E5%AE%9E%E7%8E%B0)-007AFF?labelColor=3A1030">
   <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(%E6%BA%90%E7%A0%81%E5%B7%A5%E7%A8%8B)-C00000?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-118%20passing-F4B85C?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-128%20passing-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -67,6 +67,7 @@
 - **动态麦克风路由切换**——房内支持一键切换使用「手机自带麦克风」或「外接/蓝牙耳机麦克风」；使用手机麦拾音时自动释放通话 SCO 占用，切回 A2DP 高清媒体声道。
 - **免路由近场直连与局域网对讲**——支持同一 Wi-Fi、随身热点以及**完全脱网的 Wi-Fi Direct 近场免路由直连**。零配置自动搜房建连，周期性自动修剪僵尸房间（房主关闭 4 秒内自动移除）。音频本身为单播。<br>注意：iOS 14+ 起发送广播需 `com.apple.developer.networking.multicast` 授权（付费账号 + Apple 逐案审批），因此 iOS 侧搜房必须改走 Bonjour，详见 [docs/ios-flutter-port.md](docs/ios-flutter-port.md)。
 - **两种可用房型**——WiFi 房（支持同一局域网、随身热点及 Wi-Fi Direct 离线近场直连全双工）与 BLE L2CAP CoC 按住说话（PTT）房，均支持最多 6 台设备。
+- **房内文字消息**——房型旁一键打开消息面板，收发不超过 480 字节的即时文本；纯内存存储、退房即毁，不落盘、零服务端。WiFi 房文字走可靠 TCP 控制面由房主中继，蓝牙房沿用 BLE 链路；支持长按撤回与未读红点提示。
 - **零语音基础设施**——无路由器、无账号、无服务器；语音只在设备之间点对点传输，版本检查在用户操作时访问 GitHub Releases。
 - **WiFi 房无缝房主转移**——支持房内手动转让房主或房主失联自动按快照选举继任者并重构组网，新房主 UDP 端口即刻同步登记，保障音频不掉线。
 - **全网静音与说话状态联动**——静音操作全房即时同步标志位，关闭麦克风实时熄灭音频声波动画。
@@ -184,7 +185,7 @@ flowchart TD
 # 1. 获取依赖包
 flutter pub get
 
-# 2. 运行全量单元测试 (58/58 用例)
+# 2. 运行全量单元测试 (128/128 用例)
 flutter test
 
 # 3. 运行代码静态分析
