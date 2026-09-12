@@ -21,7 +21,7 @@ This page covers the complete pipeline from source code to a signed APK. All com
 | `applicationId` / `namespace` | `host.msknet.sunsetripple` |
 | `minSdk` | 26 (Android 8.0) |
 | `targetSdk` / `compileSdk` | 35 |
-| `versionCode` / `versionName` | 12 / `0.1.0-alpha.11` |
+| `versionCode` / `versionName` | 13 / `0.1.0-alpha.12` |
 | Java / JVM target | 17 |
 
 > The legacy test package name `com.wt.intercom` differs from the current one and **cannot be upgraded over**; the old version must be uninstalled first.
@@ -101,7 +101,7 @@ alpha / beta tags are automatically marked as prerelease; when running the workf
 
 ## Release Build Notes
 
-The current release build is `0.1.0-alpha.11`. The update protocol verifies the manifest signature, APK SHA-256, package name, and Android signing certificate before handing over to the system for installation confirmation. The voice pipeline does not depend on the internet; GitHub is only accessed when the user manually checks for updates.
+The current release build is `0.1.0-alpha.12`. The update protocol verifies the manifest signature, APK SHA-256, package name, and Android signing certificate before handing over to the system for installation confirmation. The voice pipeline does not depend on the internet; GitHub is only accessed when the user manually checks for updates.
 
 ## Related Pages
 

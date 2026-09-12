@@ -39,7 +39,7 @@ void main() {
     });
 
     test('Current version constant matches pubspec.yaml', () {
-      expect(UpdateService.currentVersion, '0.1.0-alpha.11');
+      expect(UpdateService.currentVersion, '0.1.0-alpha.12');
     });
   });
 }

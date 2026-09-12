@@ -94,7 +94,7 @@ No. All test cases are pure unit and component tests, runnable in seconds via `f
 
 **Can it be used in production?**
 
-It is currently at the `0.1.0-alpha.11` testing stage. The core paths (Wi-Fi LAN/hotspot/direct full-duplex, Bluetooth PTT, near-field text messages, disconnect reconnection, host handover) all work and are covered by automated tests. It is recommended as a near-field emergency intercom and as a learning reference.
+It is currently at the `0.1.0-alpha.12` testing stage. The core paths (Wi-Fi LAN/hotspot/direct full-duplex, Bluetooth PTT, near-field text messages, disconnect reconnection, host handover) all work and are covered by automated tests. It is recommended as a near-field emergency intercom and as a learning reference.
 
 **What is the license?**
 

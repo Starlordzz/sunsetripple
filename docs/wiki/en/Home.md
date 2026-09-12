@@ -44,11 +44,11 @@ New to this codebase? Reading in this order takes the least effort:
 | Item | Value |
 | --- | --- |
 | Package name / Bundle ID | `host.msknet.sunsetripple` |
-| Current version | `0.1.0-alpha.11` (versionCode 12) |
+| Current version | `0.1.0-alpha.12` (versionCode 13) |
 | Supported systems | Android 8.0+ / iOS 15.0+ / HarmonyOS NEXT (API 12+) |
 | Target / compile SDK | Android 35 / HarmonyOS 5.0(12) / iOS 15.0 |
 | Languages & UI | Flutter (Dart) + C++ FFI + Kotlin / Swift / ArkTS native channels |
-| Test scale | 18 test suites, 128 automated test cases |
+| Test scale | 18 test suites, 131 automated test cases |
 | Audio codec | Opus (C++ FFI lock-free ring buffer / native hardware AEC), 16 kHz mono 20 ms |
 | Room capacity | 6 devices (Host included) |
 | License | Apache-2.0 |

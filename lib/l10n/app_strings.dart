@@ -108,8 +108,8 @@ class AppStrings {
       : '这次没查到更新，稍后再试一次';
   String get changelogTitle => isEn ? 'Recent changes' : '最近的变化';
   String get changelogBody => isEn
-      ? '0.1.0-alpha.11\nIn-room text messaging added: memory-only, cleared on leave.\nWi-Fi Direct plugin registration fixed; LAN spoofing defenses hardened.\nRoom enter/exit animations are much smoother on low-end devices.\nLauncher name now follows the system language.'
-      : '0.1.0-alpha.11\n新增房内文字消息：纯内存存储，退房即毁。\n修复 Wi-Fi Direct 插件注册，加固局域网防伪造与越权。\n进出房转场动画在中低端机上明显更流畅。\n桌面应用名随系统语言切换。';
+      ? '0.1.0-alpha.12\nEnhanced connection stability for Wi-Fi Direct and Bluetooth rooms.\nConnection drop protection with smooth exit.\nPrecise audio RMS computation via standard sqrt.\nUpdate checking SemVer comparison fixes.'
+      : '0.1.0-alpha.12\n增强 Wi-Fi 直连与蓝牙建连稳定性及失败提示。\n增加断连保护与平滑退出，同名成员 ID 保护。\nC++ 原生层采用标准 sqrt 提升音频 RMS 计算精度。\n版本更新检查逻辑优化。';
   String get licenseTitle => isEn ? 'Open source license' : '开源许可';
   String get licenseBody => isEn
       ? 'Apache License 2.0\nSunsetRipple is licensed under Apache License 2.0.\nhttps://www.apache.org/licenses/LICENSE-2.0'
