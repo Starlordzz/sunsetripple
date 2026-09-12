@@ -53,7 +53,10 @@ class DeviceCode {
     final is4Hex = RegExp(r'^[0-9A-Fa-f]{4}$').hasMatch(code);
     if (!is3Digit && !is4Hex) return (nickname, null);
 
-    return (nickname.substring(0, at), toNumeric(code));
+    final base = nickname.substring(0, at).trimRight();
+    if (base.isEmpty) return (nickname, null);
+
+    return (base, toNumeric(code));
   }
 
   /// 给昵称接上本次启动的短码。已经带了码就原样返回。

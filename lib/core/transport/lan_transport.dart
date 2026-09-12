@@ -182,7 +182,7 @@ class LanTransport implements RoomTransport {
     _role = TransportRole.host;
 
     try {
-      _server = await ServerSocket.bind(InternetAddress.anyIPv4, controlPort);
+      _server = await ServerSocket.bind(InternetAddress.anyIPv4, controlPort, shared: true);
     } on SocketException catch (e) {
       AppLog.error(_tag, '控制端口 $controlPort 监听失败，其他人无法加入房间', e);
       _role = TransportRole.idle;

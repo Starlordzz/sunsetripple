@@ -56,5 +56,9 @@ void main() {
         '阿彬',
       );
     });
+
+    test('split 能够容忍短码前带空格的格式（formatSmart 产物）', () {
+      expect(DeviceCode.split('探索者 #108'), ('探索者', '108'));
+    });
   });
 }

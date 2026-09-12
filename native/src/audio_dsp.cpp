@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,17 +57,7 @@ FFI_EXPORT float sunset_calculate_rms(const int16_t* samples, int sample_count) 
     }
 
     double mean = sum_squares / sample_count;
-    double rms = 0.0;
-    if (mean > 0.0) {
-        // sqrt approximation
-        double x = mean;
-        double y = 1.0;
-        for (int iter = 0; iter < 10; ++iter) {
-            x = (x + y) / 2.0;
-            y = mean / x;
-        }
-        rms = x;
-    }
+    double rms = (mean > 0.0) ? sqrt(mean) : 0.0;
 
     float normalized = (float)(rms / 32767.0);
     if (normalized > 1.0f) normalized = 1.0f;

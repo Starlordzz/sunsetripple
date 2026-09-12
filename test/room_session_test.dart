@@ -106,6 +106,42 @@ void main() {
       expect(session.selfMemberId, 3);
       expect(session.members.length, 2);
     });
+
+    test('名单中存在同名成员时，已分配的成员号不会被覆盖', () async {
+      session = build();
+      await session.joinRoom();
+
+      // 第一次下发名单，认领了 ID 2
+      session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 1,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '测试者'),
+          ],
+        ).encode(),
+      ));
+      expect(session.selfMemberId, 2);
+
+      // 另一个同名用户加入并被分配为 ID 4，本机依然保持 ID 2
+      session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 2,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '测试者'),
+            RosterMember(memberId: 4, flags: 0x00, nickname: '测试者'),
+          ],
+        ).encode(),
+      ));
+      expect(session.selfMemberId, 2);
+    });
   });
 
   Uint8List transferPayload({

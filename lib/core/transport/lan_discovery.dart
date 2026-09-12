@@ -67,8 +67,12 @@ class LanRoomDiscovery {
   Future<bool> startListening() async {
     await stop();
 
-    // reusePort 在 Windows 上不被支持，会直接抛异常，退回不带该选项重试。
-    _socket = await _bind(reusePort: true) ?? await _bind(reusePort: false);
+    // reusePort 在 Windows 上不被支持，会直接输出底层报错日志，故 Windows 下直接跳过。
+    if (Platform.isWindows) {
+      _socket = await _bind(reusePort: false);
+    } else {
+      _socket = await _bind(reusePort: true) ?? await _bind(reusePort: false);
+    }
 
     if (_socket == null) {
       AppLog.error(_tag, '无法监听 UDP $discoveryPort，扫描不到附近的房间');

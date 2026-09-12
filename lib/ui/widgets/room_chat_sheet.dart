@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../core/protocol/payloads/chat_message.dart';
 import '../../core/session/chat_message.dart';
 import '../../core/session/device_code.dart';
 import '../../core/session/room_session.dart';
@@ -86,7 +87,7 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
 
     final s = AppStrings.of(context);
     final byteCount = utf8.encode(text).length;
-    if (byteCount > 480) {
+    if (byteCount > ChatMessagePayload.maxTextBytes) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(s.chatMessageTooLong),

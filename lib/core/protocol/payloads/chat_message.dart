@@ -17,9 +17,7 @@ import 'dart:typed_data';
 class ChatMessagePayload {
   static const int currentVersion = 2;
 
-  /// Business payload limit: 480 UTF-8 bytes.
-  /// Together with 15-byte header, total payload is at most 495 bytes,
-  /// well below Frame's 512-byte hard ceiling.
+  /// Business payload limit: 480 UTF-8 bytes (fits comfortably within 512-byte max payload).
   static const int maxTextBytes = 480;
 
   final int version;

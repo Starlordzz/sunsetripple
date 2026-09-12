@@ -44,13 +44,16 @@ class _HomeContentState extends State<HomeContent> {
   final _nicknameController = TextEditingController();
   String? _defaultNickname;
   final _lanDiscovery = LanRoomDiscovery();
+  final _bleTransport = BleL2capTransport();
   RoomMode _selectedMode = RoomMode.wifiFullDuplex;
   bool _isScanning = false;
   List<WifiP2pPeer> _p2pPeers = [];
+  List<DiscoveredBleRoom> _bleRooms = [];
 
   Timer? _scanTimer;
   Timer? _periodicScanTimer;
   StreamSubscription<List<WifiP2pPeer>>? _p2pSubscription;
+  StreamSubscription<List<DiscoveredBleRoom>>? _bleSubscription;
   bool _isHostingWifiDirect = false;
 
   @override
@@ -61,6 +64,13 @@ class _HomeContentState extends State<HomeContent> {
       if (mounted) {
         setState(() {
           _p2pPeers = peers;
+        });
+      }
+    });
+    _bleSubscription = _bleTransport.roomsStream.listen((rooms) {
+      if (mounted) {
+        setState(() {
+          _bleRooms = rooms;
         });
       }
     });
@@ -82,6 +92,7 @@ class _HomeContentState extends State<HomeContent> {
     if (status == AnimationStatus.dismissed) {
       _stopPeriodicScan();
       _lanDiscovery.stopAdvertising();
+      _bleTransport.stopScan();
       WifiDirectManager.instance.removeGroup();
       _isHostingWifiDirect = false;
     }
@@ -90,6 +101,9 @@ class _HomeContentState extends State<HomeContent> {
   void _startScan() {
     setState(() => _isScanning = true);
     _lanDiscovery.startListening();
+    if (_selectedMode == RoomMode.bluetoothPtt) {
+      _bleTransport.startScan();
+    }
     WifiDirectManager.instance.discoverPeers();
     _scanTimer?.cancel();
     _scanTimer = Timer(const Duration(seconds: 3), () {
@@ -119,8 +133,10 @@ class _HomeContentState extends State<HomeContent> {
     _scanTimer?.cancel();
     _periodicScanTimer?.cancel();
     _p2pSubscription?.cancel();
+    _bleSubscription?.cancel();
     _nicknameController.dispose();
     _lanDiscovery.dispose();
+    _bleTransport.stopScan();
     super.dispose();
   }
 
@@ -244,8 +260,13 @@ class _HomeContentState extends State<HomeContent> {
                                 isSelected:
                                     _selectedMode == RoomMode.wifiFullDuplex,
                                 isNight: isNight,
-                                onTap: () => setState(() =>
-                                    _selectedMode = RoomMode.wifiFullDuplex),
+                                onTap: () {
+                                  if (_selectedMode != RoomMode.wifiFullDuplex) {
+                                    setState(() =>
+                                        _selectedMode = RoomMode.wifiFullDuplex);
+                                    _startScan();
+                                  }
+                                },
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -257,8 +278,13 @@ class _HomeContentState extends State<HomeContent> {
                                 isSelected:
                                     _selectedMode == RoomMode.bluetoothPtt,
                                 isNight: isNight,
-                                onTap: () => setState(
-                                    () => _selectedMode = RoomMode.bluetoothPtt),
+                                onTap: () {
+                                  if (_selectedMode != RoomMode.bluetoothPtt) {
+                                    setState(() =>
+                                        _selectedMode = RoomMode.bluetoothPtt);
+                                    _startScan();
+                                  }
+                                },
                               ),
                             ),
                           ],
@@ -423,9 +449,13 @@ class _HomeContentState extends State<HomeContent> {
                   stream: _lanDiscovery.roomsStream,
                   initialData: _lanDiscovery.currentRooms,
                   builder: (context, snapshot) {
+                    final isBle = _selectedMode == RoomMode.bluetoothPtt;
                     final rooms = snapshot.data ?? [];
                     final p2pPeers = _p2pPeers;
-                    final totalCount = rooms.length + p2pPeers.length;
+                    final bleRooms = _bleRooms;
+                    final totalCount = isBle
+                        ? bleRooms.length
+                        : (rooms.length + p2pPeers.length);
 
                     if (totalCount == 0) {
                       return Container(
@@ -452,7 +482,72 @@ class _HomeContentState extends State<HomeContent> {
                       itemCount: totalCount,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        if (index < rooms.length) {
+                        if (isBle) {
+                          final bleRoom = bleRooms[index];
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 16),
+                            decoration: BoxDecoration(
+                              color: cardBg,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: isNight
+                                    ? const Color(0xFF283A52)
+                                    : const Color(0xFFDCCEC8),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        bleRoom.roomName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: textPrimary,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        "${s.bluetoothRoom} · ${bleRoom.memberCount}/6 · RSSI ${bleRoom.rssi}dBm",
+                                        style: TextStyle(
+                                            color: textSecondary, fontSize: 14),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ElevatedButton(
+                                  onPressed: () => _onJoinBleRoom(bleRoom),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isNight
+                                        ? AppTheme.nightSkyBlue
+                                        : AppTheme.sunsetCoral,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 22, vertical: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(22),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    s.joinRoom,
+                                    style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        } else if (index < rooms.length) {
                           final room = rooms[index];
                           return Container(
                             padding: const EdgeInsets.symmetric(
@@ -651,13 +746,39 @@ class _HomeContentState extends State<HomeContent> {
       unawaited(WifiDirectManager.instance.createGroup());
       _startPeriodicScan();
       final transport = LanTransport();
-      await transport.startHost();
+      final ok = await transport.startHost();
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(s.isEn
+                  ? 'Failed to start Wi-Fi room, please check network and permissions'
+                  : '开启 Wi-Fi 房间失败，请检查网络权限与端口占用'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
       session.transport = transport;
       session.onSendFrame = transport.send;
       transport.incoming.listen(session.handleIncomingFrame);
     } else {
       final transport = BleL2capTransport();
-      await transport.startHost(roomName: roomName);
+      final ok = await transport.startHost(roomName: roomName);
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(s.isEn
+                  ? 'Failed to start Bluetooth room, please check Bluetooth state'
+                  : '开启蓝牙房间失败，请检查蓝牙是否开启及权限'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
       session.transport = transport;
       session.onSendFrame = transport.send;
       transport.incoming.listen(session.handleIncomingFrame);
@@ -682,6 +803,7 @@ class _HomeContentState extends State<HomeContent> {
 
   void _onJoinRoom(DiscoveredRoom room) async {
     FocusScope.of(context).unfocus();
+    final s = AppStrings.of(context);
     final session = RoomSession(
       audioIo: widget.audioIo,
       selfNickname: _identityNickname,
@@ -689,15 +811,61 @@ class _HomeContentState extends State<HomeContent> {
     );
 
     final transport = LanTransport();
-    await transport.startClient(
+    final ok = await transport.startClient(
       hostAddress: room.hostAddress,
       port: room.port,
     );
+    if (!ok) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.isEn
+                ? 'Failed to connect to room, please make sure on the same network'
+                : '连接房间失败，请确认在同一网络下'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
     session.transport = transport;
     session.onSendFrame = transport.send;
     transport.incoming.listen(session.handleIncomingFrame);
 
     // 同 _onCreateRoom：开麦推迟到转场跑完。
+    await session.joinRoom(startAudio: false);
+
+    if (mounted) widget.onEnterRoom(session, room.roomName);
+  }
+
+  void _onJoinBleRoom(DiscoveredBleRoom room) async {
+    FocusScope.of(context).unfocus();
+    final s = AppStrings.of(context);
+    final session = RoomSession(
+      audioIo: widget.audioIo,
+      selfNickname: _identityNickname,
+      mode: RoomMode.bluetoothPtt,
+    );
+
+    final transport = BleL2capTransport();
+    final ok = await transport.connectToHost(room);
+    if (!ok) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.isEn
+                ? 'Failed to connect to Bluetooth room, please stay close and retry'
+                : '连接蓝牙房间失败，请靠近后重试'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+    session.transport = transport;
+    session.onSendFrame = transport.send;
+    transport.incoming.listen(session.handleIncomingFrame);
+
     await session.joinRoom(startAudio: false);
 
     if (mounted) widget.onEnterRoom(session, room.roomName);
@@ -738,10 +906,23 @@ class _HomeContentState extends State<HomeContent> {
     );
 
     final transport = LanTransport();
-    await transport.startClient(
+    final ok = await transport.startClient(
       hostAddress: hostIp,
       port: 8988,
     );
+    if (!ok) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.isEn
+                ? 'Failed to connect to Wi-Fi Direct host'
+                : '直连房主失败，请重试'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
     session.transport = transport;
     session.onSendFrame = transport.send;
     transport.incoming.listen(session.handleIncomingFrame);

@@ -65,6 +65,7 @@ class _SessionStageState extends State<SessionStage>
   late final AudioIo _audioIo;
 
   RoomSession? _session;
+  StreamSubscription<RoomState>? _sessionStateSub;
   String _roomName = "";
 
   @override
@@ -81,6 +82,7 @@ class _SessionStageState extends State<SessionStage>
 
   @override
   void dispose() {
+    _sessionStateSub?.cancel();
     _stage.dispose();
     super.dispose();
   }
@@ -88,6 +90,21 @@ class _SessionStageState extends State<SessionStage>
   bool get _inRoom => _session != null;
 
   void _onEnterRoom(RoomSession session, String roomName) {
+    _sessionStateSub?.cancel();
+    _sessionStateSub = session.stateStream.listen((state) {
+      if (!mounted) return;
+      if (state == RoomState.disconnected) {
+        final s = AppStrings.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.isEn ? 'Disconnected from chat' : '与房间的连接已断开'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        _onLeaveRoom();
+      }
+    });
+
     setState(() {
       _session = session;
       _roomName = roomName;
@@ -105,6 +122,9 @@ class _SessionStageState extends State<SessionStage>
     final session = _session;
     if (session == null) return;
 
+    _sessionStateSub?.cancel();
+    _sessionStateSub = null;
+
     // 点了就走：退场动画立刻起，音频与 socket 的收尾在后台并行做。
     // 早先这里是 `await session.leave()` 再反演动画，等于让用户干等一次
     // socket 关闭，手感上像是按钮没反应。
@@ -112,6 +132,7 @@ class _SessionStageState extends State<SessionStage>
 
     _stage.reverse().whenComplete(() {
       if (!mounted) return;
+      session.dispose();
       setState(() {
         _session = null;
         _roomName = "";

@@ -84,7 +84,7 @@ class BleL2capTransport implements RoomTransport {
     try {
       return await _channel.invokeMethod<bool>('isSupported') ?? false;
     } catch (e) {
-      AppLog.error(_tag, '检查蓝牙能力失败', e);
+      AppLog.debug(_tag, '检查蓝牙能力失败: $e');
       return false;
     }
   }
@@ -137,6 +137,7 @@ class BleL2capTransport implements RoomTransport {
   // ---------------------------------------------------------------- 客户端
 
   Future<bool> startScan() async {
+    if (!await isSupported()) return false;
     _listenScanResults();
 
     try {
@@ -162,8 +163,14 @@ class BleL2capTransport implements RoomTransport {
   Future<void> stopScan() async {
     _pruneTimer?.cancel();
     _pruneTimer = null;
-    await _scanSubscription?.cancel();
-    _scanSubscription = null;
+    if (_scanSubscription != null) {
+      try {
+        await _scanSubscription?.cancel();
+      } catch (e) {
+        AppLog.debug(_tag, '取消蓝牙扫描监听失败：$e');
+      }
+      _scanSubscription = null;
+    }
     try {
       await _channel.invokeMethod('stopScan');
     } catch (e) {
@@ -270,8 +277,14 @@ class BleL2capTransport implements RoomTransport {
     _peerCount = 0;
 
     await stopScan();
-    await _dataSubscription?.cancel();
-    _dataSubscription = null;
+    if (_dataSubscription != null) {
+      try {
+        await _dataSubscription?.cancel();
+      } catch (e) {
+        AppLog.debug(_tag, '取消蓝牙数据监听失败：$e');
+      }
+      _dataSubscription = null;
+    }
     _rooms.clear();
 
     try {

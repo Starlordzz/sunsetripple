@@ -40,8 +40,9 @@ class ChatSyncPayload {
     final nickBytes = utf8.encode(nickname);
     final nickLen = nickBytes.length.clamp(0, 64);
 
+    final maxAllowedText = 512 - (18 + msgIdLen + nickLen);
     final textBytes = utf8.encode(text);
-    final textLen = textBytes.length.clamp(0, 480);
+    final textLen = textBytes.length.clamp(0, maxAllowedText);
 
     final codeBytes = ascii.encode(senderCode.padRight(4, ' ').substring(0, 4));
 
@@ -93,9 +94,10 @@ class ChatSyncPayload {
     if (offset + 2 > data.length) return null;
     final textLen = ByteData.sublistView(data).getUint16(offset, Endian.big);
     offset += 2;
-    if (offset + textLen != data.length) return null;
+    if (offset > data.length) return null;
+    final availableLen = (offset + textLen <= data.length) ? textLen : (data.length - offset);
 
-    final text = utf8.decode(data.sublist(offset, offset + textLen), allowMalformed: true);
+    final text = utf8.decode(data.sublist(offset, offset + availableLen), allowMalformed: true);
 
     return ChatSyncPayload(
       targetMemberId: targetMemberId,

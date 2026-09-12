@@ -32,6 +32,14 @@ void main() {
     });
 
     test('Build metadata (+...) is handled correctly', () {
+      // Build metadata should be ignored in version precedence comparison
+      expect(UpdateService.isNewer('0.1.0-alpha.11+13', '0.1.0-alpha.11+12'), isFalse);
+      expect(UpdateService.isNewer('0.1.0-alpha.11+12', '0.1.0-alpha.11'), isFalse);
+      expect(UpdateService.isNewer('0.1.0-alpha.12+1', '0.1.0-alpha.11+12'), isTrue);
+    });
+
+    test('Current version constant matches pubspec.yaml', () {
+      expect(UpdateService.currentVersion, '0.1.0-alpha.11');
     });
   });
 }

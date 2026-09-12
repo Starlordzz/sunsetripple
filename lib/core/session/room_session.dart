@@ -60,7 +60,7 @@ class RoomSession {
 
   RoomState _state = RoomState.idle;
   bool _isHost = false;
-  int _selfMemberId = 1;
+  int _selfMemberId = 0;
   int _seq = 0;
 
   /// 传输层。房主转移要靠它取对端端点、接任监听、重连到新房主。
@@ -393,7 +393,14 @@ class RoomSession {
     final payload = RosterPayload.decode(frame.payload);
     if (payload == null) return;
 
+    // 如果本机已经持有非 0 的成员号，且名单中依然包含该 ID 且昵称一致，则优先保持
+    final selfAlreadyAssigned = !isHost &&
+        _selfMemberId > 0 &&
+        payload.members.any((m) => m.memberId == _selfMemberId && m.nickname == selfNickname);
+
     _members.clear();
+    bool selfClaimed = selfAlreadyAssigned;
+
     for (final rm in payload.members) {
       _recordMemberIdentity(rm.memberId, rm.nickname);
       _members[rm.memberId] = Member(
@@ -403,9 +410,10 @@ class RoomSession {
         isMuted: rm.isMuted,
         isSpeaking: rm.isSpeaking,
       );
-      if (rm.nickname == selfNickname && !isHost) {
+      if (!isHost && !selfClaimed && rm.nickname == selfNickname) {
         _selfMemberId = rm.memberId;
         transport?.updateSelfMemberId(_selfMemberId);
+        selfClaimed = true;
       }
     }
 
@@ -806,7 +814,34 @@ class RoomSession {
     // 不重开麦：音频管线与传输层是独立的，重连期间它一直在跑，
     // 重启一次反而会造成一段可听见的断音。
     await joinRoom(startAudio: false);
-    return _state == RoomState.inRoom;
+
+    if (_state == RoomState.inRoom) return true;
+
+    final completer = Completer<bool>();
+    StreamSubscription<RoomState>? sub;
+    Timer? timeout;
+
+    void done(bool success) {
+      timeout?.cancel();
+      sub?.cancel();
+      if (!completer.isCompleted) {
+        completer.complete(success);
+      }
+    }
+
+    sub = _stateController.stream.listen((state) {
+      if (state == RoomState.inRoom) {
+        done(true);
+      } else if (state == RoomState.disconnected) {
+        done(false);
+      }
+    });
+
+    timeout = Timer(const Duration(seconds: 3), () {
+      done(_state == RoomState.inRoom);
+    });
+
+    return completer.future;
   }
 
   void triggerDisconnect() {
