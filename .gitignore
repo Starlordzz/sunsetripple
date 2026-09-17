@@ -34,3 +34,4 @@ docs/ENV_SETUP.md
 native/CMakePresets.json
 native/build_native.bat
 native/build/
+coverage/

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sunset_ripple/ui/pages/room_page.dart';
 import 'package:sunset_ripple/ui/pages/session_stage.dart';
 
 /// 进房转场的端到端验收：点「创建 WiFi 房」之后，首页那组 UI 要走干净，
@@ -61,12 +62,19 @@ void main() {
     expect(findTitle(), findsWidgets);
     expect(findInCall(), findsNothing);
 
-    // createRoom 里有真实的 socket 绑定，得让真事件循环跑一轮。
-    await tester.runAsync(() async {
-      await tester.tap(findCreateWifi());
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
+    // createRoom 里有真实的 socket 绑定，让真实事件循环等待建房完成。
+    // 在带 coverage 或 CI 虚拟机高负载下，socket 绑定耗时可能增加，
+    // 轮询等待 RoomContent 挂载就绪，杜绝固定延时带来的偶发竞态。
+    await tester.tap(findCreateWifi());
     await tester.pump();
+
+    for (var retry = 0; retry < 50; retry++) {
+      if (find.byType(RoomContent).evaluate().isNotEmpty) break;
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    expect(find.byType(RoomContent), findsOneWidget);
 
     // 逐帧走完整段转场，任何一帧溢出都会在这里冒出来。
     for (var i = 0; i < 14; i++) {
@@ -101,11 +109,17 @@ void main() {
     );
     await tester.pump(const Duration(seconds: 3));
 
-    await tester.runAsync(() async {
-      await tester.tap(findCreateWifi());
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
+    await tester.tap(findCreateWifi());
     await tester.pump();
+
+    for (var retry = 0; retry < 50; retry++) {
+      if (find.byType(RoomContent).evaluate().isNotEmpty) break;
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    expect(find.byType(RoomContent), findsOneWidget);
+
     for (var i = 0; i < 14; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
