@@ -22,12 +22,10 @@ void main() {
       expect(DeviceCode.split(DeviceCode.attach('阿彬')).$1, '阿彬');
     });
 
-    test('兼容旧版 4 位十六进制短码，确定性映射为 3 位数字', () {
+    test('不再把旧版 4 位十六进制短码识别为设备码', () {
       final (name, code) = DeviceCode.split('探索者#3F7A');
-      expect(name, '探索者');
-      expect(RegExp(r'^\d{3}$').hasMatch(code!), isTrue);
-      // 确定性验证
-      expect(DeviceCode.split('探索者#3F7A').$2, code);
+      expect(name, '探索者#3F7A');
+      expect(code, isNull);
     });
 
     test('不把用户自己起的带 # 的名字切坏', () {

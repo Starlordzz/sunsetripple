@@ -81,6 +81,10 @@ void main() {
   /// 一帧 20ms / 16kHz / 24kbps 的 Opus 包大约 60 字节。
   Uint8List opusPacket([int size = 60]) => Uint8List(size);
 
+  Uint8List transferToken(int seed) => Uint8List.fromList(
+        List<int>.generate(16, (index) => (seed + index + 1) & 0xFF),
+      );
+
   RoomSession build({RoomMode mode = RoomMode.wifiFullDuplex}) {
     audio = MockAudioIo();
     sent = <Frame>[];
@@ -237,11 +241,12 @@ void main() {
         payload: transferPayload(
           successorId: 3,
           members: [
-            const HostTransferMember(
+            HostTransferMember(
               memberId: 3,
               joinOrder: 5,
               nickname: '测试者',
               endpoint: '10.0.0.3',
+              sessionToken: transferToken(3),
             ),
           ],
         ),
@@ -265,11 +270,12 @@ void main() {
         payload: transferPayload(
           successorId: 4,
           members: [
-            const HostTransferMember(
+            HostTransferMember(
               memberId: 4,
               joinOrder: 9,
               nickname: '继任',
               endpoint: '10.0.0.4',
+              sessionToken: transferToken(4),
             ),
           ],
         ),
@@ -283,11 +289,12 @@ void main() {
         payload: transferPayload(
           successorId: 3,
           members: [
-            const HostTransferMember(
+            HostTransferMember(
               memberId: 3,
               joinOrder: 4,
               nickname: '测试者',
               endpoint: '10.0.0.3',
+              sessionToken: transferToken(3),
             ),
           ],
         ),
@@ -756,22 +763,16 @@ void main() {
       );
     });
 
-    test('全零令牌（旧版客户端）按昵称兜底，但不影响新客户端', () async {
+    test('全零令牌被拒绝，不能作为会话身份', () async {
       session = build();
       await session.createRoom(startAudio: false);
 
       final zero = Uint8List(16);
-      session.handleIncomingFrame(joinFrame('旧版客人', zero, seq: 1));
-      expect(session.members.length, 2);
-
-      // 旧版客户端重连：全零令牌 + 同昵称 → 复用原号。
-      session.handleIncomingFrame(joinFrame('旧版客人', zero, seq: 2));
-      expect(session.members.length, 2);
-
-      // 新客户端（唯一令牌）顶旧版成员的昵称进来 → 必须拿新号。
-      final token = Uint8List.fromList(List.filled(16, 0xCC));
-      session.handleIncomingFrame(joinFrame('旧版客人', token, seq: 3));
-      expect(session.members.length, 3);
+      expect(
+        () => joinFrame('无效访客', zero, seq: 1),
+        throwsArgumentError,
+      );
+      expect(session.members.length, 1);
     });
   });
 
@@ -821,7 +822,7 @@ void main() {
         type: FrameType.heartbeat,
         senderId: 2,
         seq: 9,
-        payload: Uint8List(0),
+        payload: Uint8List.fromList([0]),
       ));
       session.pruneStaleMembers();
 
@@ -872,7 +873,7 @@ void main() {
         type: FrameType.leave,
         senderId: 1,
         seq: 2,
-        payload: Uint8List(0),
+        payload: Uint8List.fromList([0]),
       ));
 
       expect(session.state, RoomState.disconnected);

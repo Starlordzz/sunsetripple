@@ -258,7 +258,7 @@ class BleL2capTransport implements RoomTransport {
   ///
   /// L2CAP 的 PSM 由系统在开监听时分配、经 BLE 广播发布，换房主意味着
   /// 新房主要重新开监听拿一个新 PSM、重新广播，其余人要全部重新扫描才能
-  /// 发现它。这套流程一期不做——与旧版「主机退出即散会」的结论一致。
+  /// 发现它。当前 BLE L2CAP 传输尚未实现这套重建流程。
   @override
   bool get supportsHostTransfer => false;
 

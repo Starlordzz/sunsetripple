@@ -51,6 +51,16 @@ void main() {
       expect(decoded.sessionToken, equals(token));
     });
 
+    test('JoinRequestPayload rejects the all-zero token', () {
+      expect(
+        () => JoinRequestPayload(
+          nickname: '无效成员',
+          sessionToken: Uint8List(16),
+        ).encode(),
+        throwsArgumentError,
+      );
+    });
+
     test('RosterPayload encode and decode', () {
       final members = [
         RosterMember(memberId: 1, flags: 0x01, nickname: "房主"),
@@ -85,9 +95,12 @@ void main() {
       final leave = LeavePayload(reason: 1);
       final decoded = LeavePayload.decode(leave.encode());
       expect(decoded!.reason, 1);
+      expect(LeavePayload.decode(Uint8List(0)), isNull);
     });
 
-    test('FrameType chat, chatSync, chatDelete values and existing types preserved', () {
+    test(
+        'FrameType chat, chatSync, chatDelete values and existing types preserved',
+        () {
       expect(FrameType.chat.value, 0x0c);
       expect(FrameType.chatSync.value, 0x0d);
       expect(FrameType.chatDelete.value, 0x0e);
@@ -122,24 +135,25 @@ void main() {
         expect(decoded, equals(payload));
       });
 
-      test('Chat payload v1 legacy roundtrip backwards compatibility', () {
-        const sample = '旧版协议兼容测试';
-        const payloadV1 = ChatMessagePayload(version: 1, text: sample);
-        final encodedV1 = payloadV1.encode();
-        expect(encodedV1[0], 1);
-
-        final decoded = ChatMessagePayload.decode(encodedV1);
-        expect(decoded, isNotNull);
-        expect(decoded!.version, 1);
-        expect(decoded.text, sample);
+      test('Chat payload v1 is rejected', () {
+        const payloadV1 = ChatMessagePayload(version: 1, text: '旧版协议不再支持');
+        expect(payloadV1.encode, throwsArgumentError);
+        expect(
+          ChatMessagePayload.decode(Uint8List.fromList([1, 0, 1, 0x41])),
+          isNull,
+        );
       });
 
       test('Empty or whitespace text throws ArgumentError on encode', () {
-        expect(() => const ChatMessagePayload(text: '').encode(), throwsArgumentError);
-        expect(() => const ChatMessagePayload(text: '   \n\t  ').encode(), throwsArgumentError);
+        expect(() => const ChatMessagePayload(text: '').encode(),
+            throwsArgumentError);
+        expect(() => const ChatMessagePayload(text: '   \n\t  ').encode(),
+            throwsArgumentError);
       });
 
-      test('Boundary: exactly 480 UTF-8 bytes succeeds, 481 throws ArgumentError', () {
+      test(
+          'Boundary: exactly 480 UTF-8 bytes succeeds, 481 throws ArgumentError',
+          () {
         // 480 ASCII bytes
         final validText = 'A' * 480;
         final payload = ChatMessagePayload(text: validText);
@@ -157,7 +171,8 @@ void main() {
 
         // Multi-byte boundary: 160 Chinese characters = 160 * 3 = 480 bytes
         final validChinese = '中' * 160;
-        expect(ChatMessagePayload(text: validChinese).encode().length, 15 + 480);
+        expect(
+            ChatMessagePayload(text: validChinese).encode().length, 15 + 480);
 
         // 160 Chinese + 1 byte = 481 bytes
         expect(
@@ -166,15 +181,17 @@ void main() {
         );
       });
 
-      test('Decode rejects invalid version, wrong length, trailing bytes, or malformed UTF-8', () {
-        // Less than 3 bytes
+      test(
+          'Decode rejects invalid version, wrong length, trailing bytes, or malformed UTF-8',
+          () {
+        // Less than the current v2 header
         expect(ChatMessagePayload.decode(Uint8List.fromList([1, 0])), isNull);
 
-        // Wrong version (e.g. 2)
-        // Wrong version (e.g. 99)
+        // Legacy and unknown versions
         final valid = const ChatMessagePayload(text: 'Hello').encode();
         final wrongVer = Uint8List.fromList(valid);
-        wrongVer[0] = 2;
+        wrongVer[0] = 1;
+        expect(ChatMessagePayload.decode(wrongVer), isNull);
         wrongVer[0] = 99;
         expect(ChatMessagePayload.decode(wrongVer), isNull);
 
@@ -193,7 +210,9 @@ void main() {
         expect(ChatMessagePayload.decode(malformed), isNull);
       });
 
-      test('Frame with FrameType.chat encode and decode roundtrip within 512 bytes limit', () {
+      test(
+          'Frame with FrameType.chat encode and decode roundtrip within 512 bytes limit',
+          () {
         const chatPayload = ChatMessagePayload(text: '落日后残波近场聊天测试');
         final rawPayload = chatPayload.encode();
         expect(rawPayload.length, lessThanOrEqualTo(Frame.maxPayloadSize));

@@ -12,10 +12,8 @@ import 'frame_type.dart';
 class Frame {
   static const int headerSize = 6;
 
-  /// 与已发布的 Kotlin 版 alpha.7 一致（`Frame.MAX_PAYLOAD = 512`）。
-  /// 音频走 Opus 编码后一帧只有几十字节，512 绰绰有余；
-  /// 对方的 `FrameStreamReader` 会把超过 512 的帧当作流错位并断开连接，
-  /// 所以这个值**不能**再调大。
+  /// 当前跨平台实现的安全上限。音频走 Opus 编码后一帧只有几十字节，
+  /// 512 足以覆盖控制帧和聊天帧，同时限制单帧内存占用。
   static const int maxPayloadSize = 512;
   static const int maxTotalSize = headerSize + maxPayloadSize;
 

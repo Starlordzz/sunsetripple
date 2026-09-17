@@ -2,7 +2,9 @@
 
 # Protocol Specification
 
-Version 1. Defined by the codec objects under `app/src/main/kotlin/host/msknet/sunsetripple/protocol/` and in `transport/`, `session/`.
+Current Flutter wire protocol version 2. This document describes only the codecs under
+`lib/core/protocol/` and `lib/core/session/`; the old `app/` Kotlin project is not part
+of the current implementation.
 
 ## Frame Format
 
@@ -18,7 +20,7 @@ All links share the same frame structure; multi-byte integers are always **big-e
 
 | Field | Width | Values | Description |
 | --- | --- | --- | --- |
-| `type` | 1 B | 1..8 | Frame type; see the table below |
+| `type` | 1 B | 1..14 | Frame type; see the table below |
 | `senderId` | 1 B | 0..255 | Sender's member ID; the Host is fixed at `0` |
 | `seq` | 2 B BE | 0..65535 | Sequence number, wrapping around on overflow (`and 0xFFFF`) |
 | `payloadLen` | 2 B BE | 0..512 | Payload length |
@@ -46,21 +48,21 @@ enum FrameType {
 | ID | Type | Direction | Payload |
 | --- | --- | --- | --- |
 | 1 | `AUDIO` | Both ways | Opus-encoded frame |
-| 2 | `JOIN` | Client → Host | Token + endpoint + nickname |
+| 2 | `JOIN` | Client → Host | Nickname + token |
 | 3 | `ROSTER` | Host → single client | Personalized roster |
 | 4 | `PTT_STATE` | Both ways (Bluetooth only) | 1-byte boolean |
 | 5 | `PING` | Client → Host | Empty |
-| 6 | `LEAVE` | Both ways | Empty |
+| 6 | `LEAVE` | Both ways | 1-byte leave reason |
 | 7 | `HOST_TRANSFER` | Host → each member | Transfer plan |
 | 8 | `HOST_SNAPSHOT` | Host → each member | Same structure, as a disaster-recovery snapshot |
 | ID (Hex) | Type | Direction | Payload | Description |
 | --- | --- | --- | --- | --- |
 | 1 (`0x01`) | `AUDIO` | Both ways | Opus-encoded frame | Voice packet |
-| 2 (`0x02`) | `JOIN` | Client → Host | Token + endpoint + nickname | Room-join request |
+| 2 (`0x02`) | `JOIN` | Client → Host | Nickname + token | Room-join request |
 | 3 (`0x03`) | `ROSTER` | Host → single client | Personalized roster | Member list snapshot |
 | 4 (`0x04`) | `PTT_STATE` | Both ways (Bluetooth only) | 1-byte boolean | PTT state toggle |
 | 5 (`0x05`) | `PING / HEARTBEAT` | Client → Host | Empty | Liveness heartbeat |
-| 6 (`0x06`) | `LEAVE` | Both ways | Empty | Leave-room notification |
+| 6 (`0x06`) | `LEAVE` | Both ways | 1-byte reason | Leave-room notification |
 | 7 (`0x07`) | `HOST_TRANSFER` | Host → each member | Transfer plan | Host transfer |
 | 8 (`0x08`) | `HOST_SNAPSHOT` | Host → each member | Same structure | Disaster-recovery snapshot |
 | 9 (`0x09`) | `HANDSHAKE_HELLO` | Client ⇄ Host | ECDH negotiation hello | End-to-end encryption negotiation |
@@ -78,23 +80,17 @@ UDP (Wi-Fi audio) and Nearby BYTES payloads are naturally delimited — one data
 
 ### JOIN
 
-Joining and **identity recovery on reconnect** share this frame; it has two versions.
+Joining and **identity recovery on reconnect** share one current format:
 
-**v1:**
 ```
-[0x01][token 16B][nickname UTF-8...]
-```
-
-**v2:**
-```
-[0x02][token 16B][endpointLen 1B][endpoint ASCII][nickname UTF-8...]
+[nicknameLen 1B][nickname UTF-8][sessionToken 16B]
 ```
 
-- `token` — a 16-byte `SecureRandom` value, stored by the host keyed by its lowercase hex form. **On reconnect, the same token restores the original member ID and join order**; with a mismatched token you cannot claim the reserved slot.
-- `endpoint` — a stable reconnect/takeover identifier. In a Wi-Fi Room it is the P2P device address (with the anonymous placeholder `02:00:00:00:00:00` filtered out); in a Bluetooth Room (PTT) it is derived by the server from `connection.remoteAddress`, so `BluetoothClientTransport` only needs to send v1.
+- `sessionToken` — a 16-byte random value with at least one non-zero byte. **On reconnect, the same token restores the original member ID and join order**; with a mismatched token you cannot claim the reserved slot. The all-zero placeholder is rejected.
 - `nickname` — UTF-8, truncated by the same rules as the roster.
+- `endpoint` is not part of the JOIN payload; the transport derives it from the actual connection and uses it for host transfer.
 
-Decoding rejects: a wrong version, a token shorter than 16 bytes, an oversized payload, invalid UTF-8. The token is defensively copied at decode time.
+Decoding rejects: a token shorter than 16 bytes, an all-zero token, an oversized payload, invalid UTF-8, and trailing bytes.
 
 ### ROSTER
 
@@ -119,31 +115,29 @@ Empty payload. Sent by clients only, every 3 seconds (`PING_INTERVAL_MS = 3_000L
 
 ### LEAVE
 
-Empty payload. Sent when leaving the room voluntarily; when the host receives it, the member's slot is freed immediately.
+Exactly 1 byte: `0` = normal leave, `1` = timeout, `2` = kicked. Empty payloads and all other lengths/values are rejected.
 
 ### HOST_TRANSFER / HOST_SNAPSHOT
 
 The two have exactly the same structure; the difference is semantic: `HOST_TRANSFER` means "execute the transfer now", while `HOST_SNAPSHOT` means "hold on to this — if I go down, follow it".
 
 ```
-[version=1 or 2 1B][successorId 1B][memberCount 1B]
+[version=2 1B][successorId 1B][memberCount 1B]
   repeat memberCount times:
     [memberId 1B][joinOrder 8B][nickLen 1B][nick UTF-8][endpointLen 1B][endpoint ASCII]
-    [version=2 only: sessionToken 16B]
+    [sessionToken 16B]
 ```
 
-Version 1 remains byte-for-byte compatible with the legacy Kotlin implementation but
-does not carry identity tokens. Version 2 carries a unique, non-zero 16-byte
-`sessionToken` for every member so the new host can restore identities after transfer.
-Flutter sends version 2 only when every member has such a token; otherwise it falls back
-to version 1. Legacy clients reject version 2 by version number rather than misreading it
-as a valid version 1 payload, while new clients accept both versions.
+The current implementation sends and accepts version 2 only. Every member must carry a
+unique, non-zero 16-byte `sessionToken`, allowing the new host to restore identities;
+plans that do not satisfy this requirement are rejected instead of being downgraded to
+the old re-JOIN flow.
 
-Decoding rejects: a version outside `1..2`, a member count outside `1..6`, endpoints
-containing non-ASCII characters, invalid UTF-8, incomplete version-2 tokens, and stray
-trailing bytes. Plan validation additionally requires member IDs / endpoints / join orders
-to each be unique, non-zero tokens to be unique, the successor to be in the member list,
-and `successorId in 1..255`.
+Decoding rejects: a version other than `2`, a member count outside `1..6`, endpoints
+containing non-ASCII characters, invalid UTF-8, incomplete tokens, and stray trailing
+bytes. Plan validation additionally requires member IDs / endpoints / join orders to each
+be unique, tokens to be unique, the successor to be in the member list, and
+`successorId in 1..255`.
 
 See [Host Transfer](Host-Transfer.md) for details.
 
@@ -155,19 +149,23 @@ Frame type `0x0c`, encoded and decoded by `ChatMessagePayload`. Used for pure in
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|  Version(1B)  |       TextLength (2B, Big-Endian)             |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Version(1B) |       Timestamp (8B, Big-Endian) ...            |
+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| SenderCode (4B ASCII) | TextLength (2B, Big-Endian)           |
+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                   UTF-8 Encoded Text Bytes...                 |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
 | Field | Width | Constraints and description |
 | --- | --- | --- |
-| `version` | 1 B | Fixed at `0x01`; frames with any other value are dropped |
+| `version` | 1 B | Fixed at `0x02`; frames with any other value are dropped |
+| `timestamp` | 8 B BE | Unix timestamp in milliseconds |
+| `senderCode` | 4 B ASCII | Sender device code, padded with spaces when shorter |
 | `textLength` | 2 B BE | Actual UTF-8 byte count of the text that follows, range `1..480` |
 | `textBytes` | Variable | UTF-8 encoded text; empty and whitespace-only text is rejected, and it must not exceed 480 bytes |
 
-- **Security boundary**: the total payload is at most 483 bytes, strictly below the 512-byte frame limit, so nothing gets truncated underneath.
+- **Security boundary**: the total payload is at most 495 bytes, strictly below the 512-byte frame limit, so nothing gets truncated underneath.
 - **Channel isolation**: in a Wi-Fi Room, CHAT frames travel over the TCP 8988 control channel with the host relaying, and **never** enter the UDP 8989 audio port; in a Bluetooth Room (PTT) they travel over the L2CAP channel.
 - **Encryption behavior**: plaintext by default; when a `secureCodec` is injected, `sendFrame` wraps them automatically as `FrameType.sealed (0x0b)`.
 - **Session policy**: each end performs bounded LRU deduplication keyed on `(senderId, seq)`; memory keeps the latest 100 messages, everything is cleared on leaving the room, and nothing is written to disk.

@@ -4,8 +4,7 @@ import 'dart:math';
 ///
 /// 房间里允许重名——两个人都叫「探索者」时，为了清晰区分：
 /// 1. 采用更简洁亲和的 3 位纯数字设备标识码（100~999）；
-/// 2. 兼容旧版本或测试中出现的 4 位十六进制短码（确定性哈希映射为 3 位数字）；
-/// 3. 智能同名冲突机制：当房间内昵称唯一时保持纯净美观（如「探索者」），
+/// 2. 智能同名冲突机制：当房间内昵称唯一时保持纯净美观（如「探索者」），
 ///    仅在发生同名冲突时才自动显式标注设备码（如「探索者 #108」与「探索者 #327」）。
 class DeviceCode {
   const DeviceCode._();
@@ -31,7 +30,7 @@ class DeviceCode {
     final trimmed = code.trim();
     if (RegExp(r'^\d{3}$').hasMatch(trimmed)) return trimmed;
 
-    // 针对旧版 4 位十六进制码或异常字符串，进行确定性哈希映射至 100..999
+    // 对异常字符串做确定性归一化，保证 UI 始终得到合法的 3 位数字码。
     int hash = 0;
     for (int i = 0; i < trimmed.length; i++) {
       hash = (hash * 31 + trimmed.codeUnitAt(i)) & 0x7FFFFFFF;
@@ -40,18 +39,17 @@ class DeviceCode {
     return num.toString();
   }
 
-  /// 把 `探索者#108` 或 `探索者#3F7A` 拆成 `('探索者', '108')`；没有短码时后一项为 null。
+  /// 把 `探索者#108` 拆成 `('探索者', '108')`；没有短码时后一项为 null。
   ///
   /// 昵称本身可能含 `#`，所以按**最后一个**分隔符拆，
-  /// 支持 3 位纯数字以及 4 位十六进制码，避免将用户自定义名字切坏。
+  /// 只识别 3 位纯数字，避免将用户自定义名字切坏。
   static (String, String?) split(String nickname) {
     final at = nickname.lastIndexOf(separator);
     if (at <= 0) return (nickname, null);
 
     final code = nickname.substring(at + 1);
     final is3Digit = RegExp(r'^\d{3}$').hasMatch(code);
-    final is4Hex = RegExp(r'^[0-9A-Fa-f]{4}$').hasMatch(code);
-    if (!is3Digit && !is4Hex) return (nickname, null);
+    if (!is3Digit) return (nickname, null);
 
     final base = nickname.substring(0, at).trimRight();
     if (base.isEmpty) return (nickname, null);

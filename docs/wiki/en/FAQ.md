@@ -56,7 +56,8 @@ No. There is no server to upload to. Audio travels only between devices with an 
 
 **Is the call encrypted?**
 
-**There is no encryption at the application layer.** Security relies on the underlying link: Bluetooth RFCOMM uses secure mode by default (pairing encryption), and Wi-Fi Direct relies on WPA2 group keys. Note, however, that after a host transfer, the rebuilt Bluetooth connection uses **non-secure mode** (to avoid re-pairing).
+Application-layer encryption is disabled by default. It can be enabled by injecting
+`secureCodec` into the session; otherwise security relies on the underlying link.
 
 If your use case has confidentiality requirements, evaluate it yourself — this project's design goal is "being able to talk without the internet", not "anti-eavesdropping".
 
@@ -94,7 +95,7 @@ No. All test cases are pure unit and component tests, runnable in seconds via `f
 
 **Can it be used in production?**
 
-It is currently at the `0.1.0-alpha.12` testing stage. The core paths (Wi-Fi LAN/hotspot/direct full-duplex, Bluetooth PTT, near-field text messages, disconnect reconnection, host handover) all work and are covered by automated tests. It is recommended as a near-field emergency intercom and as a learning reference.
+It is currently at the `0.1.0-alpha.13` testing stage. The core paths (Wi-Fi LAN/hotspot/direct full-duplex, Bluetooth PTT, near-field text messages, disconnect reconnection, host handover) all work and are covered by automated tests. It is recommended as a near-field emergency intercom and as a learning reference.
 
 **What is the license?**
 

@@ -5,6 +5,10 @@ import 'package:sunset_ripple/core/protocol/frame.dart';
 import 'package:sunset_ripple/core/session/host_transfer.dart';
 
 void main() {
+  Uint8List token(int seed) => Uint8List.fromList(
+        List<int>.generate(16, (index) => (seed + index) & 0xFF),
+      );
+
   HostTransferMember member(
     int id,
     int order,
@@ -16,6 +20,7 @@ void main() {
         joinOrder: order,
         nickname: nick,
         endpoint: endpoint,
+        sessionToken: token(id),
       );
 
   TransferCandidate candidate(
@@ -30,11 +35,8 @@ void main() {
         joinOrder: order,
         nickname: nick,
         endpoint: endpoint,
+        sessionToken: token(id),
         connected: connected,
-      );
-
-  Uint8List token(int seed) => Uint8List.fromList(
-        List<int>.generate(16, (index) => (seed + index) & 0xFF),
       );
 
   group('HostTransferCodec 编解码', () {
@@ -81,7 +83,6 @@ void main() {
         ],
       );
 
-      expect(v2Plan.hasCompleteSessionTokens, isTrue);
       final encoded = HostTransferCodec.encode(v2Plan);
       expect(encoded.first, HostTransferCodec.version);
       final decoded = HostTransferCodec.decode(encoded);
@@ -89,16 +90,23 @@ void main() {
       expect(decoded.members[1].sessionToken, orderedEquals(second));
     });
 
-    test('缺少 token 时发送 v1，旧格式解码后 token 为空', () {
+    test('当前格式始终携带 token', () {
       final plan = HostTransferPlan(
         successorId: 2,
         members: [member(2, 1, '阿远', '10.0.0.2')],
       );
 
       final encoded = HostTransferCodec.encode(plan);
-      expect(encoded.first, HostTransferCodec.legacyVersion);
+      expect(encoded.first, HostTransferCodec.version);
       expect(HostTransferCodec.decode(encoded).members.single.sessionToken,
-          isNull);
+          orderedEquals(token(2)));
+    });
+
+    test('旧 v1 交接载荷被拒绝', () {
+      expect(
+        () => HostTransferCodec.decode(Uint8List.fromList([1, 2, 1])),
+        throwsArgumentError,
+      );
     });
 
     test('v2 缺少完整 token 时拒绝，不会静默生成半份身份信息', () {
@@ -221,6 +229,24 @@ void main() {
               nickname: 'B',
               endpoint: '10.0.0.3',
               sessionToken: duplicate,
+            ),
+          ],
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('全零 sessionToken 被拒绝', () {
+      expect(
+        () => HostTransferPlan(
+          successorId: 2,
+          members: [
+            HostTransferMember(
+              memberId: 2,
+              joinOrder: 1,
+              nickname: 'A',
+              endpoint: '10.0.0.2',
+              sessionToken: Uint8List(16),
             ),
           ],
         ),

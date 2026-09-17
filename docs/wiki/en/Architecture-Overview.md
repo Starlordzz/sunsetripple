@@ -149,7 +149,7 @@ A **pure in-memory, current-room-lifetime-only, zero-server** design; the Wi-Fi 
 
 - **Wi-Fi Room**: text messages are encoded by `ChatMessagePayload` into `FrameType.chat (0x0c)` and strictly routed onto the TCP 8988 control channel, where the host relays them to the other clients; leaking into the UDP 8989 audio port is **strictly forbidden**, preserving top scheduling priority for voice.
 - **Bluetooth Room (PTT)**: reuses the existing BLE L2CAP logical channel; the Dart layer pushes to `sendL2capData` and the Android native layer distributes it as an exclusive broadcast.
-- **Security envelope**: production defaults to plaintext for compatibility; when `secureCodec` is configured on the session, `sendFrame` automatically seals frames as `FrameType.sealed (0x0b)`.
+- **Security envelope**: the current product default is plaintext; when `secureCodec` is configured on the session, `sendFrame` seals frames as `FrameType.sealed (0x0b)`.
 
 ### 2. Platform Capability Status and Known Gaps (Platform Matrix)
 

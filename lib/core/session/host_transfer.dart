@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../protocol/frame.dart';
+import 'session_token.dart';
 
 /// 房主转移的候选成员快照。
 class TransferCandidate {
@@ -18,20 +19,19 @@ class TransferCandidate {
   /// 重连用的端点。WiFi 房是对端 IP，蓝牙房是 MAC 地址。
   final String endpoint;
 
-  /// 用于房主转移后恢复成员身份。旧客户端没有该字段时保持 null，
-  /// 编解码器会回退到 v1 格式，让成员通过普通 JOIN 重新加入。
-  final Uint8List? sessionToken;
+  /// 用于房主转移后恢复成员身份。
+  final Uint8List sessionToken;
 
   final bool connected;
 
-  const TransferCandidate({
+  TransferCandidate({
     required this.memberId,
     required this.joinOrder,
     required this.nickname,
     required this.endpoint,
+    required Uint8List sessionToken,
     this.connected = true,
-    this.sessionToken,
-  });
+  }) : sessionToken = Uint8List.fromList(sessionToken);
 }
 
 /// 交接计划里的一个成员。
@@ -41,16 +41,16 @@ class HostTransferMember {
   final String nickname;
   final String endpoint;
 
-  /// v2 交接载荷中的成员会话令牌。v1 载荷解码后为 null。
-  final Uint8List? sessionToken;
+  /// 交接载荷中的成员会话令牌。
+  final Uint8List sessionToken;
 
-  const HostTransferMember({
+  HostTransferMember({
     required this.memberId,
     required this.joinOrder,
     required this.nickname,
     required this.endpoint,
-    this.sessionToken,
-  });
+    required Uint8List sessionToken,
+  }) : sessionToken = Uint8List.fromList(sessionToken);
 
   @override
   String toString() =>
@@ -59,8 +59,7 @@ class HostTransferMember {
 
 /// 一份完整的房主交接计划：谁接任，以及接任后房里还有谁、怎么找到他们。
 ///
-/// 校验规则逐条对齐已发布的 Kotlin 版（`transport/HostTransfer.kt`）。
-/// 这些断言不是防御性冗余——成员号或端点重复会让重连时两个人抢同一个身份。
+/// 这些断言不是防御性冗余——成员号、端点或 Token 重复会让重连时两个人抢同一个身份。
 class HostTransferPlan {
   static const int maxMembers = 6;
   static const int sessionTokenBytes = 16;
@@ -103,28 +102,16 @@ class HostTransferPlan {
         throw ArgumentError('交接端点不能为空');
       }
       final token = m.sessionToken;
-      if (token == null) continue;
-      if (token.length != sessionTokenBytes) {
-        throw ArgumentError('成员 ${m.memberId} 的 sessionToken 长度错误');
+      if (!isValidSessionToken(token)) {
+        throw ArgumentError('成员 ${m.memberId} 的 sessionToken 无效');
       }
-      // 全零 token 是旧客户端的兼容占位值，不参与 v2 身份恢复。
-      if (token.any((byte) => byte != 0)) {
-        final key =
-            token.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
-        if (!tokenKeys.add(key)) {
-          throw ArgumentError('交接 sessionToken 重复');
-        }
+      final key =
+          token.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+      if (!tokenKeys.add(key)) {
+        throw ArgumentError('交接 sessionToken 重复');
       }
     }
   }
-
-  /// 只有所有成员都有非全零令牌时，才可以发出 v2。
-  bool get hasCompleteSessionTokens => members.every((member) {
-        final token = member.sessionToken;
-        return token != null &&
-            token.length == sessionTokenBytes &&
-            token.any((byte) => byte != 0);
-      });
 
   HostTransferMember get successor =>
       members.firstWhere((m) => m.memberId == successorId);
@@ -132,7 +119,7 @@ class HostTransferPlan {
 
 /// 继任者选举。
 ///
-/// 规则与旧版一致：在「已连接且端点非空」的候选里，按 joinOrder 升序、
+/// 规则：在「已连接且端点非空」的候选里，按 joinOrder 升序、
 /// 同序再按 memberId 升序，取第一个。所有成员用同一份快照算，结果必须相同。
 class HostElection {
   /// 选出继任者；没有合格候选时返回 null。
@@ -183,16 +170,16 @@ class SeededTransferMember {
   final int joinOrder;
   final String nickname;
   final String endpoint;
-  final Uint8List? sessionToken;
+  final Uint8List sessionToken;
 
-  const SeededTransferMember({
+  SeededTransferMember({
     required this.previousId,
     required this.newId,
     required this.joinOrder,
     required this.nickname,
     required this.endpoint,
-    this.sessionToken,
-  });
+    required Uint8List sessionToken,
+  }) : sessionToken = Uint8List.fromList(sessionToken);
 }
 
 /// 把交接计划展开成新房主要用的成员表。
@@ -254,42 +241,22 @@ class HostTransferSeed {
 
 /// 交接计划的二进制编解码。
 ///
-/// v1 格式与已发布的 Kotlin 版 `HostTransferCodec` 逐字节一致：
-///
-/// ```
-/// version(1) | successorId(1) | count(1)
-/// 重复 count 次:
-///   memberId(1) | joinOrder(8, 大端有符号) |
-///   nickLen(1) | nickname(UTF-8) | epLen(1) | endpoint(ASCII)
-/// ```
-///
-/// v2 在每个成员的 endpoint 后追加固定 16 字节的 sessionToken：
+/// 当前格式在每个成员的 endpoint 后追加固定 16 字节的 sessionToken：
 ///
 /// ```
 /// version=2(1) | successorId(1) | count(1) | members... | sessionToken(16)
 /// ```
 ///
-/// 总长不得超过 [Frame.maxPayloadSize]（512）。没有完整 token 的计划自动
-/// 编码为 v1；这样新客户端仍可接收旧格式，旧客户端也不会误解析 v2。
+/// 总长不得超过 [Frame.maxPayloadSize]。
 class HostTransferCodec {
-  static const int legacyVersion = 1;
   static const int version = 2;
 
   /// 昵称最长 64 字节，与 roster 的截断规则一致。
   static const int maxNicknameBytes = 64;
 
   static Uint8List encode(HostTransferPlan plan) {
-    final wireVersion = plan.hasCompleteSessionTokens ? version : legacyVersion;
-    return _encode(plan, wireVersion);
-  }
-
-  /// 显式生成旧版载荷，用于兼容性测试和没有完整 token 的成员集合。
-  static Uint8List encodeLegacy(HostTransferPlan plan) =>
-      _encode(plan, legacyVersion);
-
-  static Uint8List _encode(HostTransferPlan plan, int wireVersion) {
     final out = BytesBuilder();
-    out.addByte(wireVersion);
+    out.addByte(version);
     out.addByte(plan.successorId);
     out.addByte(plan.members.length);
 
@@ -303,14 +270,7 @@ class HostTransferCodec {
       out.add(nickname);
       out.addByte(endpoint.length);
       out.add(endpoint);
-      if (wireVersion == version) {
-        final token = m.sessionToken;
-        if (token == null ||
-            token.length != HostTransferPlan.sessionTokenBytes) {
-          throw ArgumentError('v2 交接成员缺少有效 sessionToken');
-        }
-        out.add(token);
-      }
+      out.add(m.sessionToken);
     }
 
     final bytes = out.toBytes();
@@ -330,7 +290,7 @@ class HostTransferCodec {
 
     if (reader.remaining < 3) throw ArgumentError('交接载荷字段不完整');
     final wireVersion = reader.readUint8();
-    if (wireVersion != legacyVersion && wireVersion != version) {
+    if (wireVersion != version) {
       throw ArgumentError('不支持的交接版本');
     }
 
@@ -359,12 +319,10 @@ class HostTransferCodec {
         throw ArgumentError('交接成员 $i 端点不是 ASCII');
       }
 
-      final token = wireVersion == version
-          ? reader.readBytes(
-              HostTransferPlan.sessionTokenBytes,
-              '交接成员 $i sessionToken',
-            )
-          : null;
+      final token = reader.readBytes(
+        HostTransferPlan.sessionTokenBytes,
+        '交接成员 $i sessionToken',
+      );
 
       members.add(HostTransferMember(
         memberId: memberId,

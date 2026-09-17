@@ -19,6 +19,7 @@ import 'device_code.dart';
 import 'host_transfer.dart';
 import 'member.dart';
 import 'reconnect_controller.dart';
+import 'session_token.dart';
 
 enum RoomMode { wifiFullDuplex, bluetoothPtt }
 
@@ -51,12 +52,7 @@ class RoomSession {
 
   /// 端到端 AES-GCM 安全信封编解码器。
   ///
-  /// **默认为 null，即默认不加密。** 这是刻意的：已发布的 Kotlin 版 alpha.7
-  /// 线上也没有默认开启强制加密，如果这一版单方面默认加密，升级到 alpha.8 的
-  /// 用户就会和还没升级的人连不上。
-  ///
-  /// 帧类型 0x09/0x0a/0x0b 与旧版的 HANDSHAKE_HELLO/HANDSHAKE_CONFIRM/SEALED
-  /// 一一对应，握手与密封的能力已经就位，等两版都具备后再协商开启。
+  /// 默认为 null，即按产品要求使用明文传输。配置后才启用安全信封。
   SecureFrameCodec? secureCodec;
 
   RoomState _state = RoomState.idle;
@@ -70,8 +66,7 @@ class RoomSession {
   /// 房主分配 joinOrder 用的单调计数器（房主自己是 0）。
   int _nextJoinOrder = 1;
 
-  /// 最近一次收到的交接快照。房主猝死时全靠它自行迁移——
-  /// 这正是旧版 HOST_SNAPSHOT(8) 存在的意义。
+  /// 最近一次收到的交接快照。房主猝死时全靠它自行迁移。
   HostTransferPlan? _cachedPlan;
 
   /// 见过的最大 joinOrder，用来丢弃迟到或被重放的旧计划。
@@ -145,15 +140,18 @@ class RoomSession {
   bool get isFullDuplex => mode == RoomMode.wifiFullDuplex;
 
   /// 会话令牌：进房时随机生成，同一台设备跨重连保持不变。
-  /// 房主用它判定「老成员重连回来了」——昵称谁都可以填一样的，不能作为身份依据。
-  ///
-  /// 不再默认全零：全零令牌会让所有客户端在房主侧长得一模一样，令牌判定就失效了。
+  /// 房主用它判定成员重连。昵称不能作为身份依据。
   RoomSession({
     required this.audioIo,
     required this.selfNickname,
     this.mode = RoomMode.wifiFullDuplex,
     Uint8List? sessionToken,
-  }) : sessionToken = sessionToken ?? _generateSessionToken() {
+  }) : sessionToken = Uint8List.fromList(
+          sessionToken ?? _generateSessionToken(),
+        ) {
+    if (!isValidSessionToken(this.sessionToken)) {
+      throw ArgumentError('sessionToken must be a non-zero 16-byte value.');
+    }
     _reconnectController = ReconnectController(
       onAttemptReconnect: _attemptReconnect,
       onMaxRetriesReached: () {
@@ -200,9 +198,6 @@ class RoomSession {
     }
     return token;
   }
-
-  /// 全零令牌是旧版客户端的默认值，不能作为唯一身份。
-  static bool _isZeroToken(Uint8List token) => token.every((b) => b == 0);
 
   static bool _tokensEqual(Uint8List a, Uint8List b) {
     if (a.length != b.length) return false;
@@ -392,30 +387,15 @@ class RoomSession {
     final payload = JoinRequestPayload.decode(frame.payload);
     if (payload == null) return;
 
-    // 重连判定：令牌相同才认定是「老成员回来了」。昵称谁都可以填一样的，
+    // 重连判定只接受完全相同的非零令牌。昵称谁都可以填一样的，
     // 不能作为身份依据——同昵称的新人应当拿到新的成员号。
-    // 兼容兜底：旧版客户端的令牌是全零，对这类客户端退回昵称匹配，
-    // 但仅当在册成员也是全零令牌时才生效（新客户端有唯一令牌，不受影响）。
     final joinToken = payload.sessionToken;
     int allocatedId = 0;
-    if (!_isZeroToken(joinToken)) {
-      for (final entry in _members.entries) {
-        final existing = entry.value.sessionToken;
-        if (existing != null &&
-            !_isZeroToken(existing) &&
-            _tokensEqual(existing, joinToken)) {
-          allocatedId = entry.key;
-          break;
-        }
-      }
-    } else {
-      for (final entry in _members.entries) {
-        final existing = entry.value.sessionToken;
-        if ((existing == null || _isZeroToken(existing)) &&
-            entry.value.nickname == payload.nickname) {
-          allocatedId = entry.key;
-          break;
-        }
+    for (final entry in _members.entries) {
+      final existing = entry.value.sessionToken;
+      if (existing != null && _tokensEqual(existing, joinToken)) {
+        allocatedId = entry.key;
+        break;
       }
     }
 
@@ -521,12 +501,7 @@ class RoomSession {
   }
 
   void _handleLeave(Frame frame) {
-    // 旧版 alpha.7 的 LEAVE 曾使用空 payload，保留这一条兼容路径；
-    // 一旦带 payload，则必须严格符合当前 1-byte reason 格式。
-    if (frame.payload.isNotEmpty &&
-        LeavePayload.decode(frame.payload) == null) {
-      return;
-    }
+    if (LeavePayload.decode(frame.payload) == null) return;
     final leavingMember = _members[frame.senderId];
     final wasHost = leavingMember?.isHost == true;
     _members.remove(frame.senderId);
@@ -648,10 +623,8 @@ class RoomSession {
       return;
     }
 
-    // v1 快照没有身份令牌，不能把远端成员当作已认证连接预先占位；否则
-    // 他们带 token 重连时只能重新分配身份，甚至可能把 6 人名额永久占满。
-    // v2 快照带有每个成员的 token，可以先恢复「预留身份」，等 JOIN 到达
-    // 时由 _handleJoinReq 重新绑定实际 socket；这不会把未认证连接当成已连接。
+    // 交接快照带有每个成员的 token，可以先恢复「预留身份」，等 JOIN
+    // 到达时由 _handleJoinReq 重新绑定实际 socket；这不会把未认证连接当成已连接。
     _members.clear();
     _lastAudioAt.clear();
     final successor = seed.host;
@@ -663,23 +636,21 @@ class RoomSession {
       isHost: true,
     );
 
-    if (plan.hasCompleteSessionTokens) {
-      for (final member in plan.members) {
-        if (member.memberId == plan.successorId) continue;
-        // 正常计划只包含旧房主之外的远端成员，因此 ID 1 不应出现。
-        // 即使收到异常计划，也不能覆盖新房主的本地身份。
-        if (member.memberId == 1) {
-          AppLog.warn('RoomSession', '忽略交接计划中的冲突成员 ID 1');
-          continue;
-        }
-        _members[member.memberId] = Member(
-          memberId: member.memberId,
-          nickname: member.nickname,
-          sessionToken: member.sessionToken,
-          joinOrder: member.joinOrder,
-          endpoint: member.endpoint,
-        );
+    for (final member in plan.members) {
+      if (member.memberId == plan.successorId) continue;
+      // 正常计划只包含旧房主之外的远端成员，因此 ID 1 不应出现。
+      // 即使收到异常计划，也不能覆盖新房主的本地身份。
+      if (member.memberId == 1) {
+        AppLog.warn('RoomSession', '忽略交接计划中的冲突成员 ID 1');
+        continue;
       }
+      _members[member.memberId] = Member(
+        memberId: member.memberId,
+        nickname: member.nickname,
+        sessionToken: member.sessionToken,
+        joinOrder: member.joinOrder,
+        endpoint: member.endpoint,
+      );
     }
 
     _selfMemberId = 1;
@@ -703,9 +674,7 @@ class RoomSession {
       return;
     }
 
-    // v2 计划中的 sessionToken 会让新房主复用原成员号；v1 没有 token，
-    // 则由新房主在 JOIN 时重新分配。两种情况都要重新走一次入房，
-    // 音频管线不重启，否则会有一段可听见的断音。
+    // 仍需重新走一次入房，音频管线不重启，否则会有一段可听见的断音。
     await joinRoom(startAudio: false);
     AppLog.info('RoomSession', '已跟随新房主 ${plan.successor.nickname} 重连');
   }
@@ -721,13 +690,21 @@ class RoomSession {
       if (m.memberId == _selfMemberId) continue; // 房主自己不是继任候选
       final endpoint = known[m.memberId] ?? m.endpoint;
       if (endpoint.trim().isEmpty) continue;
+      final token = m.sessionToken;
+      if (token == null || !isValidSessionToken(token)) {
+        AppLog.warn(
+          'RoomSession',
+          '成员 #${m.memberId} 缺少有效 sessionToken，取消房主转移',
+        );
+        return null;
+      }
       m.endpoint = endpoint;
       candidates.add(TransferCandidate(
         memberId: m.memberId,
         joinOrder: m.joinOrder,
         nickname: m.nickname,
         endpoint: endpoint,
-        sessionToken: m.sessionToken,
+        sessionToken: token,
       ));
     }
 
@@ -762,12 +739,19 @@ class RoomSession {
     final plan = _buildTransferPlan();
     if (plan == null) return;
 
+    final Uint8List payload;
+    try {
+      payload = HostTransferCodec.encode(plan);
+    } catch (e) {
+      AppLog.warn('RoomSession', '交接快照超过当前帧上限，已跳过本次广播', e);
+      return;
+    }
     _cachedPlan = plan;
     await sendFrame(Frame(
       type: FrameType.hostAnnounce,
       senderId: _selfMemberId,
       seq: _nextSeq(),
-      payload: HostTransferCodec.encode(plan),
+      payload: payload,
     ));
   }
 
@@ -1017,12 +1001,17 @@ class RoomSession {
       return;
     }
 
-    await sendFrame(Frame(
-      type: FrameType.hostHandover,
-      senderId: _selfMemberId,
-      seq: _nextSeq(),
-      payload: HostTransferCodec.encode(plan),
-    ));
+    try {
+      await sendFrame(Frame(
+        type: FrameType.hostHandover,
+        senderId: _selfMemberId,
+        seq: _nextSeq(),
+        payload: HostTransferCodec.encode(plan),
+      ));
+    } catch (e) {
+      AppLog.warn('RoomSession', '交接计划超过当前帧上限，已取消本次转移', e);
+      return;
+    }
     AppLog.info('RoomSession', '把房主转移给「${target.nickname}」');
 
     // 留一点时间让交接帧真的发出去，再自己降为普通成员重连过去。

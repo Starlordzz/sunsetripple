@@ -108,8 +108,8 @@ class AppStrings {
       : '这次没查到更新，稍后再试一次';
   String get changelogTitle => isEn ? 'Recent changes' : '最近的变化';
   String get changelogBody => isEn
-      ? '0.1.0-alpha.12\nEnhanced connection stability for Wi-Fi Direct and Bluetooth rooms.\nConnection drop protection with smooth exit.\nPrecise audio RMS computation via standard sqrt.\nUpdate checking SemVer comparison fixes.'
-      : '0.1.0-alpha.12\n增强 Wi-Fi 直连与蓝牙建连稳定性及失败提示。\n增加断连保护与平滑退出，同名成员 ID 保护。\nC++ 原生层采用标准 sqrt 提升音频 RMS 计算精度。\n版本更新检查逻辑优化。';
+      ? '0.1.0-alpha.13\nUnified Flutter & C++ architecture with legacy subprojects cleaned up.\nStrict protocol standardization with mandatory 16-byte session tokens.\nEnhanced frame boundary & host transfer payload overflow protection.\nStandardized 3-digit device code parsing and conflict indicators.\nUpdated bilingual architecture and protocol specifications.'
+      : '0.1.0-alpha.13\n全面精简废弃原生子工程，收拢统一至 Flutter 与 C++ FFI 架构。\n协议层全面规范化收拢，入房鉴权与房主交接强制校验 16 字节会话令牌。\n增强端到端帧边界防护与交接超限保护，杜绝异常帧与身份冲突。\n规范化 3 位数字设备标识码与同名冲突智能标注。\n中英文协议规范与架构文档全量同步更新。';
   String get licenseTitle => isEn ? 'Open source license' : '开源许可';
   String get licenseBody => isEn
       ? 'Apache License 2.0\nSunsetRipple is licensed under Apache License 2.0.\nhttps://www.apache.org/licenses/LICENSE-2.0'

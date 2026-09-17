@@ -22,7 +22,7 @@ void main() {
       final hostSentFrames = <Frame>[];
       final hostSession = RoomSession(
         audioIo: MockAudioIo(),
-        selfNickname: '房主小明#1111',
+        selfNickname: '房主小明#111',
       );
       hostSession.onSendFrame = (frame) => hostSentFrames.add(frame);
       await hostSession.createRoom(startAudio: false);
@@ -40,20 +40,21 @@ void main() {
         senderId: 0,
         seq: 1,
         payload: JoinRequestPayload(
-          nickname: '新伙伴#2222',
-          sessionToken: Uint8List(16),
+          nickname: '新伙伴#222',
+          sessionToken: Uint8List.fromList(List.filled(16, 0x22)),
         ).encode(),
       );
       hostSession.handleIncomingFrame(joinReq);
 
       // 验证 Host 发出了 chatSync 历史补发帧
-      final syncFrames = hostSentFrames.where((f) => f.type == FrameType.chatSync).toList();
+      final syncFrames =
+          hostSentFrames.where((f) => f.type == FrameType.chatSync).toList();
       expect(syncFrames.length, 2);
 
       // 模拟 Client 端接收这些 chatSync 帧
       final clientSession = RoomSession(
         audioIo: MockAudioIo(),
-        selfNickname: '新伙伴#2222',
+        selfNickname: '新伙伴#222',
       );
       // 模拟 Client 收到 Roster 并确认 selfMemberId = 2
       clientSession.handleIncomingFrame(Frame(
@@ -63,8 +64,8 @@ void main() {
         payload: RosterPayload(
           hostId: 1,
           members: [
-            RosterMember(memberId: 1, flags: 0x01, nickname: '房主小明#1111'),
-            RosterMember(memberId: 2, flags: 0x00, nickname: '新伙伴#2222'),
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主小明#111'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '新伙伴#222'),
           ],
         ).encode(),
       ));
@@ -86,11 +87,11 @@ void main() {
     test('跨退出改名识别：同一设备短码改名重入后正确识别同人并关联曾用名', () async {
       final session = RoomSession(
         audioIo: MockAudioIo(),
-        selfNickname: '房主#0000',
+        selfNickname: '房主#100',
       );
       await session.createRoom(startAudio: false);
 
-      // 1. 成员以原名「探索者#3F7A」发消息
+      // 1. 成员以原名「探索者#357」发消息
       session.handleIncomingFrame(Frame(
         type: FrameType.roster,
         senderId: 1,
@@ -98,8 +99,8 @@ void main() {
         payload: RosterPayload(
           hostId: 1,
           members: [
-            RosterMember(memberId: 1, flags: 0x01, nickname: '房主#0000'),
-            RosterMember(memberId: 2, flags: 0x00, nickname: '探索者#3F7A'),
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主#100'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '探索者#357'),
           ],
         ).encode(),
       ));
@@ -110,14 +111,14 @@ void main() {
         seq: 10,
         payload: const ChatMessagePayload(
           text: '我是探索者，大家好！',
-          senderCode: '3F7A',
+          senderCode: '357',
         ).encode(),
       ));
 
       expect(session.chatMessages.first.senderNickname, '探索者');
       expect(session.chatMessages.first.previousNickname, isNull);
 
-      // 2. 该成员退房后改名为「银河旅行家#3F7A」，携带相同短码重新进房
+      // 2. 该成员退房后改名为「银河旅行家#357」，携带相同短码重新进房
       session.handleIncomingFrame(Frame(
         type: FrameType.roster,
         senderId: 1,
@@ -125,8 +126,8 @@ void main() {
         payload: RosterPayload(
           hostId: 1,
           members: [
-            RosterMember(memberId: 1, flags: 0x01, nickname: '房主#0000'),
-            RosterMember(memberId: 2, flags: 0x00, nickname: '银河旅行家#3F7A'),
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主#100'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '银河旅行家#357'),
           ],
         ).encode(),
       ));
@@ -142,7 +143,7 @@ void main() {
         seq: 11,
         payload: const ChatMessagePayload(
           text: '我改名了，现在叫银河旅行家',
-          senderCode: '3F7A',
+          senderCode: '357',
         ).encode(),
       ));
 
@@ -157,7 +158,7 @@ void main() {
       final sentFrames = <Frame>[];
       final session = RoomSession(
         audioIo: MockAudioIo(),
-        selfNickname: '探索者#AAAA',
+        selfNickname: '探索者#401',
       );
       session.onSendFrame = (frame) => sentFrames.add(frame);
       await session.createRoom(startAudio: false);
@@ -174,16 +175,17 @@ void main() {
       expect(session.chatMessages, isEmpty);
 
       // 验证：广播了 FrameType.chatDelete 帧
-      final delFrame = sentFrames.firstWhere((f) => f.type == FrameType.chatDelete);
+      final delFrame =
+          sentFrames.firstWhere((f) => f.type == FrameType.chatDelete);
       expect(delFrame, isNotNull);
       final delPayload = ChatDeletePayload.decode(delFrame.payload);
-      expect(delPayload!.senderCode, DeviceCode.toNumeric('AAAA'));
+      expect(delPayload!.senderCode, DeviceCode.toNumeric('401'));
       expect(delPayload.messageId, myMsg.messageId);
 
       // 模拟远端收到该 chatDelete 帧并在远端移除
       final remoteSession = RoomSession(
         audioIo: MockAudioIo(),
-        selfNickname: '伙伴#BBBB',
+        selfNickname: '伙伴#402',
       );
       await remoteSession.createRoom(startAudio: false);
 
@@ -195,8 +197,8 @@ void main() {
         payload: RosterPayload(
           hostId: 1,
           members: [
-            RosterMember(memberId: 1, flags: 0x01, nickname: '伙伴#BBBB'),
-            RosterMember(memberId: 2, flags: 0x00, nickname: '探索者#AAAA'),
+            RosterMember(memberId: 1, flags: 0x01, nickname: '伙伴#402'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '探索者#401'),
           ],
         ).encode(),
       ));
@@ -206,32 +208,32 @@ void main() {
         seq: 5,
         payload: const ChatMessagePayload(
           text: '远端收到的一条消息',
-          senderCode: 'AAAA',
+          senderCode: '401',
           timestampMs: 1725450000000,
         ).encode(),
       ));
       expect(remoteSession.chatMessages.length, 1);
       final remoteMsgId = remoteSession.chatMessages.first.messageId;
 
-      // 攻击场景：有人试图伪造身份 BBBB 去撤回 AAAA 的消息，应被校验拒绝
+      // 攻击场景：有人试图伪造身份 402 去撤回 401 的消息，应被校验拒绝
       remoteSession.handleIncomingFrame(Frame(
         type: FrameType.chatDelete,
         senderId: 3,
         seq: 6,
         payload: const ChatDeletePayload(
           senderCode: 'FAKE',
-          messageId: 'AAAA_1725450000000_5',
+          messageId: '401_1725450000000_5',
         ).encode(),
       ));
       expect(remoteSession.chatMessages.length, 1); // 未被删除
 
-      // 合法撤回：作者 AAAA 撤回
+      // 合法撤回：作者 401 撤回
       remoteSession.handleIncomingFrame(Frame(
         type: FrameType.chatDelete,
         senderId: 2,
         seq: 7,
         payload: ChatDeletePayload(
-          senderCode: 'AAAA',
+          senderCode: '401',
           messageId: remoteMsgId,
         ).encode(),
       ));
@@ -242,12 +244,12 @@ void main() {
     });
 
     test('确定性系统头像框：不可自定义，房主专属金辉，成员算法恒定映射', () {
-      final hostTheme = AvatarFrameTheme.fromCode('1111', isHost: true);
+      final hostTheme = AvatarFrameTheme.fromCode('111', isHost: true);
       expect(hostTheme.name, 'HostCrown');
 
       // 同一短码始终映射到同一主题
-      final themeA1 = AvatarFrameTheme.fromCode('3F7A');
-      final themeA2 = AvatarFrameTheme.fromCode('3F7A');
+      final themeA1 = AvatarFrameTheme.fromCode('357');
+      final themeA2 = AvatarFrameTheme.fromCode('357');
       expect(themeA1.name, themeA2.name);
 
       // 无论大小写均恒定
@@ -255,8 +257,8 @@ void main() {
       expect(themeLower.name, themeA1.name);
 
       // 房主不受普通短码影响
-      final host1 = AvatarFrameTheme.fromCode('AAAA', isHost: true);
-      final host2 = AvatarFrameTheme.fromCode('BBBB', isHost: true);
+      final host1 = AvatarFrameTheme.fromCode('401', isHost: true);
+      final host2 = AvatarFrameTheme.fromCode('402', isHost: true);
       expect(host1.name, 'HostCrown');
       expect(host2.name, 'HostCrown');
     });
@@ -280,8 +282,12 @@ void main() {
         payload: RosterPayload(
           hostId: 1,
           members: [
-            RosterMember(memberId: 1, flags: 0x01, nickname: '探索者#${DeviceCode.current}'),
-            RosterMember(memberId: 2, flags: 0x00, nickname: '探索者#$remoteExplorerCode'),
+            RosterMember(
+                memberId: 1,
+                flags: 0x01,
+                nickname: '探索者#${DeviceCode.current}'),
+            RosterMember(
+                memberId: 2, flags: 0x00, nickname: '探索者#$remoteExplorerCode'),
             RosterMember(memberId: 3, flags: 0x00, nickname: '阿彬#222'),
           ],
         ).encode(),

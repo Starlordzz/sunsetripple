@@ -63,12 +63,14 @@ Members currently reconnecting **do not count as online** and are skipped (`Blue
 
 ## Data Structures
 
-```kotlin
-data class TransferCandidate(memberId, joinOrder, nickname, endpoint, connected)
-data class HostTransferMember(memberId, joinOrder, nickname, endpoint)
-data class HostTransferPlan(successorId, members)     // MAX_MEMBERS = 6
-data class SeededTransferMember(previousId, newId, joinOrder, nickname, endpoint)
-data class HostTransferSeed(members, nextJoinOrder)
+The current Flutter implementation lives in `lib/core/session/host_transfer.dart`:
+
+```dart
+TransferCandidate(memberId, joinOrder, nickname, endpoint, sessionToken, connected)
+HostTransferMember(memberId, joinOrder, nickname, endpoint, sessionToken)
+HostTransferPlan(successorId, members) // MAX_MEMBERS = 6
+SeededTransferMember(previousId, newId, joinOrder, nickname, endpoint, sessionToken)
+HostTransferSeed(members, nextJoinOrder)
 ```
 
 `HostTransferPlan` validation is quite strict: member IDs, endpoints, and join orders must each be unique; the successor must be within the member list; and `successorId in 1..255`.
@@ -85,25 +87,20 @@ The `endpoint` in the election result is the address other members use to **reco
 | Bluetooth | Bluetooth MAC | Derived by the server from `connection.remoteAddress` |
 | Nearby | — | Transfer not supported |
 
-The endpoint is reported by clients in the v2 version of the `JOIN` frame (on the Bluetooth side, v1 suffices because the server can obtain the MAC directly). Members without a stable endpoint **are not eligible to succeed** — `HostTransferTest` has a corresponding case.
+The endpoint is not part of the current JOIN payload; the transport maintains it from
+the actual connection. Members without a stable endpoint **are not eligible to succeed**.
 
 ## How Clients Decide
 
-`ui/HostTransferFlow.kt` is a pure function with no Android dependency:
+The current Flutter flow is implemented by `RoomSession._handleHostHandover`,
+`_handleHostAnnounce`, `_becomeHost`, and `_followNewHost`:
 
-```kotlin
-HostTransferFlow.decide(plan, selfId) -> HostTransferAction
+```dart
+HostTransferCodec.decode(payload) -> HostTransferPlan
 ```
 
-```kotlin
-sealed interface HostTransferAction {
-    data class BecomeHost(val seed: HostTransferSeed)  // 我是继任者
-    data class JoinHost(val endpoint: String)          // 去连新房主
-    object Ignore                                       // 我不在计划里，忽略
-}
-```
-
-The `Ignore` branch handles **stale plans**: if a device is not in the member list (e.g., it already left), receiving a plan should not trigger any action at all.
+Devices not present in the plan, or devices receiving a plan that fails validation,
+ignore it without changing the current session.
 
 ## Rebuilding the Room
 
@@ -130,12 +127,12 @@ During the reservation window, **a device holding the wrong token cannot fraudul
 
 ## Codec
 
-The current Flutter implementation uses `HostTransferCodec` v2: each member carries a
-16-byte `sessionToken`, so the new host can restore the original member ID after a
-reconnect. The format is documented in [Protocol Specification](Protocol-Specification.md#host_transfer--host_snapshot).
-Plans without complete tokens automatically fall back to v1, where members rejoin and
-receive a new identity. Decoding rejects a wrong version number, an out-of-range member
-count, non-ASCII endpoints, invalid UTF-8, incomplete tokens, and trailing bytes.
+The current Flutter implementation uses `HostTransferCodec` v2 only: every member must
+carry a unique, non-zero 16-byte `sessionToken`, so the new host can restore the original
+member ID after reconnect. The format is documented in [Protocol Specification](Protocol-Specification.md#host_transfer--host_snapshot).
+Plans without a valid token are rejected rather than downgraded. Decoding rejects a wrong
+version number, an out-of-range member count, non-ASCII endpoints, invalid UTF-8,
+incomplete tokens, and trailing bytes.
 
 The token is carried in the current plaintext control frame; it is not an encryption key
 and does not prevent eavesdropping or token copying.
@@ -151,11 +148,8 @@ and does not prevent eavesdropping or token copying.
 
 | Test file | Coverage |
 | --- | --- |
-| `transport/HostTransferTest.kt` | Election rules, no plan produced when there is no stable endpoint, codec round-trip, rejection of duplicate members/endpoints/join orders, seed remapping preserves order |
-| `ui/HostTransferFlowTest.kt` | Successor builds the room, other members connect to the new Host, ignore when not in the plan |
-| `transport/bluetooth/BluetoothTransportContractTest.kt` | Everyone takes over from the snapshot after an abnormal host shutdown, graceful transfer to the earliest online member, a snapshot is sent with every roster update, reconnecting members are skipped, the successor releases expired reservations |
-| `transport/wifi/WifiTransportTest.kt` | Transfer uses the P2P endpoint reported in JOIN and preserves join order, members receive the disaster-recovery snapshot, the successor releases expired reservations |
-| `session/RoomSessionTest.kt` | A client holding a snapshot escalates a disconnect into a transfer, no takeover if the snapshot does not contain itself, HOST_TRANSFER receipt is not recorded as "room ended", a Host that prepared a transfer does not broadcast LEAVE |
+| `test/host_transfer_test.dart` | Election, token uniqueness, v2 round-trip, rejection of v1/truncated/trailing payloads, seed remapping |
+| `test/room_session_test.dart` | Snapshot caching, v2 takeover, token-based identity reuse, invalid-plan handling |
 
 ## Related Pages
 
