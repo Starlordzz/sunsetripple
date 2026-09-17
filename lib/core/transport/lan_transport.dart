@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../diagnostics/app_log.dart';
 import '../protocol/frame.dart';
 import '../protocol/frame_type.dart';
+import '../protocol/payloads/join_request.dart';
 import 'room_transport.dart';
 
 enum TransportRole { idle, host, client }
@@ -78,6 +79,10 @@ class LanTransport implements RoomTransport {
   // 房主侧
   ServerSocket? _server;
   final Map<Socket, String> _clientLabels = {};
+  final Map<Socket, Uint8List> _clientSessionTokens = {};
+  final Map<Socket, int> _clientMemberIds = {};
+  final Map<Socket, Timer> _clientJoinTimers = {};
+  final Map<int, Socket> _memberSockets = {};
   final Map<int, _Endpoint> _audioEndpoints = {};
 
   // 客户端侧
@@ -95,10 +100,15 @@ class LanTransport implements RoomTransport {
 
   final StreamController<Frame> _incoming = StreamController<Frame>.broadcast();
   final StreamController<int> _peerCount = StreamController<int>.broadcast();
+  final StreamController<void> _disconnected = StreamController<void>.broadcast();
+  bool _disconnectSignaled = false;
 
   /// 收到的、需要交给 [RoomSession.handleIncomingFrame] 的帧。
   @override
   Stream<Frame> get incoming => _incoming.stream;
+
+  @override
+  Stream<void> get disconnected => _disconnected.stream;
 
   /// 当前连接上的对端数量。
   Stream<int> get peerCountStream => _peerCount.stream;
@@ -175,11 +185,20 @@ class LanTransport implements RoomTransport {
     return false;
   }
 
+  @override
+  Future<bool> reconnect() async {
+    if (_role != TransportRole.client || _hostAddress == null) return false;
+    final address = _hostAddress!;
+    await stop();
+    return startClient(hostAddress: address, silent: true);
+  }
+
   // ---------------------------------------------------------------- 房主
 
   Future<bool> startHost() async {
     await stop();
     _role = TransportRole.host;
+    _disconnectSignaled = false;
 
     try {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, controlPort, shared: true);
@@ -215,14 +234,58 @@ class LanTransport implements RoomTransport {
 
     final accumulator = _FrameAccumulator();
     _clientLabels[socket] = label;
+    _clientJoinTimers[socket] = Timer(const Duration(seconds: 5), () {
+      if (!_clientSessionTokens.containsKey(socket)) {
+        AppLog.warn(_tag, '成员 $label 在 5 秒内未发送 JOIN，关闭连接');
+        _removeClient(socket, label);
+      }
+    });
     AppLog.info(_tag, '成员接入：$label');
     _notifyPeerCount();
 
     socket.listen(
       (chunk) {
         for (final frame in accumulator.add(chunk)) {
-          _relayControl(frame, exclude: socket);
-          _deliver(frame);
+          if (frame.type == FrameType.joinReq) {
+            // 每条 TCP 连接只能完成一次 JOIN。JOIN 本身不应被广播给其他成员。
+            if (frame.senderId != 0) {
+              AppLog.warn(_tag, '成员 $label 的 JOIN senderId 非 0，关闭连接');
+              _removeClient(socket, label);
+              return;
+            }
+            if (_clientSessionTokens.containsKey(socket)) {
+              AppLog.warn(_tag, '成员 $label 重复发送 JOIN，关闭连接');
+              _removeClient(socket, label);
+              return;
+            }
+            _clientJoinTimers.remove(socket)?.cancel();
+            final join = JoinRequestPayload.decode(frame.payload);
+            if (join == null) {
+              AppLog.warn(_tag, '成员 $label 的 JOIN 无法解析，关闭连接');
+              _removeClient(socket, label);
+              return;
+            }
+            _clientSessionTokens[socket] = join.sessionToken;
+            _deliver(frame);
+            continue;
+          }
+
+          final memberId = _clientMemberIds[socket];
+          if (memberId == null) {
+            AppLog.warn(_tag, '成员 $label 在 JOIN 前发送业务帧，关闭连接');
+            _removeClient(socket, label);
+            return;
+          }
+
+          // senderId 由连接身份重写，客户端不能自报其他成员的身份。
+          final normalized = Frame(
+            type: frame.type,
+            senderId: memberId,
+            seq: frame.seq,
+            payload: frame.payload,
+          );
+          _relayControl(normalized, exclude: socket);
+          _deliver(normalized);
         }
       },
       onError: (Object e) {
@@ -239,12 +302,64 @@ class LanTransport implements RoomTransport {
 
   void _removeClient(Socket socket, String label) {
     if (_clientLabels.remove(socket) == null) return;
+    _clientJoinTimers.remove(socket)?.cancel();
+    final memberId = _clientMemberIds.remove(socket);
+    if (memberId != null && identical(_memberSockets[memberId], socket)) {
+      _memberSockets.remove(memberId);
+      _audioEndpoints.remove(memberId);
+    }
+    _clientSessionTokens.remove(socket);
+    if (memberId != null && !_incoming.isClosed) {
+      // TCP 的 onDone/onError 是成员离线的最早可靠信号；不要等 10 秒心跳
+      // 超时才让 RoomSession 清理幽灵成员。
+      _deliver(Frame(
+        type: FrameType.leave,
+        senderId: memberId,
+        seq: 0,
+        payload: Uint8List.fromList([1]),
+      ));
+    }
     try {
       socket.destroy();
     } catch (e) {
       AppLog.debug(_tag, '关闭 $label 时被忽略的异常：$e');
     }
     _notifyPeerCount();
+  }
+
+  @override
+  void bindMemberForSessionToken(Uint8List token, int memberId) {
+    if (_role != TransportRole.host) return;
+    for (final entry in _clientSessionTokens.entries) {
+      if (_sameBytes(entry.value, token)) {
+        final oldId = _clientMemberIds[entry.key];
+        if (oldId != null && identical(_memberSockets[oldId], entry.key)) {
+          _memberSockets.remove(oldId);
+        }
+        _clientMemberIds[entry.key] = memberId;
+        _memberSockets[memberId] = entry.key;
+        return;
+      }
+    }
+  }
+
+  @override
+  void removeMember(int memberId) {
+    _audioEndpoints.remove(memberId);
+    final socket = _memberSockets.remove(memberId);
+    if (socket == null) return;
+    final label = _clientLabels[socket];
+    _clientMemberIds.remove(socket);
+    _clientSessionTokens.remove(socket);
+    if (label != null) _removeClient(socket, label);
+  }
+
+  static bool _sameBytes(Uint8List left, Uint8List right) {
+    if (left.length != right.length) return false;
+    for (int i = 0; i < left.length; i++) {
+      if (left[i] != right[i]) return false;
+    }
+    return true;
   }
 
   // -------------------------------------------------------------- 客户端
@@ -279,14 +394,23 @@ class LanTransport implements RoomTransport {
     }
 
     final accumulator = _FrameAccumulator();
-    _hostSocket!.listen(
+    final hostSocket = _hostSocket!;
+    hostSocket.listen(
       (chunk) {
         for (final frame in accumulator.add(chunk)) {
           _deliver(frame);
         }
       },
-      onError: (Object e) => AppLog.error(_tag, '与房主的连接出错', e),
-      onDone: () => AppLog.warn(_tag, '房主已断开连接'),
+      onError: (Object e) {
+        if (!identical(_hostSocket, hostSocket)) return;
+        AppLog.error(_tag, '与房主的连接出错', e);
+        _signalDisconnected();
+      },
+      onDone: () {
+        if (!identical(_hostSocket, hostSocket)) return;
+        AppLog.warn(_tag, '房主已断开连接');
+        _signalDisconnected();
+      },
       cancelOnError: true,
     );
 
@@ -350,6 +474,7 @@ class LanTransport implements RoomTransport {
     }
 
     if (_role == TransportRole.client) {
+      if (frame.type != FrameType.audio) return;
       // 安全校验：客户端只接收来自房主 IP 的语音包
       if (_hostAddress != null && datagram.address.address != _hostAddress!.address) {
         AppLog.warn(_tag, '丢弃非房主来源的伪造语音包: ${datagram.address.address}');
@@ -358,9 +483,20 @@ class LanTransport implements RoomTransport {
     }
 
     if (_role == TransportRole.host) {
+      if (frame.type != FrameType.audio && frame.type != FrameType.heartbeat) {
+        return;
+      }
       // 白名单：UDP 帧头的 senderId 是自报的，不在册的一律丢弃
       if (frame.senderId == 0 || !_knownMemberIds.contains(frame.senderId)) {
         return;
+      }
+
+      final memberSocket = _memberSockets[frame.senderId];
+      if (_memberSockets.isNotEmpty) {
+        if (memberSocket == null ||
+            memberSocket.remoteAddress.address != datagram.address.address) {
+          return;
+        }
       }
 
       // 防劫持校验：如果该成员已登记过语音端点，且新来源 IP 与既有登记 IP 不一致，拒绝覆盖
@@ -440,6 +576,7 @@ class LanTransport implements RoomTransport {
     final bytes = frame.encode();
 
     for (final entry in _audioEndpoints.entries) {
+      if (!_knownMemberIds.contains(entry.key)) continue;
       if (entry.key == excludeSenderId) continue;
       final endpoint = entry.value;
       try {
@@ -518,6 +655,13 @@ class LanTransport implements RoomTransport {
       }
     }
     _clientLabels.clear();
+    for (final timer in _clientJoinTimers.values) {
+      timer.cancel();
+    }
+    _clientJoinTimers.clear();
+    _clientSessionTokens.clear();
+    _clientMemberIds.clear();
+    _memberSockets.clear();
     _audioEndpoints.clear();
     _knownMemberIds.clear();
 
@@ -537,6 +681,7 @@ class LanTransport implements RoomTransport {
 
     _selfMemberId = 0;
     _role = TransportRole.idle;
+    _disconnectSignaled = false;
   }
 
   @override
@@ -544,5 +689,12 @@ class LanTransport implements RoomTransport {
     await stop();
     await _incoming.close();
     await _peerCount.close();
+    await _disconnected.close();
+  }
+
+  void _signalDisconnected() {
+    if (_disconnectSignaled || _disconnected.isClosed) return;
+    _disconnectSignaled = true;
+    _disconnected.add(null);
   }
 }

@@ -347,6 +347,7 @@ class PlatformAudioPlugin(
                 if (consecutiveErrors > 50) {
                     Log.e(TAG, "AudioRecord 连续错误超过阈值，采集中止")
                     capturing.set(false)
+                    mainHandler.post { stopCapture() }
                     break
                 }
                 try { Thread.sleep(20) } catch (_: InterruptedException) {}
@@ -409,7 +410,12 @@ class PlatformAudioPlugin(
     }
 
     private fun stopCapture() {
-        if (!capturing.getAndSet(false)) return
+        val wasCapturing = capturing.getAndSet(false)
+        val hasResources = audioRecord != null ||
+            captureThread != null ||
+            uplinkCodec != null ||
+            isDeviceCallbackRegistered
+        if (!wasCapturing && !hasResources) return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isDeviceCallbackRegistered) {
             audioDeviceCallback?.let { audioManager.unregisterAudioDeviceCallback(it) }
@@ -559,6 +565,7 @@ class PlatformAudioPlugin(
                     if (consecutiveErrors > 50) {
                         Log.e(TAG, "AudioTrack 连续写入错误超过阈值，播放中止")
                         playing.set(false)
+                        mainHandler.post { stopPlayback() }
                         break
                     }
                     try { Thread.sleep(20) } catch (_: InterruptedException) {}
@@ -583,7 +590,9 @@ class PlatformAudioPlugin(
         }
 
     private fun stopPlayback() {
-        if (!playing.getAndSet(false)) return
+        val wasPlaying = playing.getAndSet(false)
+        val hasResources = audioTrack != null || playbackThread != null || remotes.isNotEmpty()
+        if (!wasPlaying && !hasResources) return
 
         playbackThread?.join(500)
         playbackThread = null
@@ -646,7 +655,7 @@ class PlatformAudioPlugin(
                 record?.setPreferredDevice(externalMic ?: btComm)
                 Log.i(TAG, "音频路由: 蓝牙通信设备双向绑定 (${btComm.productName})")
             } else if (wiredComm != null) {
-                audioManager.mode = AudioManager.MODE_NORMAL
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 audioManager.setCommunicationDevice(wiredComm)
                 track?.setPreferredDevice(wiredComm)
                 if (preferBuiltinMic && builtinMic != null) {
@@ -658,7 +667,7 @@ class PlatformAudioPlugin(
                 }
             } else if (btComm != null) {
                 // 蓝牙耳机已连接，但用户选择使用手机麦拾音
-                audioManager.mode = AudioManager.MODE_NORMAL
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 audioManager.clearCommunicationDevice()
                 val btOutput = outputDevices.firstOrNull {
                     it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
@@ -673,7 +682,7 @@ class PlatformAudioPlugin(
                 }
                 Log.i(TAG, "音频路由: 蓝牙媒体通道输出 (A2DP/BLE) + 手机麦拾音")
             } else if (userWantsSpeaker) {
-                audioManager.mode = AudioManager.MODE_NORMAL
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 if (speakerComm != null) {
                     audioManager.setCommunicationDevice(speakerComm)
                 }
@@ -731,7 +740,7 @@ class PlatformAudioPlugin(
                     audioManager.stopBluetoothSco()
                     audioManager.isBluetoothScoOn = false
                 }
-                audioManager.mode = AudioManager.MODE_NORMAL
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 audioManager.isSpeakerphoneOn = true
             } else {
                 if (audioManager.isBluetoothScoOn) {

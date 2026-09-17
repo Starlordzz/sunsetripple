@@ -307,6 +307,7 @@ class WifiDirectPlugin(
                     mapOf(
                         "isConnected" to (info != null && info.groupFormed),
                         "isGroupOwner" to (info?.isGroupOwner ?: false),
+                        "groupFormed" to (info?.groupFormed ?: false),
                         "groupOwnerAddress" to (info?.groupOwnerAddress?.hostAddress ?: ""),
                     )
                 )

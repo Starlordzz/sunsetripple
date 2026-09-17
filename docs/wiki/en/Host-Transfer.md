@@ -130,7 +130,15 @@ During the reservation window, **a device holding the wrong token cannot fraudul
 
 ## Codec
 
-`HostTransferCodec`, version 1; the format is documented in [Protocol Specification](Protocol-Specification.md#host_transfer--host_snapshot). Decoding rejects a wrong version number, an out-of-range member count, non-ASCII in endpoints, invalid UTF-8, and the presence of extra trailing bytes.
+The current Flutter implementation uses `HostTransferCodec` v2: each member carries a
+16-byte `sessionToken`, so the new host can restore the original member ID after a
+reconnect. The format is documented in [Protocol Specification](Protocol-Specification.md#host_transfer--host_snapshot).
+Plans without complete tokens automatically fall back to v1, where members rejoin and
+receive a new identity. Decoding rejects a wrong version number, an out-of-range member
+count, non-ASCII endpoints, invalid UTF-8, incomplete tokens, and trailing bytes.
+
+The token is carried in the current plaintext control frame; it is not an encryption key
+and does not prevent eavesdropping or token copying.
 
 ## Known Limitations
 

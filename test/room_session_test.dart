@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,64 @@ import 'package:sunset_ripple/core/protocol/payloads/roster.dart';
 import 'package:sunset_ripple/core/session/chat_message.dart';
 import 'package:sunset_ripple/core/session/host_transfer.dart';
 import 'package:sunset_ripple/core/session/room_session.dart';
+import 'package:sunset_ripple/core/transport/room_transport.dart';
+
+class _HostTransferTestTransport implements RoomTransport {
+  final _incomingController = StreamController<Frame>.broadcast(sync: true);
+  final sent = <Frame>[];
+  bool becameHost = false;
+
+  @override
+  Stream<Frame> get incoming => _incomingController.stream;
+
+  @override
+  Stream<void> get disconnected => const Stream<void>.empty();
+
+  @override
+  int get peerCount => 0;
+
+  @override
+  void send(Frame frame) => sent.add(frame);
+
+  @override
+  void updateSelfMemberId(int id) {}
+
+  @override
+  void updateKnownMemberIds(Set<int> ids) {}
+
+  @override
+  void bindMemberForSessionToken(Uint8List token, int memberId) {}
+
+  @override
+  void removeMember(int memberId) {}
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<bool> reconnect() async => false;
+
+  @override
+  bool get supportsHostTransfer => true;
+
+  @override
+  Future<bool> becomeHost() async {
+    becameHost = true;
+    return true;
+  }
+
+  @override
+  Future<bool> reconnectToHost(String endpoint) async => true;
+
+  @override
+  Map<int, String> get peerEndpoints => const {};
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async => _incomingController.close();
+}
 
 void main() {
   late MockAudioIo audio;
@@ -235,6 +294,78 @@ void main() {
       ));
 
       expect(session.isHost, isFalse);
+    });
+
+    test('v2 交接后预留远端 token，重连 JOIN 复用原成员号', () async {
+      session = build();
+      final transport = _HostTransferTestTransport();
+      session.attachTransport(transport);
+      await session.joinRoom(startAudio: false);
+
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 1,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '旧房主'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '远端'),
+            RosterMember(memberId: 3, flags: 0x00, nickname: '测试者'),
+          ],
+        ).encode(),
+      ));
+
+      final remoteToken = Uint8List.fromList(List.filled(16, 0x42));
+      final plan = HostTransferPlan(
+        successorId: 3,
+        members: [
+          HostTransferMember(
+            memberId: 3,
+            joinOrder: 5,
+            nickname: '测试者',
+            endpoint: '10.0.0.3',
+            sessionToken: session.sessionToken,
+          ),
+          HostTransferMember(
+            memberId: 2,
+            joinOrder: 6,
+            nickname: '远端',
+            endpoint: '10.0.0.2',
+            sessionToken: remoteToken,
+          ),
+        ],
+      );
+
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.hostHandover,
+        senderId: 1,
+        seq: 2,
+        payload: HostTransferCodec.encode(plan),
+      ));
+
+      expect(transport.becameHost, isTrue);
+      expect(session.isHost, isTrue);
+      expect(session.members.map((m) => m.memberId), containsAll(<int>[1, 2]));
+      expect(
+        session.members.firstWhere((m) => m.memberId == 2).sessionToken,
+        orderedEquals(remoteToken),
+      );
+
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.joinReq,
+        senderId: 0,
+        seq: 3,
+        payload: JoinRequestPayload(
+          nickname: '远端的新名字',
+          sessionToken: remoteToken,
+        ).encode(),
+      ));
+
+      final restored = session.members.firstWhere((m) => m.memberId == 2);
+      expect(restored.nickname, '远端的新名字');
+      expect(restored.sessionToken, orderedEquals(remoteToken));
+      expect(session.members.map((m) => m.memberId), isNot(contains(4)));
     });
   });
 
@@ -584,7 +715,8 @@ void main() {
           type: FrameType.joinReq,
           senderId: 0,
           seq: seq,
-          payload: JoinRequestPayload(nickname: nickname, sessionToken: token).encode(),
+          payload: JoinRequestPayload(nickname: nickname, sessionToken: token)
+              .encode(),
         );
 
     test('同令牌重连复用原成员号，不会变成两个成员', () async {
@@ -617,8 +749,7 @@ void main() {
       session.handleIncomingFrame(joinFrame('访客甲', tokenA, seq: 1));
       session.handleIncomingFrame(joinFrame('访客甲', tokenB, seq: 2));
 
-      expect(session.members.length, 3,
-          reason: '昵称谁都能填一样，身份只认令牌，后者必须拿新号');
+      expect(session.members.length, 3, reason: '昵称谁都能填一样，身份只认令牌，后者必须拿新号');
       expect(
         session.members.map((m) => m.memberId).toSet(),
         containsAll(const [1, 2, 3]),
@@ -649,7 +780,8 @@ void main() {
           type: FrameType.joinReq,
           senderId: 0,
           seq: seq,
-          payload: JoinRequestPayload(nickname: nickname, sessionToken: token).encode(),
+          payload: JoinRequestPayload(nickname: nickname, sessionToken: token)
+              .encode(),
         );
 
     Uint8List token(int seed) => Uint8List.fromList(List.filled(16, seed));
@@ -662,9 +794,8 @@ void main() {
       expect(session.members.length, 2);
 
       // 把成员 #2 的活跃时间拨回超时阈值之前。
-      session.members
-          .firstWhere((m) => m.memberId == 2)
-          .lastActiveAt = DateTime.now().subtract(const Duration(seconds: 11));
+      session.members.firstWhere((m) => m.memberId == 2).lastActiveAt =
+          DateTime.now().subtract(const Duration(seconds: 11));
 
       sent.clear();
       session.pruneStaleMembers();
@@ -682,9 +813,8 @@ void main() {
       await session.createRoom(startAudio: false);
 
       session.handleIncomingFrame(joinFrame('在线者', token(0x22), seq: 1));
-      session.members
-          .firstWhere((m) => m.memberId == 2)
-          .lastActiveAt = DateTime.now().subtract(const Duration(seconds: 11));
+      session.members.firstWhere((m) => m.memberId == 2).lastActiveAt =
+          DateTime.now().subtract(const Duration(seconds: 11));
 
       // 心跳刷新活跃时间后再清理，成员应保留。
       session.handleIncomingFrame(Frame(
@@ -696,6 +826,56 @@ void main() {
       session.pruneStaleMembers();
 
       expect(session.members.length, 2);
+    });
+
+    test('发送语音或聊天帧同样刷新活跃时间，不会被误清', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      session.handleIncomingFrame(joinFrame('在线者', token(0x22), seq: 1));
+      session.members.firstWhere((m) => m.memberId == 2).lastActiveAt =
+          DateTime.now().subtract(const Duration(seconds: 11));
+
+      // 成员未发心跳但正在发语音，收到音频帧应刷新活跃时间
+      session.handleIncomingFrame(Frame(
+        type: FrameType.audio,
+        senderId: 2,
+        seq: 9,
+        payload: Uint8List(10),
+      ));
+      session.pruneStaleMembers();
+
+      expect(session.members.length, 2, reason: '说话中的成员绝不能因为偶发丢心跳被误踢');
+    });
+
+    test('房主离房且无快照时客户端体面解散房间', () async {
+      session = build();
+      await session.joinRoom(startAudio: false);
+
+      session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 1,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '测试者'),
+          ],
+        ).encode(),
+      ));
+
+      expect(session.state, RoomState.inRoom);
+
+      // 房主发送离房帧
+      session.handleIncomingFrame(Frame(
+        type: FrameType.leave,
+        senderId: 1,
+        seq: 2,
+        payload: Uint8List(0),
+      ));
+
+      expect(session.state, RoomState.disconnected);
     });
   });
 
@@ -779,7 +959,8 @@ void main() {
         type: FrameType.chatDelete,
         senderId: 3,
         seq: 21,
-        payload: ChatDeletePayload(senderCode: '321', messageId: messageId).encode(),
+        payload:
+            ChatDeletePayload(senderCode: '321', messageId: messageId).encode(),
       ));
       expect(session.chatMessages.length, 1,
           reason: 'payload 里的 senderCode 谁都能填，必须以帧的实际发送者为准');
@@ -789,7 +970,8 @@ void main() {
         type: FrameType.chatDelete,
         senderId: 2,
         seq: 22,
-        payload: ChatDeletePayload(senderCode: '321', messageId: messageId).encode(),
+        payload:
+            ChatDeletePayload(senderCode: '321', messageId: messageId).encode(),
       ));
       expect(session.chatMessages, isEmpty);
     });

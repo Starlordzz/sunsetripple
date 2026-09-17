@@ -126,12 +126,24 @@ Empty payload. Sent when leaving the room voluntarily; when the host receives it
 The two have exactly the same structure; the difference is semantic: `HOST_TRANSFER` means "execute the transfer now", while `HOST_SNAPSHOT` means "hold on to this — if I go down, follow it".
 
 ```
-[version=1 1B][successorId 1B][memberCount 1B]
+[version=1 or 2 1B][successorId 1B][memberCount 1B]
   repeat memberCount times:
     [memberId 1B][joinOrder 8B][nickLen 1B][nick UTF-8][endpointLen 1B][endpoint ASCII]
+    [version=2 only: sessionToken 16B]
 ```
 
-Decoding rejects: a version other than 1, a member count outside `1..6`, endpoints containing non-ASCII characters, invalid UTF-8, and stray trailing bytes. Plan validation additionally requires member IDs / endpoints / join orders to each be unique, the successor to be in the member list, and `successorId in 1..255`.
+Version 1 remains byte-for-byte compatible with the legacy Kotlin implementation but
+does not carry identity tokens. Version 2 carries a unique, non-zero 16-byte
+`sessionToken` for every member so the new host can restore identities after transfer.
+Flutter sends version 2 only when every member has such a token; otherwise it falls back
+to version 1. Legacy clients reject version 2 by version number rather than misreading it
+as a valid version 1 payload, while new clients accept both versions.
+
+Decoding rejects: a version outside `1..2`, a member count outside `1..6`, endpoints
+containing non-ASCII characters, invalid UTF-8, incomplete version-2 tokens, and stray
+trailing bytes. Plan validation additionally requires member IDs / endpoints / join orders
+to each be unique, non-zero tokens to be unique, the successor to be in the member list,
+and `successorId in 1..255`.
 
 See [Host Transfer](Host-Transfer.md) for details.
 

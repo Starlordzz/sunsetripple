@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import '../../diagnostics/app_log.dart';
 
 /// Binary codec for SunsetRipple chat message payload.
 ///
@@ -89,7 +90,8 @@ class ChatMessagePayload {
           timestampMs: 0,
           senderCode: '0000',
         );
-      } catch (_) {
+      } catch (e) {
+        AppLog.warn('ChatMessage', 'v1 消息文本 UTF-8 解码失败', e);
         return null;
       }
     } else if (version == 2) {
@@ -113,7 +115,8 @@ class ChatMessagePayload {
           timestampMs: timestamp,
           senderCode: code,
         );
-      } catch (_) {
+      } catch (e) {
+        AppLog.warn('ChatMessage', 'v2 消息文本 UTF-8 解码失败', e);
         return null;
       }
     }

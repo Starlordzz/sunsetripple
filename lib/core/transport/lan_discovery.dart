@@ -276,6 +276,18 @@ class LanRoomDiscovery {
         lastSeen: DateTime.now(),
       );
 
+      // roomId 是明文广播字段，局域网内任意设备都能伪造它。已有 roomId
+      // 若来自另一源地址，不能被后来的包静默劫持；明文模式下这是能做到的
+      // 最小身份绑定，真正的认证仍需后续握手协议。
+      final known = _discoveredRooms[roomId];
+      if (known != null && known.hostAddress.address != datagram.address.address) {
+        AppLog.warn(
+          _tag,
+          '忽略来自 ${datagram.address.address} 的重复 roomId $roomId 广播（已绑定 ${known.hostAddress.address}）',
+        );
+        return;
+      }
+
       // 防伪造洪水：过期清理是 3.5 秒一次，短时间灌入大量假 roomId
       // 会把列表撑爆，超过上限的陌生房间直接不收。
       if (!_discoveredRooms.containsKey(roomId) &&

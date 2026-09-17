@@ -27,6 +27,10 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
     private var publishedPsm: CBL2CAPPSM?
     private var hostRoomName: String = ""
     private var hostChannels: [CBL2CAPChannel] = []
+    private var advertisedMemberCount: Int = 1
+    private var inputBuffers: [ObjectIdentifier: Data] = [:]
+    private var pendingWrites: [ObjectIdentifier: Data] = [:]
+    private var streamPeerAddresses: [ObjectIdentifier: String] = [:]
 
     // 成员 (Client / Central) 状态
     private var isScanning: Bool = false
@@ -116,7 +120,7 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             disconnect()
             result(true)
 
-        case "sendFrame":
+        case "sendL2capData", "sendFrame":
             guard let args = call.arguments as? [String: Any],
                   let typedData = args["data"] as? FlutterStandardTypedData else {
                 result(false)
@@ -124,6 +128,14 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             }
             let success = sendFrame(data: typedData.data)
             result(success)
+
+        case "updateMemberCount":
+            advertisedMemberCount = max(1, min(6, (call.arguments as? [String: Any])?["memberCount"] as? Int ?? 1))
+            if isHosting {
+                peripheralManager?.stopAdvertising()
+                advertiseHost()
+            }
+            result(true)
 
         case "dispose":
             detachChannels()
@@ -140,6 +152,7 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
 
     private func startHost(roomName: String, completion: @escaping (Bool) -> Void) {
         self.hostRoomName = roomName
+        self.advertisedMemberCount = 1
         self.hostCompletion = completion
         self.isHosting = true
 
@@ -160,6 +173,9 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
         for channel in hostChannels {
             channel.inputStream.close()
             channel.outputStream.close()
+            inputBuffers.removeValue(forKey: ObjectIdentifier(channel.inputStream))
+            pendingWrites.removeValue(forKey: ObjectIdentifier(channel.outputStream))
+            streamPeerAddresses.removeValue(forKey: ObjectIdentifier(channel.inputStream))
         }
         hostChannels.removeAll()
     }
@@ -208,6 +224,9 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
         if let client = clientChannel {
             client.inputStream.close()
             client.outputStream.close()
+            inputBuffers.removeValue(forKey: ObjectIdentifier(client.inputStream))
+            pendingWrites.removeValue(forKey: ObjectIdentifier(client.outputStream))
+            streamPeerAddresses.removeValue(forKey: ObjectIdentifier(client.inputStream))
             clientChannel = nil
         }
         if let p = targetPeripheral {
@@ -234,20 +253,52 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
     }
 
     private func writeToStream(_ stream: OutputStream, data: Data) -> Bool {
-        guard stream.hasSpaceAvailable else { return false }
-        return data.withUnsafeBytes { ptr in
-            guard let baseAddress = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
-            let written = stream.write(baseAddress, maxLength: data.count)
-            return written == data.count
+        let key = ObjectIdentifier(stream)
+        var pending = pendingWrites[key] ?? Data()
+        pending.append(data)
+        pendingWrites[key] = pending
+        drainWrites(stream)
+        return true
+    }
+
+    private func drainWrites(_ stream: OutputStream) {
+        let key = ObjectIdentifier(stream)
+        while stream.hasSpaceAvailable,
+              var pending = pendingWrites[key],
+              !pending.isEmpty {
+            let written = pending.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) -> Int in
+                guard let baseAddress = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return 0
+                }
+                return stream.write(baseAddress, maxLength: pending.count)
+            }
+            if written <= 0 {
+                return
+            }
+            pending.removeFirst(written)
+            if pending.isEmpty {
+                pendingWrites.removeValue(forKey: key)
+            } else {
+                pendingWrites[key] = pending
+            }
         }
     }
 
     // MARK: - 数据接收转发
 
-    fileprivate func handleReceivedData(_ data: Data) {
+    fileprivate func handleReceivedData(_ data: Data, from inputStream: InputStream) {
+        if isHosting {
+            for channel in hostChannels where channel.inputStream !== inputStream {
+                _ = writeToStream(channel.outputStream, data: data)
+            }
+        }
+        let peerAddress = streamPeerAddresses[ObjectIdentifier(inputStream)] ?? "unknown"
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let sink = self.dataEventSink else { return }
-            sink(FlutterStandardTypedData(bytes: data))
+            sink([
+                "data": FlutterStandardTypedData(bytes: data),
+                "peerAddress": peerAddress,
+            ])
         }
     }
 
@@ -280,14 +331,19 @@ extension BleL2capPlugin: CBPeripheralManagerDelegate {
         self.publishedPsm = PSM
         print("[SunsetBLE] 成功发布 L2CAP PSM: \(PSM)")
 
-        // 构造广播数据（Service UUID + LocalName 包含房间名与 PSM）
-        let advData: [String: Any] = [
-            CBAdvertisementDataServiceUUIDsKey: [BleL2capPlugin.serviceUuid],
-            CBAdvertisementDataLocalNameKey: "SR_\(PSM)_\(hostRoomName)"
-        ]
-        peripheral.startAdvertising(advData)
+        advertiseHost()
         hostCompletion?(true)
         hostCompletion = nil
+    }
+
+    private func advertiseHost() {
+        guard let psm = publishedPsm, isHosting else { return }
+        // 构造广播数据（Service UUID + LocalName 包含房间名、PSM 和人数）
+        let advData: [String: Any] = [
+            CBAdvertisementDataServiceUUIDsKey: [BleL2capPlugin.serviceUuid],
+            CBAdvertisementDataLocalNameKey: "SR_\(psm)_\(advertisedMemberCount)_\(hostRoomName)"
+        ]
+        peripheralManager?.startAdvertising(advData)
     }
 
     public func peripheralManager(_ peripheral: CBPeripheralManager, didOpen channel: CBL2CAPChannel?, error: Error?) {
@@ -299,6 +355,8 @@ extension BleL2capPlugin: CBPeripheralManagerDelegate {
         channel.outputStream.schedule(in: .main, forMode: .common)
         channel.inputStream.open()
         channel.outputStream.open()
+        let key = ObjectIdentifier(channel.inputStream)
+        streamPeerAddresses[key] = "host-\(key)"
         hostChannels.append(channel)
     }
 }
@@ -313,13 +371,10 @@ extension BleL2capPlugin: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        guard let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
-              localName.hasPrefix("SR_") else { return }
-
-        // 解析名称：SR_<PSM>_<RoomName>
-        let parts = localName.split(separator: "_", maxSplits: 2, omittingEmptySubsequences: true)
-        guard parts.count >= 3, let psm = Int(parts[1]) else { return }
-        let roomName = String(parts[2])
+        guard let advertisement = parseAdvertisement(advertisementData) else { return }
+        let psm = advertisement.psm
+        let memberCount = advertisement.memberCount
+        let roomName = advertisement.roomName
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let sink = self.scanEventSink else { return }
@@ -328,9 +383,39 @@ extension BleL2capPlugin: CBCentralManagerDelegate, CBPeripheralDelegate {
                 "address": peripheral.identifier.uuidString,
                 "rssi": RSSI.intValue,
                 "psm": psm,
-                "memberCount": 1
+                "memberCount": memberCount
             ])
         }
+    }
+
+    private func parseAdvertisement(_ advertisementData: [String: Any]) -> (psm: Int, memberCount: Int, roomName: String)? {
+        if let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
+           localName.hasPrefix("SR_") {
+            let parts = localName.split(separator: "_", maxSplits: 3, omittingEmptySubsequences: true)
+            guard parts.count >= 3, let psm = Int(parts[1]), psm > 0 else { return nil }
+            if parts.count >= 4, let count = Int(parts[2]) {
+                return (psm, max(1, min(6, count)), String(parts[3]))
+            }
+            return (psm, 1, String(parts[2]))
+        }
+
+        // 兼容 Android：厂商数据为 [PSM 高字节][PSM 低字节][人数][UTF-8 房名]。
+        guard var data = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
+              data.count >= 3 else { return nil }
+        if data.count >= 5 {
+            let companyId = UInt16(data[0]) | (UInt16(data[1]) << 8)
+            if companyId == BleL2capPlugin.companyId {
+                data = Data(data.dropFirst(2))
+            }
+        }
+        guard data.count >= 3 else { return nil }
+        let psm = (Int(data[0]) << 8) | Int(data[1])
+        guard psm > 0 else { return nil }
+        let memberCount = max(1, min(6, Int(data[2])))
+        let roomName = data.count > 3
+            ? String(data: data.dropFirst(3), encoding: .utf8) ?? "蓝牙房"
+            : "蓝牙房"
+        return (psm, memberCount, roomName)
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -354,6 +439,8 @@ extension BleL2capPlugin: CBCentralManagerDelegate, CBPeripheralDelegate {
         }
 
         self.clientChannel = channel
+        let key = ObjectIdentifier(channel.inputStream)
+        streamPeerAddresses[key] = targetPeripheral?.identifier.uuidString ?? "ble-peer"
         channel.inputStream.delegate = self
         channel.outputStream.delegate = self
         channel.inputStream.schedule(in: .main, forMode: .common)
@@ -374,18 +461,59 @@ extension BleL2capPlugin: StreamDelegate {
         case .hasBytesAvailable:
             guard let inputStream = aStream as? InputStream else { return }
             var buffer = [UInt8](repeating: 0, count: 1024)
-            let bytesRead = inputStream.read(&buffer, maxLength: buffer.count)
-            if bytesRead > 0 {
-                let data = Data(bytes: buffer, count: bytesRead)
-                handleReceivedData(data)
+            while inputStream.hasBytesAvailable {
+                let bytesRead = inputStream.read(&buffer, maxLength: buffer.count)
+                if bytesRead <= 0 { break }
+                consumeInput(Data(buffer[0..<bytesRead]), from: inputStream)
+                if bytesRead < buffer.count { break }
             }
+        case .hasSpaceAvailable:
+            guard let outputStream = aStream as? OutputStream else { return }
+            drainWrites(outputStream)
         case .errorOccurred:
             print("[SunsetBLE] Stream 异常: \(String(describing: aStream.streamError))")
+            cleanupStream(aStream)
         case .endEncountered:
             print("[SunsetBLE] Stream 对端关闭")
+            cleanupStream(aStream)
         default:
             break
         }
+    }
+
+    private func consumeInput(_ data: Data, from inputStream: InputStream) {
+        let key = ObjectIdentifier(inputStream)
+        var pending = inputBuffers[key] ?? Data()
+        pending.append(data)
+
+        while pending.count >= 6 {
+            let payloadLength = (Int(pending[4]) << 8) | Int(pending[5])
+            if payloadLength > 512 {
+                print("[SunsetBLE] 收到超长帧，丢弃当前输入缓冲")
+                pending.removeAll(keepingCapacity: false)
+                break
+            }
+            let totalLength = 6 + payloadLength
+            if pending.count < totalLength { break }
+            let frame = Data(pending.prefix(totalLength))
+            pending.removeFirst(totalLength)
+            handleReceivedData(frame, from: inputStream)
+        }
+
+        inputBuffers[key] = pending
+    }
+
+    private func cleanupStream(_ stream: Stream) {
+        if let inputStream = stream as? InputStream {
+            let key = ObjectIdentifier(inputStream)
+            inputBuffers.removeValue(forKey: key)
+            streamPeerAddresses.removeValue(forKey: key)
+            hostChannels.removeAll { $0.inputStream === inputStream }
+            if clientChannel?.inputStream === inputStream {
+                clientChannel = nil
+            }
+        }
+        pendingWrites.removeValue(forKey: ObjectIdentifier(stream))
     }
 }
 

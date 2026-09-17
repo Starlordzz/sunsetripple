@@ -33,6 +33,10 @@ void main() {
         connected: connected,
       );
 
+  Uint8List token(int seed) => Uint8List.fromList(
+        List<int>.generate(16, (index) => (seed + index) & 0xFF),
+      );
+
   group('HostTransferCodec 编解码', () {
     test('往返一致', () {
       final plan = HostTransferPlan(
@@ -52,6 +56,71 @@ void main() {
       expect(decoded.members[0].nickname, '阿远');
       expect(decoded.members[0].endpoint, '192.168.1.2');
       expect(decoded.members[1].nickname, '小北');
+    });
+
+    test('完整 sessionToken 使用 v2 并在解码后保留', () {
+      final first = token(1);
+      final second = token(33);
+      final v2Plan = HostTransferPlan(
+        successorId: 2,
+        members: [
+          HostTransferMember(
+            memberId: 2,
+            joinOrder: 5,
+            nickname: '阿远',
+            endpoint: '192.168.1.2',
+            sessionToken: first,
+          ),
+          HostTransferMember(
+            memberId: 3,
+            joinOrder: 6,
+            nickname: '小北',
+            endpoint: '192.168.1.3',
+            sessionToken: second,
+          ),
+        ],
+      );
+
+      expect(v2Plan.hasCompleteSessionTokens, isTrue);
+      final encoded = HostTransferCodec.encode(v2Plan);
+      expect(encoded.first, HostTransferCodec.version);
+      final decoded = HostTransferCodec.decode(encoded);
+      expect(decoded.members[0].sessionToken, orderedEquals(first));
+      expect(decoded.members[1].sessionToken, orderedEquals(second));
+    });
+
+    test('缺少 token 时发送 v1，旧格式解码后 token 为空', () {
+      final plan = HostTransferPlan(
+        successorId: 2,
+        members: [member(2, 1, '阿远', '10.0.0.2')],
+      );
+
+      final encoded = HostTransferCodec.encode(plan);
+      expect(encoded.first, HostTransferCodec.legacyVersion);
+      expect(HostTransferCodec.decode(encoded).members.single.sessionToken,
+          isNull);
+    });
+
+    test('v2 缺少完整 token 时拒绝，不会静默生成半份身份信息', () {
+      final encoded = HostTransferCodec.encode(HostTransferPlan(
+        successorId: 2,
+        members: [
+          HostTransferMember(
+            memberId: 2,
+            joinOrder: 1,
+            nickname: '阿远',
+            endpoint: '10.0.0.2',
+            sessionToken: token(1),
+          ),
+        ],
+      ));
+      expect(encoded.first, HostTransferCodec.version);
+      expect(
+        () => HostTransferCodec.decode(
+          Uint8List.fromList(encoded.sublist(0, encoded.length - 1)),
+        ),
+        throwsArgumentError,
+      );
     });
 
     test('中文昵称按 UTF-8 截断且不会切出半个字', () {
@@ -74,8 +143,7 @@ void main() {
       final plan = HostTransferPlan(
         successorId: 2,
         members: [
-          for (int i = 2; i <= 6; i++)
-            member(i, i, '成员$i', '192.168.100.$i'),
+          for (int i = 2; i <= 6; i++) member(i, i, '成员$i', '192.168.100.$i'),
         ],
       );
 
@@ -128,6 +196,32 @@ void main() {
           members: [
             member(2, 1, 'A', '10.0.0.2'),
             member(2, 2, 'B', '10.0.0.3'),
+          ],
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('非零 sessionToken 重复被拒绝', () {
+      final duplicate = token(7);
+      expect(
+        () => HostTransferPlan(
+          successorId: 2,
+          members: [
+            HostTransferMember(
+              memberId: 2,
+              joinOrder: 1,
+              nickname: 'A',
+              endpoint: '10.0.0.2',
+              sessionToken: duplicate,
+            ),
+            HostTransferMember(
+              memberId: 3,
+              joinOrder: 2,
+              nickname: 'B',
+              endpoint: '10.0.0.3',
+              sessionToken: duplicate,
+            ),
           ],
         ),
         throwsArgumentError,
@@ -202,6 +296,7 @@ void main() {
     });
 
     test('没有合格候选时返回 null', () {
+      expect(HostElection.select(const []), isNull);
       expect(HostElection.select([candidate(2, 1, connected: false)]), isNull);
       expect(HostElection.plan([]), isNull);
     });

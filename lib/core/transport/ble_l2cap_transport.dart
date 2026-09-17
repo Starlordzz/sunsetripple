@@ -70,6 +70,20 @@ class BleL2capTransport implements RoomTransport {
   @override
   Stream<Frame> get incoming => _incoming.stream;
 
+  // 蓝牙链路的断线由原生数据流结束统一处理；当前插件没有单独的
+  // reconnect/disconnected 事件接口，因此这些能力保留为明确的 no-op。
+  @override
+  Stream<void> get disconnected => const Stream<void>.empty();
+
+  @override
+  void bindMemberForSessionToken(Uint8List token, int memberId) {}
+
+  @override
+  void removeMember(int memberId) {}
+
+  @override
+  Future<bool> reconnect() async => false;
+
   @override
   int get peerCount => _peerCount;
 

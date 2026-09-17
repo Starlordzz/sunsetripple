@@ -15,6 +15,7 @@ class ReconnectController {
   int _retryCount = 0;
   Timer? _timer;
   bool _isReconnecting = false;
+  int _generation = 0;
 
   ReconnectController({
     required this.onAttemptReconnect,
@@ -40,9 +41,12 @@ class ReconnectController {
     }
 
     final delay = delays[_retryCount];
+    final generation = _generation;
     _timer = Timer(delay, () async {
+      if (!_isReconnecting || generation != _generation) return;
       _retryCount++;
       final success = await onAttemptReconnect();
+      if (!_isReconnecting || generation != _generation) return;
       if (success) {
         cancel();
       } else {
@@ -52,6 +56,7 @@ class ReconnectController {
   }
 
   void cancel() {
+    _generation++;
     _timer?.cancel();
     _timer = null;
     _isReconnecting = false;

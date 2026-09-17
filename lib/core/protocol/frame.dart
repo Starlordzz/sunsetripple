@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import '../diagnostics/app_log.dart';
 import 'frame_type.dart';
 
 /// SunsetRipple 6-byte Header Binary Frame.
@@ -32,15 +31,14 @@ class Frame {
     required Uint8List payload,
   }) : payload = _capPayload(type, payload);
 
-  /// 超长载荷仍然截断（否则 16 位长度字段会溢出），但不再静默——
-  /// 截断意味着音频/名单数据已经损坏，必须留下痕迹。
+  /// 超长载荷不能截断：截断后的帧仍然合法，但接收端会得到一个
+  /// 不完整对象，严重时还会把后续 TCP 字节解释成下一帧。
   static Uint8List _capPayload(FrameType type, Uint8List payload) {
     if (payload.length <= maxPayloadSize) return payload;
-    AppLog.error(
-      'Frame',
-      '${type.name} 帧载荷 ${payload.length} 字节超过上限 $maxPayloadSize，已截断（数据将损坏）',
+    throw ArgumentError(
+      '${type.name} frame payload exceeds $maxPayloadSize bytes '
+      '(actual: ${payload.length}).',
     );
-    return payload.sublist(0, maxPayloadSize);
   }
 
   /// Encodes this Frame into a raw byte buffer.
@@ -73,7 +71,7 @@ class Frame {
     final seq = byteData.getUint16(2, Endian.big);
     final length = byteData.getUint16(4, Endian.big);
 
-    if (data.length < headerSize + length || length > maxPayloadSize) {
+    if (length > maxPayloadSize || data.length != headerSize + length) {
       return null;
     }
 

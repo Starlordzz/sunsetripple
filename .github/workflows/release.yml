@@ -91,17 +91,24 @@ jobs:
           mkdir -p release-artifacts
           cp build/app/outputs/flutter-apk/app-release.apk "release-artifacts/$apk_name"
 
-          # 提取对应版本的 CHANGELOG 内容
-          awk -v heading="## $version_name - " '
-            index($0, heading) == 1 { found = 1 }
-            found && /^## / && index($0, heading) != 1 { exit }
-            found { print }
-            END { if (!found) exit 0 }
-          ' CHANGELOG.md > release-artifacts/release-notes.md
+          # 提取对应版本的更新日志并格式化为 GitHub Release 简洁格式
+          {
+            echo "# 更新日志"
+            echo ""
+            awk -v heading="## $version_name - " '
+              index($0, heading) == 1 { found = 1; next }
+              found && /^## / { exit }
+              found && /^[-*] / {
+                sub(/^[-*] /, "- ")
+                print
+              }
+            ' CHANGELOG.md
+          } > release-artifacts/release-notes.md
 
-          if [[ ! -s release-artifacts/release-notes.md ]]; then
-            echo "## SunsetRipple $tag" > release-artifacts/release-notes.md
+          if [[ $(grep -c '^- ' release-artifacts/release-notes.md) -eq 0 ]]; then
+            echo "- 更新依赖项与常规问题修复" >> release-artifacts/release-notes.md
           fi
+
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -237,7 +244,7 @@ jobs:
 
       - name: Append install instructions to release notes
         shell: bash
-        run: bash scripts/append-release-notes.sh final-artifacts/release-notes.md
+        run: bash scripts/append-release-notes.sh final-artifacts/release-notes.md "${{ needs.build-android.outputs.tag }}"
 
       - name: Publish versioned GitHub Release
         shell: bash

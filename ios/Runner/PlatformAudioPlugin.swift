@@ -121,6 +121,24 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
             }
             result(nil)
 
+        case "removeRemoteMember":
+            if let args = call.arguments as? [String: Any], let memberId = args["memberId"] as? Int {
+                playbackLock.lock()
+                remoteQueues.removeValue(forKey: memberId)
+                playbackLock.unlock()
+            }
+            result(nil)
+
+        case "clearRemoteMembers":
+            playbackLock.lock()
+            remoteQueues.removeAll()
+            playbackLock.unlock()
+            result(nil)
+
+        case "stopPlayback":
+            stopAudioEngine()
+            result(nil)
+
         case "dispose":
             detachChannels()
             result(nil)

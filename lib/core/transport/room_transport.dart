@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../protocol/frame.dart';
 
@@ -10,6 +11,9 @@ import '../protocol/frame.dart';
 abstract class RoomTransport {
   /// 收到的、需要交给 `RoomSession.handleIncomingFrame` 的帧。
   Stream<Frame> get incoming;
+
+  /// 底层连接已经断开。会话层据此启动重连，而不是继续向旧 socket 写入。
+  Stream<void> get disconnected => const Stream<void>.empty();
 
   /// 当前连接上的对端数量。
   int get peerCount;
@@ -34,6 +38,13 @@ abstract class RoomTransport {
   /// 没有成员号概念的传输层（蓝牙按链路寻址）可以不覆写。
   void updateKnownMemberIds(Set<int> ids) {}
 
+  /// 将 JOIN 中的会话令牌绑定到实际连接上的成员号。
+  /// 只有 LAN TCP 需要实现；BLE 由物理链路寻址。
+  void bindMemberForSessionToken(Uint8List token, int memberId) {}
+
+  /// 清理某个成员对应的 socket 和无连接端点。
+  void removeMember(int memberId) {}
+
   /// 本传输层是否支持房主转移。
   ///
   /// 蓝牙房返回 false：L2CAP 的 PSM 由系统在开监听时分配，换房主意味着
@@ -45,6 +56,9 @@ abstract class RoomTransport {
 
   /// 房主转移：作为成员重连到新房主。[endpoint] 取自交接计划。
   Future<bool> reconnectToHost(String endpoint);
+
+  /// 重建当前房主连接。默认传输层不支持自动重连。
+  Future<bool> reconnect() async => false;
 
   /// 已知的对端端点，按成员号索引。房主用它填交接计划。
   Map<int, String> get peerEndpoints;

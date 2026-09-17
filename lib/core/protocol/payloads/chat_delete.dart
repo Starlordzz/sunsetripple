@@ -24,13 +24,16 @@ class ChatDeletePayload {
   Uint8List encode() {
     final codeBytes = ascii.encode(senderCode.padRight(4, ' ').substring(0, 4));
     final msgIdBytes = utf8.encode(messageId);
-    final msgIdLen = msgIdBytes.length.clamp(0, 64);
+    if (msgIdBytes.isEmpty || msgIdBytes.length > 64) {
+      throw ArgumentError('messageId must contain 1 to 64 UTF-8 bytes.');
+    }
+    final msgIdLen = msgIdBytes.length;
 
     final buffer = Uint8List(1 + 4 + 1 + msgIdLen);
     buffer[0] = version;
     buffer.setRange(1, 5, codeBytes);
     buffer[5] = msgIdLen;
-    buffer.setRange(6, 6 + msgIdLen, msgIdBytes.sublist(0, msgIdLen));
+    buffer.setRange(6, 6 + msgIdLen, msgIdBytes);
     return buffer;
   }
 
@@ -39,11 +42,24 @@ class ChatDeletePayload {
     final version = data[0];
     if (version != currentVersion) return null;
 
-    final senderCode = ascii.decode(data.sublist(1, 5), allowInvalid: true).trim();
+    final String senderCode;
+    try {
+      senderCode = ascii.decode(data.sublist(1, 5), allowInvalid: false).trim();
+    } on FormatException {
+      return null;
+    }
     final msgIdLen = data[5];
-    if (data.length != 6 + msgIdLen) return null;
+    if (msgIdLen == 0 || data.length != 6 + msgIdLen) return null;
 
-    final messageId = utf8.decode(data.sublist(6, 6 + msgIdLen), allowMalformed: true);
+    final String messageId;
+    try {
+      messageId = utf8.decode(
+        data.sublist(6, 6 + msgIdLen),
+        allowMalformed: false,
+      );
+    } on FormatException {
+      return null;
+    }
     return ChatDeletePayload(
       version: version,
       senderCode: senderCode,

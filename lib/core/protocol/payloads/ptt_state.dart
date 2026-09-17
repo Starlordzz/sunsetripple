@@ -10,7 +10,7 @@ class PttStatePayload {
   Uint8List encode() => Uint8List.fromList([isPressed ? 1 : 0]);
 
   static PttStatePayload? decode(Uint8List bytes) {
-    if (bytes.isEmpty) return null;
+    if (bytes.length != 1 || bytes[0] > 1) return null;
     return PttStatePayload(isPressed: bytes[0] != 0);
   }
 }

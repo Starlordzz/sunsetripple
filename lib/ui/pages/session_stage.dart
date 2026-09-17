@@ -83,6 +83,7 @@ class _SessionStageState extends State<SessionStage>
   @override
   void dispose() {
     _sessionStateSub?.cancel();
+    unawaited(_session?.dispose());
     _stage.dispose();
     super.dispose();
   }
@@ -114,7 +115,7 @@ class _SessionStageState extends State<SessionStage>
     // 的构造和前台服务启动都压在 Android 主线程上，一次上百毫秒，
     // 塞进转场里必然掉帧。等动画落位再开。
     _stage.forward(from: 0.0).whenComplete(() {
-      if (mounted) session.startAudio();
+      if (mounted) unawaited(session.startAudio());
     });
   }
 
@@ -131,8 +132,8 @@ class _SessionStageState extends State<SessionStage>
     unawaited(session.leave());
 
     _stage.reverse().whenComplete(() {
+      unawaited(session.dispose());
       if (!mounted) return;
-      session.dispose();
       setState(() {
         _session = null;
         _roomName = "";

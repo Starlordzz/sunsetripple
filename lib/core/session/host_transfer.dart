@@ -18,6 +18,10 @@ class TransferCandidate {
   /// 重连用的端点。WiFi 房是对端 IP，蓝牙房是 MAC 地址。
   final String endpoint;
 
+  /// 用于房主转移后恢复成员身份。旧客户端没有该字段时保持 null，
+  /// 编解码器会回退到 v1 格式，让成员通过普通 JOIN 重新加入。
+  final Uint8List? sessionToken;
+
   final bool connected;
 
   const TransferCandidate({
@@ -26,6 +30,7 @@ class TransferCandidate {
     required this.nickname,
     required this.endpoint,
     this.connected = true,
+    this.sessionToken,
   });
 }
 
@@ -36,11 +41,15 @@ class HostTransferMember {
   final String nickname;
   final String endpoint;
 
+  /// v2 交接载荷中的成员会话令牌。v1 载荷解码后为 null。
+  final Uint8List? sessionToken;
+
   const HostTransferMember({
     required this.memberId,
     required this.joinOrder,
     required this.nickname,
     required this.endpoint,
+    this.sessionToken,
   });
 
   @override
@@ -54,6 +63,7 @@ class HostTransferMember {
 /// 这些断言不是防御性冗余——成员号或端点重复会让重连时两个人抢同一个身份。
 class HostTransferPlan {
   static const int maxMembers = 6;
+  static const int sessionTokenBytes = 16;
 
   final int successorId;
   final List<HostTransferMember> members;
@@ -81,6 +91,7 @@ class HostTransferPlan {
     if (!members.any((m) => m.memberId == successorId)) {
       throw ArgumentError('交接成员表不含继任者 $successorId');
     }
+    final tokenKeys = <String>{};
     for (final m in members) {
       if (m.memberId < 1 || m.memberId > 255) {
         throw ArgumentError('交接成员 ID 越界: ${m.memberId}');
@@ -91,8 +102,29 @@ class HostTransferPlan {
       if (m.endpoint.trim().isEmpty) {
         throw ArgumentError('交接端点不能为空');
       }
+      final token = m.sessionToken;
+      if (token == null) continue;
+      if (token.length != sessionTokenBytes) {
+        throw ArgumentError('成员 ${m.memberId} 的 sessionToken 长度错误');
+      }
+      // 全零 token 是旧客户端的兼容占位值，不参与 v2 身份恢复。
+      if (token.any((byte) => byte != 0)) {
+        final key =
+            token.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+        if (!tokenKeys.add(key)) {
+          throw ArgumentError('交接 sessionToken 重复');
+        }
+      }
     }
   }
+
+  /// 只有所有成员都有非全零令牌时，才可以发出 v2。
+  bool get hasCompleteSessionTokens => members.every((member) {
+        final token = member.sessionToken;
+        return token != null &&
+            token.length == sessionTokenBytes &&
+            token.any((byte) => byte != 0);
+      });
 
   HostTransferMember get successor =>
       members.firstWhere((m) => m.memberId == successorId);
@@ -122,6 +154,7 @@ class HostElection {
                 joinOrder: c.joinOrder,
                 nickname: c.nickname,
                 endpoint: c.endpoint,
+                sessionToken: c.sessionToken,
               ))
           .toList(),
     );
@@ -150,6 +183,7 @@ class SeededTransferMember {
   final int joinOrder;
   final String nickname;
   final String endpoint;
+  final Uint8List? sessionToken;
 
   const SeededTransferMember({
     required this.previousId,
@@ -157,6 +191,7 @@ class SeededTransferMember {
     required this.joinOrder,
     required this.nickname,
     required this.endpoint,
+    this.sessionToken,
   });
 }
 
@@ -213,12 +248,13 @@ class HostTransferSeed {
         joinOrder: m.joinOrder,
         nickname: m.nickname,
         endpoint: m.endpoint,
+        sessionToken: m.sessionToken,
       );
 }
 
 /// 交接计划的二进制编解码。
 ///
-/// 格式与已发布的 Kotlin 版 `HostTransferCodec` 逐字节一致：
+/// v1 格式与已发布的 Kotlin 版 `HostTransferCodec` 逐字节一致：
 ///
 /// ```
 /// version(1) | successorId(1) | count(1)
@@ -227,16 +263,33 @@ class HostTransferSeed {
 ///   nickLen(1) | nickname(UTF-8) | epLen(1) | endpoint(ASCII)
 /// ```
 ///
-/// 总长不得超过 [Frame.maxPayloadSize]（512）。
+/// v2 在每个成员的 endpoint 后追加固定 16 字节的 sessionToken：
+///
+/// ```
+/// version=2(1) | successorId(1) | count(1) | members... | sessionToken(16)
+/// ```
+///
+/// 总长不得超过 [Frame.maxPayloadSize]（512）。没有完整 token 的计划自动
+/// 编码为 v1；这样新客户端仍可接收旧格式，旧客户端也不会误解析 v2。
 class HostTransferCodec {
-  static const int version = 1;
+  static const int legacyVersion = 1;
+  static const int version = 2;
 
   /// 昵称最长 64 字节，与 roster 的截断规则一致。
   static const int maxNicknameBytes = 64;
 
   static Uint8List encode(HostTransferPlan plan) {
+    final wireVersion = plan.hasCompleteSessionTokens ? version : legacyVersion;
+    return _encode(plan, wireVersion);
+  }
+
+  /// 显式生成旧版载荷，用于兼容性测试和没有完整 token 的成员集合。
+  static Uint8List encodeLegacy(HostTransferPlan plan) =>
+      _encode(plan, legacyVersion);
+
+  static Uint8List _encode(HostTransferPlan plan, int wireVersion) {
     final out = BytesBuilder();
-    out.addByte(version);
+    out.addByte(wireVersion);
     out.addByte(plan.successorId);
     out.addByte(plan.members.length);
 
@@ -250,6 +303,14 @@ class HostTransferCodec {
       out.add(nickname);
       out.addByte(endpoint.length);
       out.add(endpoint);
+      if (wireVersion == version) {
+        final token = m.sessionToken;
+        if (token == null ||
+            token.length != HostTransferPlan.sessionTokenBytes) {
+          throw ArgumentError('v2 交接成员缺少有效 sessionToken');
+        }
+        out.add(token);
+      }
     }
 
     final bytes = out.toBytes();
@@ -268,7 +329,10 @@ class HostTransferCodec {
     final reader = _ByteReader(payload);
 
     if (reader.remaining < 3) throw ArgumentError('交接载荷字段不完整');
-    if (reader.readUint8() != version) throw ArgumentError('不支持的交接版本');
+    final wireVersion = reader.readUint8();
+    if (wireVersion != legacyVersion && wireVersion != version) {
+      throw ArgumentError('不支持的交接版本');
+    }
 
     final successorId = reader.readUint8();
     final count = reader.readUint8();
@@ -295,11 +359,19 @@ class HostTransferCodec {
         throw ArgumentError('交接成员 $i 端点不是 ASCII');
       }
 
+      final token = wireVersion == version
+          ? reader.readBytes(
+              HostTransferPlan.sessionTokenBytes,
+              '交接成员 $i sessionToken',
+            )
+          : null;
+
       members.add(HostTransferMember(
         memberId: memberId,
         joinOrder: joinOrder,
         nickname: nickname,
         endpoint: String.fromCharCodes(endpointBytes),
+        sessionToken: token,
       ));
     }
 
@@ -349,8 +421,8 @@ class _ByteReader {
   int readUint8() => _data[_offset++];
 
   int readInt64() {
-    final value =
-        ByteData.sublistView(_data, _offset, _offset + 8).getInt64(0, Endian.big);
+    final value = ByteData.sublistView(_data, _offset, _offset + 8)
+        .getInt64(0, Endian.big);
     _offset += 8;
     return value;
   }

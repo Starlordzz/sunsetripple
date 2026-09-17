@@ -14,26 +14,34 @@ class JoinRequestPayload {
 
   Uint8List encode() {
     final nickBytes = utf8.encode(nickname);
-    final clampedNickLen = nickBytes.length.clamp(0, 64);
-    final nickSub = nickBytes.sublist(0, clampedNickLen);
-    
-    final tokenBytes = Uint8List(16);
-    final copyLen = sessionToken.length.clamp(0, 16);
-    tokenBytes.setRange(0, copyLen, sessionToken);
+    if (nickBytes.isEmpty || nickBytes.length > 64) {
+      throw ArgumentError('nickname must contain 1 to 64 UTF-8 bytes.');
+    }
+    if (sessionToken.length != 16) {
+      throw ArgumentError('sessionToken must be exactly 16 bytes.');
+    }
 
-    final out = Uint8List(1 + clampedNickLen + 16);
-    out[0] = clampedNickLen;
-    out.setRange(1, 1 + clampedNickLen, nickSub);
-    out.setRange(1 + clampedNickLen, 1 + clampedNickLen + 16, tokenBytes);
+    final out = Uint8List(1 + nickBytes.length + 16);
+    out[0] = nickBytes.length;
+    out.setRange(1, 1 + nickBytes.length, nickBytes);
+    out.setRange(1 + nickBytes.length, out.length, sessionToken);
     return out;
   }
 
   static JoinRequestPayload? decode(Uint8List bytes) {
     if (bytes.length < 17) return null;
     final nickLen = bytes[0];
-    if (bytes.length < 1 + nickLen + 16) return null;
+    if (nickLen == 0 || nickLen > 64 || bytes.length != 1 + nickLen + 16) return null;
 
-    final nick = utf8.decode(bytes.sublist(1, 1 + nickLen), allowMalformed: true);
+    final String nick;
+    try {
+      nick = utf8.decode(
+        bytes.sublist(1, 1 + nickLen),
+        allowMalformed: false,
+      );
+    } on FormatException {
+      return null;
+    }
     final token = Uint8List(16);
     token.setRange(0, 16, bytes.sublist(1 + nickLen, 1 + nickLen + 16));
 

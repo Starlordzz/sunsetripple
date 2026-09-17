@@ -748,6 +748,8 @@ class _HomeContentState extends State<HomeContent> {
       final transport = LanTransport();
       final ok = await transport.startHost();
       if (!ok) {
+        await transport.dispose();
+        await session.dispose();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -760,13 +762,13 @@ class _HomeContentState extends State<HomeContent> {
         }
         return;
       }
-      session.transport = transport;
-      session.onSendFrame = transport.send;
-      transport.incoming.listen(session.handleIncomingFrame);
+      session.attachTransport(transport);
     } else {
       final transport = BleL2capTransport();
       final ok = await transport.startHost(roomName: roomName);
       if (!ok) {
+        await transport.dispose();
+        await session.dispose();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -779,9 +781,7 @@ class _HomeContentState extends State<HomeContent> {
         }
         return;
       }
-      session.transport = transport;
-      session.onSendFrame = transport.send;
-      transport.incoming.listen(session.handleIncomingFrame);
+      session.attachTransport(transport);
     }
 
     // 不在这里开麦：AudioRecord/AudioTrack 的构造压在 Android 主线程上，
@@ -816,6 +816,8 @@ class _HomeContentState extends State<HomeContent> {
       port: room.port,
     );
     if (!ok) {
+      await transport.dispose();
+      await session.dispose();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -828,9 +830,7 @@ class _HomeContentState extends State<HomeContent> {
       }
       return;
     }
-    session.transport = transport;
-    session.onSendFrame = transport.send;
-    transport.incoming.listen(session.handleIncomingFrame);
+    session.attachTransport(transport);
 
     // 同 _onCreateRoom：开麦推迟到转场跑完。
     await session.joinRoom(startAudio: false);
@@ -850,6 +850,8 @@ class _HomeContentState extends State<HomeContent> {
     final transport = BleL2capTransport();
     final ok = await transport.connectToHost(room);
     if (!ok) {
+      await transport.dispose();
+      await session.dispose();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -862,9 +864,7 @@ class _HomeContentState extends State<HomeContent> {
       }
       return;
     }
-    session.transport = transport;
-    session.onSendFrame = transport.send;
-    transport.incoming.listen(session.handleIncomingFrame);
+    session.attachTransport(transport);
 
     await session.joinRoom(startAudio: false);
 
@@ -911,6 +911,8 @@ class _HomeContentState extends State<HomeContent> {
       port: 8988,
     );
     if (!ok) {
+      await transport.dispose();
+      await session.dispose();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -923,9 +925,7 @@ class _HomeContentState extends State<HomeContent> {
       }
       return;
     }
-    session.transport = transport;
-    session.onSendFrame = transport.send;
-    transport.incoming.listen(session.handleIncomingFrame);
+    session.attachTransport(transport);
 
     await session.joinRoom(startAudio: false);
 

@@ -428,17 +428,23 @@ class BleL2capPlugin(
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             val record = result?.scanRecord ?: return
-            val payload = record.getManufacturerSpecificData(MANUFACTURER_ID) ?: return
-            if (payload.size < 3) return
+            val parsed = record.getManufacturerSpecificData(MANUFACTURER_ID)
+                ?.takeIf { it.size >= 3 }
+                ?.let { payload ->
+                    val psm = ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
+                    if (psm <= 0) return@let null
+                    val count = payload[2].toInt() and 0xFF
+                    val name = if (payload.size > 3) {
+                        String(payload, 3, payload.size - 3, Charsets.UTF_8)
+                    } else {
+                        "蓝牙房"
+                    }
+                    Triple(psm, count, name)
+                }
+                ?: parseIosLocalName(record.deviceName ?: result.device?.name)
+                ?: return
 
-            val psm = ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
-            if (psm <= 0) return
-            val memberCount = payload[2].toInt() and 0xFF
-            val roomName = if (payload.size > 3) {
-                String(payload, 3, payload.size - 3, Charsets.UTF_8)
-            } else {
-                "蓝牙房"
-            }
+            val (psm, memberCount, roomName) = parsed
 
             val device = result.device ?: return
             val info = mapOf(
@@ -458,6 +464,20 @@ class BleL2capPlugin(
             }
             scanning = false
         }
+    }
+
+    /** 兼容 iOS：它把 PSM/人数/房名放在 LocalName，而不是厂商数据里。 */
+    private fun parseIosLocalName(name: String?): Triple<Int, Int, String>? {
+        if (name == null || !name.startsWith("SR_")) return null
+        val parts = name.split("_", limit = 4)
+        if (parts.size < 3) return null
+        val psm = parts[1].toIntOrNull() ?: return null
+        if (psm <= 0) return null
+        if (parts.size >= 4) {
+            val count = parts[2].toIntOrNull() ?: return null
+            return Triple(psm, count.coerceIn(1, 6), parts[3])
+        }
+        return Triple(psm, 1, parts[2])
     }
 
     private fun connectL2cap(address: String, psm: Int, result: MethodChannel.Result) {

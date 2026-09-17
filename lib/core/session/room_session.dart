@@ -21,6 +21,7 @@ import 'member.dart';
 import 'reconnect_controller.dart';
 
 enum RoomMode { wifiFullDuplex, bluetoothPtt }
+
 enum RoomState { idle, connecting, inRoom, reconnecting, disconnected }
 
 /// Full Feature-Parity Central Room Session Controller.
@@ -93,8 +94,10 @@ class RoomSession {
 
   // 纯内存聊天状态
   final List<ChatMessage> _chatMessages = [];
-  final _chatStreamController = StreamController<ChatMessage>.broadcast(sync: true);
-  final _chatListController = StreamController<List<ChatMessage>>.broadcast(sync: true);
+  final _chatStreamController =
+      StreamController<ChatMessage>.broadcast(sync: true);
+  final _chatListController =
+      StreamController<List<ChatMessage>>.broadcast(sync: true);
   final _unreadStreamController = StreamController<int>.broadcast(sync: true);
   int _unreadChatCount = 0;
   final Set<String> _seenChatKeys = <String>{};
@@ -112,6 +115,17 @@ class RoomSession {
   // 音浪只喂 UI，33ms 一帧（约 30Hz）足够顺滑。采集回调本身 25~50Hz，
   // 不限频的话背景水波和对讲盘的重绘节奏会被音频帧拖着走，转场期间抢帧。
   int _lastWaveUiEmitMs = 0;
+
+  // 传输层订阅由会话统一拥有，避免 UI 每次进房都遗留一个 incoming 监听。
+  StreamSubscription<Frame>? _incomingSubscription;
+  StreamSubscription<void>? _disconnectSubscription;
+  Future<void> _incomingTail = Future<void>.value();
+  int _transportGeneration = 0;
+
+  // leave/dispose 可能由按钮、断线和页面销毁同时触发；同一个会话只允许
+  // 有一条收尾链路，避免重复发送 leave、重复 stop 以及向已关闭 controller 写入。
+  Future<void>? _leaveFuture;
+  bool _disposed = false;
 
   Stream<RoomState> get stateStream => _stateController.stream;
   Stream<List<Member>> get membersStream => _membersController.stream;
@@ -146,6 +160,36 @@ class RoomSession {
         _updateState(RoomState.disconnected);
       },
     );
+  }
+
+  /// 把传输层交给会话统一管理。收到的帧按到达顺序串行处理，
+  /// 旧传输层的迟到事件会被 generation 丢弃。
+  void attachTransport(RoomTransport value) {
+    _transportGeneration++;
+    final generation = _transportGeneration;
+    unawaited(_incomingSubscription?.cancel());
+    unawaited(_disconnectSubscription?.cancel());
+    _incomingSubscription = null;
+    _disconnectSubscription = null;
+    transport = value;
+    onSendFrame = value.send;
+    _incomingSubscription = value.incoming.listen((frame) {
+      if (_disposed || generation != _transportGeneration) return;
+      _queueIncomingFrame(frame);
+    });
+    _disconnectSubscription = value.disconnected.listen((_) {
+      if (_disposed || generation != _transportGeneration) return;
+      triggerDisconnect();
+    });
+  }
+
+  void _queueIncomingFrame(Frame frame) {
+    if (_disposed) return;
+    _incomingTail = _incomingTail.then<void>((_) async {
+      if (!_disposed) await handleIncomingFrame(frame);
+    }).catchError((Object error) {
+      AppLog.error('RoomSession', '处理收到的帧失败，后续帧继续排队', error);
+    });
   }
 
   static Uint8List _generateSessionToken() {
@@ -229,13 +273,17 @@ class RoomSession {
   /// 如果压在 560ms 的进房转场里，UI 线程和平台线程互相抢，动画必然掉帧。
   /// 所以进房时先只建房、跑完动画再开麦。
   Future<void> startAudio() async {
-    if (_audioStarted) return;
-    _audioStarted = true;
+    if (_audioStarted && audioIo.isRecording) return;
+    _audioStarted = false;
     await _startAudioPipeline();
+    // 平台通道会把权限拒绝、插件缺失和事件流错误转换成 isRecording=false。
+    // 只有真正打开成功才锁住幂等标记，否则下一次进入/重试会被静默跳过。
+    _audioStarted = audioIo.isRecording;
   }
 
   /// Process incoming binary frames
   Future<void> handleIncomingFrame(Frame frame) async {
+    if (_disposed) return;
     if (frame.type == FrameType.sealed) {
       if (secureCodec == null) {
         AppLog.warn('RoomSession', '收到加密帧但未配置安全编解码器，已丢弃');
@@ -248,6 +296,11 @@ class RoomSession {
         AppLog.error('RoomSession', '解封加密帧失败，可能为伪造或重放帧', e);
       }
       return;
+    }
+
+    final activeSender = _members[frame.senderId];
+    if (activeSender != null) {
+      activeSender.lastActiveAt = DateTime.now();
     }
 
     switch (frame.type) {
@@ -335,7 +388,7 @@ class RoomSession {
   }
 
   void _handleJoinReq(Frame frame) {
-    if (!_isHost) return;
+    if (!_isHost || frame.senderId != 0) return;
     final payload = JoinRequestPayload.decode(frame.payload);
     if (payload == null) return;
 
@@ -348,7 +401,9 @@ class RoomSession {
     if (!_isZeroToken(joinToken)) {
       for (final entry in _members.entries) {
         final existing = entry.value.sessionToken;
-        if (existing != null && !_isZeroToken(existing) && _tokensEqual(existing, joinToken)) {
+        if (existing != null &&
+            !_isZeroToken(existing) &&
+            _tokensEqual(existing, joinToken)) {
           allocatedId = entry.key;
           break;
         }
@@ -383,6 +438,10 @@ class RoomSession {
       endpoint: existing?.endpoint ?? '',
     );
 
+    // JOIN 的令牌只用于把本次 TCP 连接绑定到房主分配的成员号；
+    // 后续控制帧不再信任客户端自报的 senderId。
+    transport?.bindMemberForSessionToken(joinToken, allocatedId);
+
     _recordMemberIdentity(allocatedId, payload.nickname);
     _broadcastRoster();
     _notifyMembers();
@@ -390,14 +449,23 @@ class RoomSession {
   }
 
   void _handleRoster(Frame frame) {
+    // 房主是名单的唯一权威，不能接受远端成员发来的 roster 覆盖本地状态。
+    // 允许 senderId == selfMemberId 的本地注入，便于测试和本地回环适配；
+    // LAN 传输层不会把远端帧伪装成本机成员号。
+    if (_isHost && (transport != null || frame.senderId != _selfMemberId)) {
+      return;
+    }
     final payload = RosterPayload.decode(frame.payload);
     if (payload == null) return;
+    if (!_isHost && frame.senderId != payload.hostId) return;
 
     // 如果本机已经持有非 0 的成员号，且名单中依然包含该 ID 且昵称一致，则优先保持
     final selfAlreadyAssigned = !isHost &&
         _selfMemberId > 0 &&
-        payload.members.any((m) => m.memberId == _selfMemberId && m.nickname == selfNickname);
+        payload.members.any(
+            (m) => m.memberId == _selfMemberId && m.nickname == selfNickname);
 
+    final previousMembers = Map<int, Member>.from(_members);
     _members.clear();
     bool selfClaimed = selfAlreadyAssigned;
 
@@ -406,6 +474,7 @@ class RoomSession {
       _members[rm.memberId] = Member(
         memberId: rm.memberId,
         nickname: rm.nickname,
+        sessionToken: previousMembers[rm.memberId]?.sessionToken,
         isHost: rm.isHost,
         isMuted: rm.isMuted,
         isSpeaking: rm.isSpeaking,
@@ -427,6 +496,7 @@ class RoomSession {
     for (final id in gone) {
       _lastAudioAt.remove(id);
       audioIo.removeRemoteMember(id);
+      transport?.removeMember(id);
     }
 
     _notifyMembers();
@@ -451,18 +521,39 @@ class RoomSession {
   }
 
   void _handleLeave(Frame frame) {
+    // 旧版 alpha.7 的 LEAVE 曾使用空 payload，保留这一条兼容路径；
+    // 一旦带 payload，则必须严格符合当前 1-byte reason 格式。
+    if (frame.payload.isNotEmpty &&
+        LeavePayload.decode(frame.payload) == null) {
+      return;
+    }
+    final leavingMember = _members[frame.senderId];
+    final wasHost = leavingMember?.isHost == true;
     _members.remove(frame.senderId);
+    transport?.removeMember(frame.senderId);
     _lastAudioAt.remove(frame.senderId);
     audioIo.removeRemoteMember(frame.senderId);
     _notifyMembers();
 
     if (_isHost) {
       _broadcastRoster();
+    } else if (wasHost) {
+      final plan = _cachedPlan;
+      if (plan != null && !_transferInProgress) {
+        AppLog.info(
+            'RoomSession', '收到房主离房通知，按快照迁移到 ${plan.successor.nickname}');
+        _transferInProgress = true;
+        _runTransfer(plan).whenComplete(() => _transferInProgress = false);
+      } else {
+        AppLog.warn('RoomSession', '房主已离房，且无可用交接快照，房间解散');
+        _updateState(RoomState.disconnected);
+      }
     }
   }
 
   /// 收到交接帧（0x07）：立刻执行迁移。
   Future<void> _handleHostHandover(Frame frame) async {
+    if (_isHost || !_isHostFrame(frame)) return;
     final plan = _decodePlan(frame, '交接帧');
     if (plan == null) return;
     if (!_isPlanFresh(plan)) return;
@@ -477,13 +568,15 @@ class RoomSession {
   /// 交接帧或房主超时，所以这里绝不能动 isHost——否则一条迟到的快照
   /// 就能把现任房主顶下去。
   void _handleHostAnnounce(Frame frame) {
-    if (_isHost) return;
+    if (_isHost || !_isHostFrame(frame)) return;
     final plan = _decodePlan(frame, '交接快照');
     if (plan == null) return;
     if (!_isPlanFresh(plan)) return;
 
     _cachedPlan = plan;
   }
+
+  bool _isHostFrame(Frame frame) => _members[frame.senderId]?.isHost == true;
 
   HostTransferPlan? _decodePlan(Frame frame, String what) {
     try {
@@ -555,19 +648,38 @@ class RoomSession {
       return;
     }
 
-    // 交接后所有人的成员号都会变：继任者取 1，其余按 joinOrder 顺延。
-    // 传输层必须跟着更新，否则语音会被转发到错的端点。
+    // v1 快照没有身份令牌，不能把远端成员当作已认证连接预先占位；否则
+    // 他们带 token 重连时只能重新分配身份，甚至可能把 6 人名额永久占满。
+    // v2 快照带有每个成员的 token，可以先恢复「预留身份」，等 JOIN 到达
+    // 时由 _handleJoinReq 重新绑定实际 socket；这不会把未认证连接当成已连接。
     _members.clear();
     _lastAudioAt.clear();
-    for (final m in seed.members) {
-      final id = m.newId + 1; // seed 里继任者是 0，房主统一用 1
-      _members[id] = Member(
-        memberId: id,
-        nickname: m.nickname,
-        joinOrder: m.joinOrder,
-        endpoint: m.endpoint,
-        isHost: id == 1,
-      );
+    final successor = seed.host;
+    _members[1] = Member(
+      memberId: 1,
+      nickname: selfNickname,
+      sessionToken: sessionToken,
+      joinOrder: successor.joinOrder,
+      isHost: true,
+    );
+
+    if (plan.hasCompleteSessionTokens) {
+      for (final member in plan.members) {
+        if (member.memberId == plan.successorId) continue;
+        // 正常计划只包含旧房主之外的远端成员，因此 ID 1 不应出现。
+        // 即使收到异常计划，也不能覆盖新房主的本地身份。
+        if (member.memberId == 1) {
+          AppLog.warn('RoomSession', '忽略交接计划中的冲突成员 ID 1');
+          continue;
+        }
+        _members[member.memberId] = Member(
+          memberId: member.memberId,
+          nickname: member.nickname,
+          sessionToken: member.sessionToken,
+          joinOrder: member.joinOrder,
+          endpoint: member.endpoint,
+        );
+      }
     }
 
     _selfMemberId = 1;
@@ -591,8 +703,9 @@ class RoomSession {
       return;
     }
 
-    // 成员号由新房主重新分配，所以重新走一次入房；音频管线不重启，
-    // 否则会有一段可听见的断音。
+    // v2 计划中的 sessionToken 会让新房主复用原成员号；v1 没有 token，
+    // 则由新房主在 JOIN 时重新分配。两种情况都要重新走一次入房，
+    // 音频管线不重启，否则会有一段可听见的断音。
     await joinRoom(startAudio: false);
     AppLog.info('RoomSession', '已跟随新房主 ${plan.successor.nickname} 重连');
   }
@@ -614,6 +727,7 @@ class RoomSession {
         joinOrder: m.joinOrder,
         nickname: m.nickname,
         endpoint: endpoint,
+        sessionToken: m.sessionToken,
       ));
     }
 
@@ -630,6 +744,7 @@ class RoomSession {
                   joinOrder: c.joinOrder,
                   nickname: c.nickname,
                   endpoint: c.endpoint,
+                  sessionToken: c.sessionToken,
                 ))
             .toList(),
       );
@@ -667,10 +782,12 @@ class RoomSession {
       if (m.isHost) flags |= 0x01;
       if (m.isMuted) flags |= 0x02;
       if (m.isSpeaking) flags |= 0x04;
-      return RosterMember(memberId: m.memberId, flags: flags, nickname: m.nickname);
+      return RosterMember(
+          memberId: m.memberId, flags: flags, nickname: m.nickname);
     }).toList();
 
-    final payload = RosterPayload(hostId: _selfMemberId, members: rosterMembers);
+    final payload =
+        RosterPayload(hostId: _selfMemberId, members: rosterMembers);
     final frame = Frame(
       type: FrameType.roster,
       senderId: _selfMemberId,
@@ -771,6 +888,7 @@ class RoomSession {
       AppLog.info('RoomSession', '成员 #$id「${member?.nickname}」心跳超时，已从名单移除');
       _lastAudioAt.remove(id);
       audioIo.removeRemoteMember(id);
+      transport?.removeMember(id);
     }
     _notifyMembers();
     _broadcastRoster();
@@ -813,6 +931,10 @@ class RoomSession {
     _updateState(RoomState.reconnecting);
     // 不重开麦：音频管线与传输层是独立的，重连期间它一直在跑，
     // 重启一次反而会造成一段可听见的断音。
+    final t = transport;
+    if (t == null || !await t.reconnect()) {
+      return false;
+    }
     await joinRoom(startAudio: false);
 
     if (_state == RoomState.inRoom) return true;
@@ -845,6 +967,11 @@ class RoomSession {
   }
 
   void triggerDisconnect() {
+    if (_disposed ||
+        _state == RoomState.idle ||
+        _reconnectController.isReconnecting) {
+      return;
+    }
     _updateState(RoomState.reconnecting);
     _reconnectController.start();
   }
@@ -862,6 +989,7 @@ class RoomSession {
         outFrame = await secureCodec!.seal(frame);
       } catch (e) {
         AppLog.error('RoomSession', '密封加密帧失败，已放弃发送', e);
+        return;
       }
     }
     onSendFrame?.call(outFrame);
@@ -930,7 +1058,8 @@ class RoomSession {
     }
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
-      throw ArgumentError('Chat message text cannot be empty or whitespace-only.');
+      throw ArgumentError(
+          'Chat message text cannot be empty or whitespace-only.');
     }
 
     final fullNickname = _members[_selfMemberId]?.nickname ?? selfNickname;
@@ -964,7 +1093,8 @@ class RoomSession {
 
     // 本地立即追加一条 isLocal = true 消息
     _recordMemberIdentity(_selfMemberId, fullNickname);
-    final cleanNickname = _currentNicknameByCode[code] ?? DeviceCode.split(fullNickname).$1;
+    final cleanNickname =
+        _currentNicknameByCode[code] ?? DeviceCode.split(fullNickname).$1;
     final prevNick = _previousNicknamesByCode[code]?.join('、');
 
     final localMsg = ChatMessage(
@@ -1011,16 +1141,18 @@ class RoomSession {
     // 5. 身份与曾用名关联
     _recordMemberIdentity(frame.senderId, sender.nickname);
     final split = DeviceCode.split(sender.nickname);
-    final senderCode = (payload.senderCode != '0000' && payload.senderCode.isNotEmpty)
-        ? DeviceCode.toNumeric(payload.senderCode)
-        : (split.$2 ?? 'M${frame.senderId}');
+    final senderCode =
+        (payload.senderCode != '0000' && payload.senderCode.isNotEmpty)
+            ? DeviceCode.toNumeric(payload.senderCode)
+            : (split.$2 ?? 'M${frame.senderId}');
     final cleanNickname = _currentNicknameByCode[senderCode] ?? split.$1;
     final prevNick = _previousNicknamesByCode[senderCode]?.join('、');
 
     final timestamp = payload.timestampMs != 0
         ? DateTime.fromMillisecondsSinceEpoch(payload.timestampMs)
         : DateTime.now();
-    final messageId = '${senderCode}_${timestamp.millisecondsSinceEpoch}_${frame.seq}';
+    final messageId =
+        '${senderCode}_${timestamp.millisecondsSinceEpoch}_${frame.seq}';
 
     // 6. 组装并追加消息
     final msg = ChatMessage(
@@ -1076,7 +1208,8 @@ class RoomSession {
     }
 
     // 仅接收定向发给本机或广播的历史同步帧
-    if (payload.targetMemberId != 0 && payload.targetMemberId != _selfMemberId) {
+    if (payload.targetMemberId != 0 &&
+        payload.targetMemberId != _selfMemberId) {
       return;
     }
 
@@ -1086,7 +1219,8 @@ class RoomSession {
     }
 
     _recordMemberIdentity(payload.senderId, payload.nickname);
-    final cleanNick = _currentNicknameByCode[payload.senderCode] ?? payload.nickname;
+    final cleanNick =
+        _currentNicknameByCode[payload.senderCode] ?? payload.nickname;
     final prevNick = _previousNicknamesByCode[payload.senderCode]?.join('、');
 
     final msg = ChatMessage(
@@ -1121,7 +1255,8 @@ class RoomSession {
     if (idx == -1) return;
     final target = _chatMessages[idx];
 
-    final myCode = DeviceCode.toNumeric(DeviceCode.split(selfNickname).$2 ?? DeviceCode.current);
+    final myCode = DeviceCode.toNumeric(
+        DeviceCode.split(selfNickname).$2 ?? DeviceCode.current);
     // 权限校验：只能删除自己发送的消息
     if (!target.isLocal && DeviceCode.toNumeric(target.senderCode) != myCode) {
       throw StateError('Cannot delete messages sent by other members.');
@@ -1151,7 +1286,8 @@ class RoomSession {
     final payload = ChatDeletePayload.decode(frame.payload);
     if (payload == null) return;
 
-    final idx = _chatMessages.indexWhere((m) => m.messageId == payload.messageId);
+    final idx =
+        _chatMessages.indexWhere((m) => m.messageId == payload.messageId);
     if (idx == -1) return;
 
     final target = _chatMessages[idx];
@@ -1188,7 +1324,9 @@ class RoomSession {
     if (_currentNicknameByCode.containsKey(code)) {
       final oldNick = _currentNicknameByCode[code]!;
       if (oldNick != cleanNick) {
-        _previousNicknamesByCode.putIfAbsent(code, () => <String>{}).add(oldNick);
+        _previousNicknamesByCode
+            .putIfAbsent(code, () => <String>{})
+            .add(oldNick);
         _currentNicknameByCode[code] = cleanNick;
         // 同步更新之前该成员发出的历史消息
         bool changed = false;
@@ -1243,7 +1381,9 @@ class RoomSession {
     }
   }
 
-  Future<void> leave() async {
+  Future<void> leave() => _leaveFuture ??= _leaveImpl();
+
+  Future<void> _leaveImpl() async {
     final leavePayload = LeavePayload();
     final frame = Frame(
       type: FrameType.leave,
@@ -1317,7 +1457,15 @@ class RoomSession {
   /// 第一个 await（stopCapture）就挂起了，等它恢复执行时再去 `_updateState`
   /// 和 `_notifyMembers`，写的已经是关掉的 controller，直接抛 StateError。
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _transportGeneration++;
     await leave();
+    await _incomingSubscription?.cancel();
+    await _disconnectSubscription?.cancel();
+    _incomingSubscription = null;
+    _disconnectSubscription = null;
+    await transport?.dispose();
     _chatMessages.clear();
     _seenChatKeys.clear();
     _seenChatKeyOrder.clear();

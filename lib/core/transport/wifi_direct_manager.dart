@@ -75,7 +75,8 @@ class WifiDirectManager {
   Future<bool> isSupported() async {
     try {
       return await _channel.invokeMethod<bool>('isSupported') ?? false;
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn(_tag, '查询 Wi-Fi Direct 支持状态异常', e);
       return false;
     }
   }
@@ -83,7 +84,8 @@ class WifiDirectManager {
   Future<bool> isEnabled() async {
     try {
       return await _channel.invokeMethod<bool>('isEnabled') ?? false;
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn(_tag, '查询 Wi-Fi Direct 启用状态异常', e);
       return false;
     }
   }
@@ -120,11 +122,15 @@ class WifiDirectManager {
         },
         onError: (Object e) {
           AppLog.debug(_tag, 'Wi-Fi Direct 事件流未就绪: $e');
+          _eventSubscription = null;
+          _isListening = false;
         },
         cancelOnError: true,
       );
     } catch (e) {
       AppLog.debug(_tag, '监听 Wi-Fi Direct 事件流失败: $e');
+      _eventSubscription = null;
+      _isListening = false;
     }
   }
 

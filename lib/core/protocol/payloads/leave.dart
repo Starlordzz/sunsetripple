@@ -7,10 +7,15 @@ class LeavePayload {
 
   LeavePayload({this.reason = 0});
 
-  Uint8List encode() => Uint8List.fromList([reason]);
+  Uint8List encode() {
+    if (reason < 0 || reason > 2) {
+      throw ArgumentError('leave reason must be 0, 1, or 2.');
+    }
+    return Uint8List.fromList([reason]);
+  }
 
   static LeavePayload? decode(Uint8List bytes) {
-    if (bytes.isEmpty) return LeavePayload();
+    if (bytes.length != 1 || bytes[0] > 2) return null;
     return LeavePayload(reason: bytes[0]);
   }
 }
