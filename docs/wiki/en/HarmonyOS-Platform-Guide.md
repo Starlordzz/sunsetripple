@@ -1,125 +1,119 @@
 > 🌐 English | [简体中文](../HarmonyOS平台适配指南.md)
 
-# SunsetRipple HarmonyOS NEXT (Pure HarmonyOS) Platform Guide
+# SunsetRipple HarmonyOS NEXT Platform Guide
 
-This document provides the specification for adapting SunsetRipple's audio and near-field networking to the native HarmonyOS NEXT environment.
+This document describes the **current implementation** and the **remaining work** for SunsetRipple in the native HarmonyOS NEXT environment.
 
----
+Under `harmonyos/entry/src/main/ets/` the following actually exist:
 
-## 1. Call-Grade Audio Capture and Playback (`AudioEngine.ets`)
+| Path | Status | Notes |
+| --- | --- | --- |
+| `audio/HarmonyAudioEngine.ets` | Implemented | ArkTS audio capture/render wrapper |
+| `model/Frame.ets` | Implemented | Frame types and 6-byte header codec |
+| `session/HarmonyRoomSession.ets` | Implemented (scaffolding) | Coordinates session state; network send is empty |
+| `transport/LanRoomDiscovery.ets` | Implemented (scanner only) | `HarmonyLanScanner`, aligned with the Dart discovery protocol |
+| `plugin/PlatformAudioPlugin.ets` | **Empty file (0 bytes)** | Platform-channel bridge missing |
+| `pages/Index.ets` | Implemented | Home ArkUI page |
+| `pages/RoomPage.ets` | Implemented | Room/PTT ArkUI page |
+| `entryability/EntryAbility.ets` | Implemented | UIAbility entry point |
 
-In HarmonyOS NEXT, an `AudioCapturer` and an `AudioRenderer` are created through the `@ohos.multimedia.audio` module. Specifying `SOURCE_TYPE_VOICE_COMMUNICATION` automatically enables the hardware echo cancellation (AEC) and noise suppression of Kirin chipsets and the HarmonyOS system:
+> ⚠️ `WifiP2pTransport.ets` does **not** exist in the repo. Any sample based on Wi-Fi P2P is not part of the current implementation.
 
-```typescript
-import audio from '@ohos.multimedia.audio';
-
-export class HarmonyAudioEngine {
-  private capturer: audio.AudioCapturer | null = null;
-  private renderer: audio.AudioRenderer | null = null;
-  private isRunning: boolean = false;
-  public micMuted: boolean = false;
-  public onPcmFrame: (pcm: Int16Array) => void = () => {};
-
-  async start(): Promise<void> {
-    const audioStreamInfo: audio.AudioStreamInfo = {
-      samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_16000,
-      channels: audio.AudioChannel.CHANNEL_1,
-      sampleFormat: audio.AudioSampleFormat.SAMPLE_FORMAT_S16LE,
-      encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW
-    };
-
-    // 1. 采集器配置：通话语音模式，自动开启硬件级 AEC 与 NS
-    const capturerInfo: audio.AudioCapturerInfo = {
-      source: audio.SourceType.SOURCE_TYPE_VOICE_COMMUNICATION,
-      capturerFlags: 0
-    };
-    this.capturer = await audio.createAudioCapturer({
-      streamInfo: audioStreamInfo,
-      capturerInfo: capturerInfo
-    });
-
-    // 2. 渲染器配置：通话语音流
-    const rendererInfo: audio.AudioRendererInfo = {
-      usage: audio.StreamUsage.STREAM_USAGE_VOICE_COMMUNICATION,
-      rendererFlags: 0
-    };
-    this.renderer = await audio.createAudioRenderer({
-      streamInfo: audioStreamInfo,
-      rendererInfo: rendererInfo
-    });
-
-    await this.capturer.start();
-    await this.renderer.start();
-    this.isRunning = true;
-
-    // 循环采集 20ms (320 samples / 640 bytes)
-    this.readLoop();
-  }
-
-  private async readLoop(): Promise<void> {
-    const bufferSize = 640; // 320 samples * 2 bytes
-    while (this.isRunning && this.capturer) {
-      const buffer = await this.capturer.read(bufferSize, true);
-      if (!this.micMuted && buffer.byteLength > 0) {
-        const int16 = new Int16Array(buffer);
-        this.onPcmFrame(int16);
-      }
-    }
-  }
-
-  playPcm(pcm: Int16Array): void {
-    if (this.renderer && this.isRunning) {
-      this.renderer.write(pcm.buffer);
-    }
-  }
-
-  async stop(): Promise<void> {
-    this.isRunning = false;
-    if (this.capturer) {
-      await this.capturer.stop();
-      await this.capturer.release();
-      this.capturer = null;
-    }
-    if (this.renderer) {
-      await this.renderer.stop();
-      await this.renderer.release();
-      this.renderer = null;
-    }
-  }
-}
-```
+**Data-plane status: not connected. Only UDP discovery works.**
 
 ---
 
-## 2. HarmonyOS Wi-Fi P2P Networking and Socket Communication (`WifiP2pTransport.ets`)
+## 1. Audio Engine `audio/HarmonyAudioEngine.ets`
 
-In HarmonyOS NEXT, P2P group creation and connection are performed via `@ohos.net.wifi`:
+`HarmonyAudioEngine` wraps the `AudioCapturer` and `AudioRenderer` from `@ohos.multimedia.audio`:
 
-```typescript
-import wifi from '@ohos.net.wifi';
-import socket from '@ohos.net.socket';
+- Constants: `SAMPLE_RATE = 16000`, `FRAME_SAMPLES = 320` (20 ms).
+- Audio stream: 16000 Hz, mono, `SAMPLE_FORMAT_S16LE`, `ENCODING_TYPE_RAW`.
+- Capturer: `SOURCE_TYPE_VOICE_COMMUNICATION`; renderer: `STREAM_USAGE_VOICE_COMMUNICATION`, letting the system enable call-grade AEC/NS.
+- API: `start()`, private `captureLoop()` (loops `read` in 640-byte chunks), `playPcm(pcm: Int16Array)` (`renderer.write`), `stop()`.
+- Callback and state: `onPcmFrame(pcm: Int16Array)`, `micMuted`.
 
-export class HarmonyWifiP2pTransport {
-  private tcpSocket: socket.TCPSocket = socket.constructTCPSocketInstance();
-  private udpSocket: socket.UDPSocket = socket.constructUDPSocketInstance();
+In other words, the Android/iOS audio parameters — 16 kHz mono 16-bit, 20 ms / 320 samples / 640 bytes — are identical on HarmonyOS.
 
-  async initP2pGroup(): Promise<void> {
-    // 创建 P2P 群组
-    wifi.createGroup({
-      passphrase: '',
-      groupName: 'SunsetRipple_P2P'
-    });
-  }
+---
 
-  async connectToPeer(deviceAddress: string): Promise<void> {
-    const config: wifi.WifiP2pConfig = {
-      deviceAddress: deviceAddress,
-      netId: -1,
-      passphrase: '',
-      groupName: '',
-      goBand: wifi.GroupOwnerBand.GO_BAND_AUTO
-    };
-    wifi.p2pConnect(config);
-  }
-}
-```
+## 2. Frame Protocol `model/Frame.ets`
+
+Byte-order identical to Android / iOS (1:1):
+
+- 6-byte big-endian header: `[type 1B][senderId 1B][seq 2B][payloadLen 2B]`, `payload ≤ 512` (`Frame.HEADER_SIZE = 6`, `Frame.MAX_PAYLOAD = 512`).
+- `Frame.encode()` / `Frame.decode()` provide the codec.
+
+The `FrameType` enum (1..14) and its cross-platform name mapping:
+
+| Value | Enum name | Cross-platform name |
+| --- | --- | --- |
+| 1 | `AUDIO` | audio |
+| 2 | `JOIN` | joinReq |
+| 3 | `ROSTER` | roster |
+| 4 | `PTT_STATE` | pttState |
+| 5 | `PING` | heartbeat |
+| 6 | `LEAVE` | leave |
+| 7 | `HOST_TRANSFER` | hostHandover |
+| 8 | `HOST_SNAPSHOT` | hostAnnounce |
+| 9 | `HANDSHAKE_HELLO` | handshakeHello |
+| 10 | `HANDSHAKE_CONFIRM` | handshakeConfirm |
+| 11 | `SEALED` | sealed |
+| 12 | `CHAT` | chat |
+| 13 | `CHAT_SYNC` | chatSync |
+| 14 | `CHAT_DELETE` | chatDelete |
+
+---
+
+## 3. Session `session/HarmonyRoomSession.ets`
+
+`HarmonyRoomSession` is **scaffolding**: it holds a `HarmonyAudioEngine` and exposes `start()` / `leave()`, `setPttPressed()`, `toggleMute()`, `members`, `isConnected`, and `onStateChanged`.
+
+**Key gap**: `onLocalAudioCaptured(pcm)` is empty (only a comment saying a Frame could be packed and sent over UDP). There is no network send or receive at all. Locally captured PCM is never packed or sent, and remote audio is never played.
+
+---
+
+## 4. LAN Discovery `transport/LanRoomDiscovery.ets`
+
+Contains only `HarmonyLanScanner`, aligned with the JSON discovery protocol of the Dart-side `LanRoomDiscovery`:
+
+- `DISCOVERY_PORT = 8990`, `DISCOVERY_MAGIC = 'SUNSET_RIPPLE_DISCOVERY_V1'`.
+- Broadcast payload is UTF-8 JSON: `{ magic, roomId, roomName, hostNickname, port, members, action?, timestamp }`.
+- The host IP is taken from the datagram source address (the payload carries no IP, to prevent spoofing).
+- `ROOM_CLOSED` removes a room immediately; `ROOM_EXPIRY_MS = 3500` removes it on timeout; room names are capped at 64 characters.
+- Emits `onRoomsUpdate(rooms)`.
+
+**Gap**: scanning/listening only; there is no advertiser (it cannot publish a room as host).
+
+---
+
+## 5. UI and Ability
+
+- `entryability/EntryAbility.ets`: loads `pages/Index`.
+- `pages/Index.ets`: nickname input plus "Create Room / Join Room", routing to `pages/RoomPage`.
+- `pages/RoomPage.ets`: PTT disc, mute/speaker/leave buttons; bound to `HarmonyRoomSession`. Because the session data plane is empty, the UI is interactive but carries no actual audio.
+
+---
+
+## 6. Platform Channel `plugin/PlatformAudioPlugin.ets`
+
+This file **exists but is empty (0 bytes)**. HarmonyOS therefore has no ArkTS bridge equivalent to the Android/iOS MethodChannel / EventChannel layers, so a Flutter/SDK layer cannot drive `HarmonyAudioEngine` or `HarmonyRoomSession` through it.
+
+---
+
+## 7. Known Gaps Summary
+
+- `plugin/PlatformAudioPlugin.ets` is an empty file; the platform-channel bridge is missing.
+- **Data plane not connected**: `HarmonyRoomSession.onLocalAudioCaptured` is empty; there is no TCP 8988 / UDP 8989 send/receive and no BLE. Only UDP 8990 discovery works.
+- The discovery layer only has `HarmonyLanScanner`; the room advertiser is missing.
+- No Opus codec.
+- `WifiP2pTransport.ets` does not exist.
+
+---
+
+## 8. Cross-platform protocol and audio baseline
+
+- 6-byte big-endian header: `type(1) / senderId(1) / seq(2) / payloadLen(2)`, with `payload ≤ 512`.
+- Audio: 16 kHz mono 16-bit PCM, 20 ms = 320 samples = 640 bytes; target bitrate 24 kbps over Wi-Fi, 16 kbps over Bluetooth.
+- Wi-Fi: TCP 8988 + UDP 8989 + discovery UDP 8990, with audio relayed through the host.
+- Bluetooth: BLE L2CAP CoC with a dynamically allocated PSM advertised via BLE manufacturer data; no host transfer.

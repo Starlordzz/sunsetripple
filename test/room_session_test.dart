@@ -977,4 +977,71 @@ void main() {
       expect(session.chatMessages, isEmpty);
     });
   });
+
+  group('诊断遥测', () {
+    test('按各发送方序号缺口估算丢包率', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      // 成员 #2 的序号 10 → 11 → 14，中间缺了 12、13 两帧。
+      for (final seq in [10, 11, 14]) {
+        await session.handleIncomingFrame(Frame(
+          type: FrameType.heartbeat,
+          senderId: 2,
+          seq: seq,
+          payload: Uint8List(0),
+        ));
+      }
+
+      expect(session.receivedFrameCount, 3);
+      expect(session.lostFrameCount, 2);
+      expect(session.packetLossPercent, 40);
+    });
+
+    test('迟到/重排的旧帧不计入丢包', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      for (final seq in [10, 12, 11, 13]) {
+        await session.handleIncomingFrame(Frame(
+          type: FrameType.heartbeat,
+          senderId: 2,
+          seq: seq,
+          payload: Uint8List(0),
+        ));
+      }
+
+      // 10→12 视为丢 1；随后迟到的 11 是旧帧，忽略且不回退基准；
+      // 13 与基准 12 连续。最终只丢 1 帧。
+      expect(session.lostFrameCount, 1);
+    });
+
+    test('客户端用 JOIN→首份名单的往返作为实测 RTT', () async {
+      session = build();
+      await session.joinRoom(startAudio: false);
+
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 1,
+        payload: RosterPayload(
+          hostId: 1,
+          members: [
+            RosterMember(memberId: 1, flags: 0x01, nickname: '房主'),
+            RosterMember(memberId: 2, flags: 0x00, nickname: '测试者'),
+          ],
+        ).encode(),
+      ));
+
+      expect(session.roundTripTimeMs, isNotNull);
+      expect(session.roundTripTimeMs, greaterThanOrEqualTo(0));
+    });
+
+    test('房主没有可测的 RTT（显示为未测量）', () async {
+      session = build();
+      await session.createRoom(startAudio: false);
+
+      expect(session.roundTripTimeMs, isNull);
+    });
+  });
 }

@@ -32,9 +32,8 @@ class MainActivity : FlutterActivity() {
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
-        // alpha.10 的 CHANGELOG 声称修复过「插件未注册导致 P2P 调用静默失效」，
-        // 但修复从未落进代码——Dart 侧所有 wifi_direct 通道调用都会抛
-        // MissingPluginException 并被吞掉，Wi-Fi Direct 房型整个不可用。
+        // Wi-Fi Direct 插件必须在这里注册：漏掉的话 Dart 侧所有 wifi_direct
+        // 通道调用会抛 MissingPluginException 并被吞掉，Wi-Fi Direct 房型整个不可用。
         wifiDirectPlugin = WifiDirectPlugin(
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,

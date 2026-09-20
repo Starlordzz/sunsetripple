@@ -32,7 +32,7 @@ This page covers the complete pipeline from source code to a signed APK. All com
 # 1. 获取依赖包
 flutter pub get
 
-# 2. 运行自动化单元测试 (58 个用例)
+# 2. 运行自动化单元测试 (144 个用例)
 flutter test
 
 # 3. 运行代码静态分析

@@ -59,7 +59,9 @@ FFI_EXPORT float sunset_calculate_rms(const int16_t* samples, int sample_count) 
     double mean = sum_squares / sample_count;
     double rms = (mean > 0.0) ? sqrt(mean) : 0.0;
 
-    float normalized = (float)(rms / 32767.0);
+    /* 满量程分母固定 32768：int16 负半轴到 -32768，用 32768 才不会让
+       满量程响度溢出 1.0；Dart / Kotlin / Swift 侧必须与这里一致。 */
+    float normalized = (float)(rms / 32768.0);
     if (normalized > 1.0f) normalized = 1.0f;
     return normalized;
 }

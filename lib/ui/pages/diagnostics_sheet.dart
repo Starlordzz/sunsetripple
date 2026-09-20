@@ -6,15 +6,19 @@ import '../../l10n/app_strings.dart';
 class DiagnosticsSheet extends StatelessWidget {
   final bool isNight;
   final int memberCount;
+
+  /// 会话实测丢包率（%）。
   final int packetLossRate;
-  final int roundTripTimeMs;
+
+  /// 会话实测往返延迟（毫秒）。客户端尚未测到（例如房主侧）时为 null。
+  final int? roundTripTimeMs;
 
   const DiagnosticsSheet({
     super.key,
     required this.isNight,
-    this.memberCount = 1,
-    this.packetLossRate = 0,
-    this.roundTripTimeMs = 12,
+    required this.memberCount,
+    required this.packetLossRate,
+    required this.roundTripTimeMs,
   });
 
   @override
@@ -66,7 +70,7 @@ class DiagnosticsSheet extends StatelessWidget {
           const SizedBox(height: 10),
           _MetricRow(
             title: s.roundTripLatency,
-            value: "$roundTripTimeMs ms",
+            value: roundTripTimeMs == null ? '—' : '$roundTripTimeMs ms',
             cardBg: cardBg,
             textPrimary: textPrimary,
           ),

@@ -321,8 +321,9 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
             let val = Double(s)
             sumSquares += val * val
         }
+        // 归一化与 C / Kotlin / Dart 保持一致：满量程分母固定 32768，不再额外放大。
         let rms = sqrt(sumSquares / Double(samples.count))
-        let level = min(1.0, max(0.0, rms / 32768.0 * 3.5))
+        let level = min(1.0, max(0.0, rms / 32768.0))
 
         // 构造数据字节并上送给 Flutter
         var data = Data(count: samples.count * 2)

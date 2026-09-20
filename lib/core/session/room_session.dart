@@ -83,6 +83,17 @@ class RoomSession {
   Timer? _speakingWatchTimer;
   Timer? _heartbeatTimer;
 
+  // ---- 诊断面板遥测 ----
+  // 面板上的延迟/丢包过去是写死的默认值，这里改成会话真实统计。
+  /// 各发送方最近一次收到的帧序号，用于估算丢包。
+  final Map<int, int> _lastSeqBySender = {};
+  int _receivedFrameCount = 0;
+  int _lostFrameCount = 0;
+
+  /// 客户端从发出 JOIN 到收到第一份名单的往返耗时；房主或尚未测量时为 null。
+  int? _roundTripTimeMs;
+  DateTime? _joinSentAt;
+
   /// 麦克风/扬声器是否已经打开，[startAudio] 用它做幂等。
   bool _audioStarted = false;
   late ReconnectController _reconnectController;
@@ -138,6 +149,22 @@ class RoomSession {
   int get selfMemberId => _selfMemberId;
   List<Member> get members => _members.values.toList();
   bool get isFullDuplex => mode == RoomMode.wifiFullDuplex;
+
+  /// 本轮会话累计收到的帧数（不含本机发送的回显）。
+  int get receivedFrameCount => _receivedFrameCount;
+
+  /// 按各发送方序号缺口估算出的丢失帧数。
+  int get lostFrameCount => _lostFrameCount;
+
+  /// 估算丢包率（0~100）。没有观测数据时为 0。
+  int get packetLossPercent {
+    final total = _receivedFrameCount + _lostFrameCount;
+    if (total == 0) return 0;
+    return ((_lostFrameCount * 100) / total).round().clamp(0, 100);
+  }
+
+  /// 实测往返延迟（毫秒）。仅客户端在收到首份名单时可测得，房主为 null。
+  int? get roundTripTimeMs => _roundTripTimeMs;
 
   /// 会话令牌：进房时随机生成，同一台设备跨重连保持不变。
   /// 房主用它判定成员重连。昵称不能作为身份依据。
@@ -218,6 +245,7 @@ class RoomSession {
     _nextJoinOrder = 1;
     _cachedPlan = null;
     _highestSeenJoinOrder = 0;
+    _resetTelemetry();
 
     final selfMember = Member(
       memberId: _selfMemberId,
@@ -242,6 +270,9 @@ class RoomSession {
     _isHost = false;
     _selfMemberId = 0;
     _members.clear();
+    _resetTelemetry();
+    // JOIN 之后再收到第一份名单，两者之间的耗时就是一次真实往返。
+    _joinSentAt = DateTime.now();
 
     _updateState(RoomState.connecting);
 
@@ -277,8 +308,12 @@ class RoomSession {
   }
 
   /// Process incoming binary frames
-  Future<void> handleIncomingFrame(Frame frame) async {
+  ///
+  /// [recordStats] 仅供加密帧内部递归调用时传 false：外层信封已经计过一次，
+  /// 解出来的内层帧不能再重复计数。
+  Future<void> handleIncomingFrame(Frame frame, {bool recordStats = true}) async {
     if (_disposed) return;
+    if (recordStats) _recordFrameStats(frame);
     if (frame.type == FrameType.sealed) {
       if (secureCodec == null) {
         AppLog.warn('RoomSession', '收到加密帧但未配置安全编解码器，已丢弃');
@@ -286,7 +321,7 @@ class RoomSession {
       }
       try {
         final opened = await secureCodec!.open(frame);
-        await handleIncomingFrame(opened);
+        await handleIncomingFrame(opened, recordStats: false);
       } catch (e) {
         AppLog.error('RoomSession', '解封加密帧失败，可能为伪造或重放帧', e);
       }
@@ -438,6 +473,9 @@ class RoomSession {
     final payload = RosterPayload.decode(frame.payload);
     if (payload == null) return;
     if (!_isHost && frame.senderId != payload.hostId) return;
+
+    // 收到房主的第一份名单，说明一次 JOIN 往返已经完成，可以结算 RTT。
+    if (!_isHost) _captureRoundTrip();
 
     // 如果本机已经持有非 0 的成员号，且名单中依然包含该 ID 且昵称一致，则优先保持
     final selfAlreadyAssigned = !isHost &&
@@ -1405,6 +1443,7 @@ class RoomSession {
     _highestSeenJoinOrder = 0;
     _transferInProgress = false;
     _nextJoinOrder = 1;
+    _resetTelemetry();
 
     // 清空聊天状态
     _chatMessages.clear();
@@ -1425,6 +1464,43 @@ class RoomSession {
   int _nextSeq() {
     _seq = (_seq + 1) & 0xFFFF;
     return _seq;
+  }
+
+  void _resetTelemetry() {
+    _lastSeqBySender.clear();
+    _receivedFrameCount = 0;
+    _lostFrameCount = 0;
+    _roundTripTimeMs = null;
+    _joinSentAt = null;
+  }
+
+  void _captureRoundTrip() {
+    final sentAt = _joinSentAt;
+    if (sentAt == null) return;
+    _roundTripTimeMs = DateTime.now().difference(sentAt).inMilliseconds;
+    _joinSentAt = null;
+  }
+
+  /// 用各发送方的序号缺口估算丢包。序号按发送方单调递增、溢出回绕，
+  /// 可靠（TCP）与不可靠（UDP 语音）通道共用同一计数器，因此缺口主要
+  /// 来自丢掉的语音帧；迟到或重排的旧帧不计入丢失，避免把抖动当成丢包。
+  void _recordFrameStats(Frame frame) {
+    if (frame.senderId == _selfMemberId) return;
+    _receivedFrameCount++;
+
+    final last = _lastSeqBySender[frame.senderId];
+    if (last == null) {
+      _lastSeqBySender[frame.senderId] = frame.seq;
+      return;
+    }
+
+    final diff = (frame.seq - last) & 0xFFFF;
+    if (diff == 0) return; // 重复帧
+    if (diff < 0x8000) {
+      _lostFrameCount += diff - 1;
+      _lastSeqBySender[frame.senderId] = frame.seq;
+    }
+    // diff >= 0x8000：迟到的旧帧，既不计丢失也不回退基准序号。
   }
 
   void _updateState(RoomState newState) {

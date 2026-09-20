@@ -2,143 +2,115 @@
 
 # SunsetRipple iOS Platform Guide
 
-This document describes the native adaptation implementation for SunsetRipple on iOS, covering the call-grade audio engine (based on `AudioUnit VoiceProcessingIO`) and near-field P2P communication (based on `MultipeerConnectivity`).
+This document describes the **current implementation** and the **remaining work** for SunsetRipple on iOS. The iOS side currently contains only two native plugins, both registered by `ios/Runner/AppDelegate.swift`:
+
+- `ios/Runner/PlatformAudioPlugin.swift` — audio capture/playback plugin built on `AudioUnit` `kAudioUnitSubType_VoiceProcessingIO`.
+- `ios/Runner/BleL2capPlugin.swift` — near-field data plugin built on BLE L2CAP CoC.
+
+> ⚠️ `VoiceProcessingAudioEngine.swift` does **not** exist in the repo, and `MultipeerConnectivity` / `MultipeerTransport` are **not** used. Any sample based on them is not part of the current implementation.
+
+iOS data-plane status: LAN TCP text/control messages work; the UDP audio data plane and the BLE data plane are not fully wired.
 
 ---
 
-## 1. Call-Grade Audio Engine (`VoiceProcessingAudioEngine.swift`)
+## 1. Audio Plugin `PlatformAudioPlugin.swift`
 
-On iOS, `kAudioUnitSubType_VoiceProcessingIO` directly invokes the iPhone's built-in hardware echo cancellation (AEC) and noise suppression (NS), providing 16 kHz, 16-bit, mono PCM data:
+### 1.1 Channels
 
-```swift
-import Foundation
-import AudioToolbox
-import AVFoundation
+| Type | Name | Direction |
+| --- | --- | --- |
+| MethodChannel | `host.msknet.sunsetripple/audio` | Dart → iOS |
+| EventChannel | `host.msknet.sunsetripple/audio_events` | iOS → Dart |
 
-public final class VoiceProcessingAudioEngine {
-    private var audioUnit: AudioComponentInstance?
-    private var isRunning: Bool = false
-    public var isMicMuted: Bool = false
-    public var onPcmCaptured: (([Int16]) -> Void)?
+The event payload is `{ "data": Uint8List(PCM), "level": double }`, where `level` is the per-frame RMS normalized against a full scale of 32768, in the range `0.0 ~ 1.0`.
 
-    private let sampleRate: Double = 16000.0
-    private let frameSamples: Int = 320 // 20ms
+### 1.2 Audio parameters
 
-    public init() {}
+- Sample rate 16000 Hz, mono, 16-bit linear PCM.
+- Frame size 320 samples = 20 ms = 640 bytes (`PlatformAudioPlugin.frameSamples` / `bytesPerFrame`).
+- Uses `kAudioUnitSubType_VoiceProcessingIO`, which enables system-level echo cancellation (AEC) and noise suppression (NS).
+- Audio session category `.playAndRecord`, mode `.voiceChat`, with `setPreferredIOBufferDuration(0.02)`.
 
-    public func start() throws {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
-        try session.setPreferredSampleRate(sampleRate)
-        try session.setPreferredIOBufferDuration(0.02) // 20ms
-        try session.setActive(true)
+### 1.3 Methods
 
-        var desc = AudioComponentDescription(
-            componentType: kAudioUnitType_Output,
-            componentSubType: kAudioUnitSubType_VoiceProcessingIO,
-            componentManufacturer: kAudioUnitManufacturer_Apple,
-            componentFlags: 0,
-            componentFlagsMask: 0
-        )
+| Method | Arguments | Behavior |
+| --- | --- | --- |
+| `startCapture` | `{ bitrate?: Int }` | Checks microphone permission, then starts the AudioUnit; defaults to `bitrate = 24000` |
+| `stopCapture` | — | Stops and disposes the AudioUnit, clears remote queues |
+| `setMuted` | `{ muted: Bool }` | Sets the local mute flag |
+| `setSpeakerphone` | `{ enabled: Bool }` | Switches speaker/receiver output routing |
+| `setUseBuiltinMic` | `{ useBuiltinMic: Bool }` | Prefers the built-in mic or a headset/Bluetooth input |
+| `setBitrate` | `{ bitrate: Int }` | Only records `currentBitrate` |
+| `submitRemoteFrame` | `{ data: Uint8List }` | Feeds a remote frame |
+| `removeRemoteMember` | `{ memberId: Int }` | Drops that member's playback queue |
+| `clearRemoteMembers` | — | Clears all remote queues |
+| `stopPlayback` | — | Same as `stopCapture` |
+| `dispose` | — | Detaches channels and stops the engine |
 
-        guard let comp = AudioComponentFindNext(nil, &desc) else {
-            throw NSError(domain: "AudioEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "VoiceProcessingIO not found"])
-        }
-        AudioComponentInstanceNew(comp, &audioUnit)
+### 1.4 Uplink audio
 
-        guard let unit = audioUnit else { return }
+`audioInputCallback` pulls PCM via `AudioUnitRender` → `processCapturedPcm` computes RMS/level and, only when `isCapturing && !isMuted`, emits `{ data, level }` on the EventChannel.
 
-        var one: UInt32 = 1
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &one, UInt32(MemoryLayout<UInt32>.size))
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &one, UInt32(MemoryLayout<UInt32>.size))
+### 1.5 Downlink playback and mixing
 
-        var streamDesc = AudioStreamBasicDescription(
-            mSampleRate: sampleRate,
-            mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
-            mBytesPerPacket: 2,
-            mFramesPerPacket: 1,
-            mBytesPerFrame: 2,
-            mChannelsPerFrame: 1,
-            mBitsPerChannel: 16,
-            mReserved: 0
-        )
+`submitRemoteFrame` hands the whole frame to `handleRemoteFrameData`:
 
-        AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &streamDesc, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
-        AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &streamDesc, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+1. Parses the 6-byte big-endian header `[type 1B][senderId 1B][seq 2B][payloadLen 2B]`.
+2. Copies the payload as **raw PCM** into `Int16` samples per `senderId` (at most 640 bytes), appending to that member's queue.
+3. Each member queue holds at most 10 frames.
+4. `providePlaybackPcm` sums all member queues sample-by-sample and applies saturation clipping on output.
 
-        AudioUnitInitialize(unit)
-        AudioOutputUnitStart(unit)
-        isRunning = true
-    }
+### 1.6 Known gaps
 
-    public func stop() {
-        guard let unit = audioUnit, isRunning else { return }
-        AudioOutputUnitStop(unit)
-        AudioUnitUninitialize(unit)
-        AudioComponentInstanceDispose(unit)
-        audioUnit = nil
-        isRunning = false
-    }
-}
-```
+- **No Opus codec**: the entire path is raw PCM. The comment at `PlatformAudioPlugin.swift:290` states that if Opus were integrated the payload should be sent to an Opus decoder; today it is copied as raw PCM.
+- **Per-frame payload ceiling of 640 bytes**: any `payload` longer than `bytesPerFrame` is truncated.
+- `currentBitrate` (default 24000) is merely recorded by the methods and does not drive any actual encoding.
 
 ---
 
-## 2. Near-Field P2P Transport (`MultipeerTransport.swift`)
+## 2. Near-Field BLE Plugin `BleL2capPlugin.swift`
 
-Uses the iOS built-in `MultipeerConnectivity` framework to form a network among nearby iOS devices without connecting to a Wi-Fi router. Audio data is sent as `.unreliable`, and control signaling is sent as `.reliable`:
+### 2.1 Channels
 
-```swift
-import Foundation
-import MultipeerConnectivity
+| Type | Name | Payload |
+| --- | --- | --- |
+| MethodChannel | `host.msknet.sunsetripple/ble_l2cap` | — |
+| EventChannel | `host.msknet.sunsetripple/ble_l2cap_data` | `{ data, peerAddress }` |
+| EventChannel | `host.msknet.sunsetripple/ble_l2cap_scan` | `{ name, address, rssi, psm, memberCount }` |
 
-public final class MultipeerTransport: NSObject, MCNearbyServiceAdvertiserDelegate, MCNearbyServiceBrowserDelegate, MCSessionDelegate {
-    private let serviceType = "sunset-ripple"
-    private let myPeerId: MCPeerID
-    private var session: MCSession
-    private var advertiser: MCNearbyServiceAdvertiser
-    private var browser: MCNearbyServiceBrowser
+Service UUID is `7f75d4e0-7a46-4d74-9f8d-1e4bc5e4b004`, company ID `0xFFFF`.
 
-    public var onFrameReceived: ((Data, MCPeerID) -> Void)?
+### 2.2 Host (Peripheral)
 
-    public init(displayName: String) {
-        self.myPeerId = MCPeerID(displayName: displayName)
-        self.session = MCSession(peer: myPeerId, securityIdentity: nil, encryptionPreference: .none)
-        self.advertiser = MCNearbyServiceAdvertiser(peer: myPeerId, discoveryInfo: nil, serviceType: serviceType)
-        self.browser = MCNearbyServiceBrowser(peer: myPeerId, serviceType: serviceType)
-        super.init()
-        self.session.delegate = self
-        self.advertiser.delegate = self
-        self.browser.delegate = self
-    }
+- Publishes a **dynamically allocated PSM** via `publishL2CAPChannel(withEncryption: false)`.
+- Advertises a local name of the form `SR_<psm>_<memberCount>_<roomName>`; it also parses the Android manufacturer-data layout `[PSM hi][PSM lo][count][roomName utf8]`.
+- Accepts incoming member `CBL2CAPChannel`s and, in `handleReceivedData`, forwards received data to the other host channels.
+- `sendFrame` writes data to every host channel.
 
-    public func broadcastAudioFrame(data: Data) {
-        guard !session.connectedPeers.isEmpty else { return }
-        try? session.send(data, toPeers: session.connectedPeers, with: .unreliable)
-    }
+### 2.3 Member (Central)
 
-    public func broadcastSignalFrame(data: Data) {
-        guard !session.connectedPeers.isEmpty else { return }
-        try? session.send(data, toPeers: session.connectedPeers, with: .reliable)
-    }
+- Scans by service UUID and parses the advertisement for PSM, member count, and room name.
+- Connects with `peripheral.identifier` + PSM and calls `openL2CAPChannel(psm)`.
 
-    // MCSessionDelegate
-    public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {}
-    public func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        onFrameReceived?(data, peerID)
-    }
-    public func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
-    public func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
-    public func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
+### 2.4 Frames and streams
 
-    // Advertiser & Browser
-    public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-        invitationHandler(true, self.session)
-    }
-    public func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
-        browser.invitePeer(peerID, to: self.session, withContext: nil, timeout: 10)
-    }
-    public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {}
-}
-```
+- Inbound `consumeInput` **reassembles** frames by the 6-byte length prefix and discards the input buffer (with a log) when `payloadLen > 512`.
+- Outbound `sendFrame` → `writeToStream` buffers unwritten data and continues in `drainWrites` on `.hasSpaceAvailable`.
+- Methods: `isSupported`, `startHost`/`startAdvertising`, `stopHost`, `startScan`, `stopScan`, `connect`/`connectL2cap`, `disconnect`, `stop`, `sendFrame`/`sendL2capData`, `updateMemberCount`, `dispose`.
+
+### 2.5 Known gaps
+
+- **Stream fragmentation/reassembly and host broadcast relay are not fully wired**. `consumeInput` already performs length-prefixed reassembly and `handleReceivedData` contains host forwarding logic, but:
+  - outbound data is not explicitly fragmented to the L2CAP CoC MTU;
+  - relayed frames have their sender identity rewritten to `host-<key>` (see `streamPeerAddresses`), so the original `senderId` semantics are incomplete across devices.
+- Consequently the iOS BLE data plane must **not** be treated as a working cross-device transport until these two items are completed and verified end-to-end.
+
+---
+
+## 3. Cross-platform protocol and audio baseline
+
+- 6-byte big-endian header: `type(1) / senderId(1) / seq(2) / payloadLen(2)`, with `payload ≤ 512` bytes.
+- FrameType: audio `0x01`, joinReq `0x02`, roster `0x03`, pttState `0x04`, heartbeat `0x05`, leave `0x06`, hostHandover `0x07`, hostAnnounce `0x08`, handshakeHello `0x09`, handshakeConfirm `0x0a`, sealed `0x0b`, chat `0x0c`, chatSync `0x0d`, chatDelete `0x0e`.
+- Audio: 16 kHz mono 16-bit PCM, 20 ms = 320 samples = 640 bytes; target bitrate 24 kbps over Wi-Fi, 16 kbps over Bluetooth.
+- Wi-Fi: TCP 8988 + UDP 8989 + discovery UDP 8990, with audio relayed through the host.
+- Bluetooth: BLE L2CAP CoC with a dynamically allocated PSM advertised via BLE manufacturer data; no host transfer.

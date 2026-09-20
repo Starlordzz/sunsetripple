@@ -17,7 +17,7 @@ An Android near-field voice intercom app: voice never passes through a server. U
 | What you want to do | Go here |
 | --- | --- |
 | Cross-platform architecture and the Core-Shell design | [Core-Shell Unified Multi-Platform Architecture](Core-Shell-Architecture.md) |
-| Adapting the iOS side (AudioUnit / Multipeer) | [iOS Platform Guide](iOS-Platform-Guide.md) |
+| Adapting the iOS side (AudioUnit / CoreBluetooth L2CAP) | [iOS Platform Guide](iOS-Platform-Guide.md) |
 | Adapting HarmonyOS NEXT | [HarmonyOS Platform Guide](HarmonyOS-Platform-Guide.md) |
 | Quickly understanding how the whole project fits together | [Architecture Overview](Architecture-Overview.md) |
 | Implementing a compatible client / analyzing packet captures | [Protocol Specification](Protocol-Specification.md) |
@@ -34,7 +34,7 @@ New to this codebase? Reading in this order takes the least effort:
 
 1. **[Core-Shell Unified Multi-Platform Architecture](Core-Shell-Architecture.md)** — understand the layering contract between the cross-platform core and the per-platform shells.
 2. **[Architecture Overview](Architecture-Overview.md)** — build the layered mental model first: `ui → session → transport → protocol`, and how `audio` cuts across.
-3. **[Protocol Specification](Protocol-Specification.md)** — the frame format is the hub of the whole system; once you understand the 8 frame types, you understand most of the interactions.
+3. **[Protocol Specification](Protocol-Specification.md)** — the frame format is the hub of the whole system; once you understand the 14 frame types, you understand most of the interactions.
 4. **[Room Modes](Room-Modes.md)** — understand why one and the same session layer grows two radically different kinds of rooms.
 5. **[Audio Pipeline](Audio-Pipeline.md)** — the complete chain of capture, encoding, jitter buffering, mixing, and playback.
 6. **[Host Transfer](Host-Transfer.md)** — the most complex part of the project; best saved for last.
@@ -47,20 +47,20 @@ New to this codebase? Reading in this order takes the least effort:
 | Current version | `0.1.0-alpha.13` (versionCode 14) |
 | Supported systems | Android 8.0+ / iOS 15.0+ / HarmonyOS NEXT (API 12+) |
 | Target / compile SDK | Android 35 / HarmonyOS 5.0(12) / iOS 15.0 |
-| Languages & UI | Flutter (Dart) + C++ FFI + Kotlin / Swift / ArkTS native channels |
-| Test scale | 18 test suites, 140 automated test cases |
-| Audio codec | Opus (C++ FFI lock-free ring buffer / native hardware AEC), 16 kHz mono 20 ms |
+| Languages & UI | Flutter (Dart) + C++ DSP core, with device sides reached through Kotlin / Swift / ArkTS platform channels |
+| Test scale | `flutter test`, 144 automated test cases |
+| Audio codec | Opus (Android uses the pure-JVM Concentus implementation; iOS is still raw PCM and has no Opus yet — a known gap), 16 kHz mono 20 ms; native hardware AEC/NS/AGC; the C++ FFI provides a lock-free ring buffer, RMS, and PCM mixing, with a pure-Dart fallback |
 | Room capacity | 6 devices (Host included) |
 | License | Apache-2.0 |
 
 ## Project Conventions
 
-- **The UI automatically follows the system language (Chinese or English)**; resource tests verify that both key sets and format placeholders match.
+- **UI strings are bilingual**: `lib/l10n/app_strings.dart` follows the system language (Chinese or English) automatically; resource tests verify that both key sets and format placeholders match.
 - **Updates refuse unsigned content by default**: manifest, APK hashes, package name, and certificate are verified in sequence; installation is handed to Android for confirmation.
 - **Diagnostics must be exported explicitly by the user**, and contain no audio, no raw nicknames, no device addresses, and no key material.
-- **No dependency-injection framework, no database, no networking library** — the transport layer uses `java.net` and `android.bluetooth` directly.
-- **Tests use no Robolectric / MockK / Mockito**; everything is hand-written fakes, so the suite runs on a plain JVM in seconds.
-- **Pure decision logic is always extracted into Android-free objects** (such as `HostElection`, `RoomFlow`, `RoomPermissions`, `BluetoothMixPlanner`) — this is the fundamental reason test coverage can be made thick.
+- **No dependency-injection framework, no database, no networking library** — the transport layer lives in Dart: `LanTransport` over `dart:io` sockets and `BleL2capTransport` over a Flutter MethodChannel, with the Android plugin using Android BLE / Wi-Fi APIs behind the channel.
+- **Tests are all Dart (`flutter test`)** and use no Robolectric / MockK / Mockito (those are JVM tools); instead there are hand-written fakes such as `MockAudioIo`.
+- **Pure decision logic is always extracted into platform-free Dart objects** (such as `HostElection` in `lib/core/session/host_transfer.dart`) — this is the fundamental reason test coverage can be made thick.
 - **The room-creation transition reveals the real room screen directly**; the home page and the room share the sunset header's motion phase and the same color source; there is no second stage that switches screens after an animation ends.
 - **In-room controls stay lightweight**: member orbits, the channel core, mute, speaker, and leave are layered by frequency of use; dangerous actions no longer occupy the primary visual position.
 - **The day and night palettes share the same set of slot semantics**: light mode is sunset, night mode is moon and sea; both reuse the same drawing code, so the celestial body in the header turns from sun to moon without any change in geometry. There are three modes — follow system / light / dark — with the entry at the top-right of the home page header.

@@ -150,6 +150,8 @@ class _SessionStageState extends State<SessionStage>
       builder: (context) => DiagnosticsSheet(
         isNight: widget.isNight,
         memberCount: session.members.length,
+        packetLossRate: session.packetLossPercent,
+        roundTripTimeMs: session.roundTripTimeMs,
       ),
     );
   }

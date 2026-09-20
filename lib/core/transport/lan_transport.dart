@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../diagnostics/app_log.dart';
+import '../ffi/native_core_ffi.dart';
 import '../protocol/frame.dart';
 import '../protocol/frame_type.dart';
 import '../protocol/payloads/join_request.dart';
@@ -23,31 +24,80 @@ class _Endpoint {
 ///
 /// TCP 是流式的，一次 `listen` 回调可能拿到半个帧，也可能拿到三个半帧。
 /// 帧头第 [4..5] 字节是载荷长度，所以帧本身是自定界的，不需要额外的长度前缀。
+///
+/// 跨回调的半帧由原生 C++ 无锁环形缓冲持有（[NativeRingBuffer]）；原生库
+/// 不可用时退回纯 Dart List，语义完全一致。
 class _FrameAccumulator {
-  final List<int> _buf = <int>[];
+  static const int _capacity = 64 * 1024;
+
+  final NativeRingBuffer? _ring = NativeRingBuffer.create(_capacity);
+  final List<int> _fallback = <int>[];
 
   Iterable<Frame> add(List<int> chunk) sync* {
-    _buf.addAll(chunk);
+    final ring = _ring;
+    if (ring == null) {
+      yield* _addWithDartBuffer(chunk);
+      return;
+    }
+
+    ring.write(Uint8List.fromList(chunk));
+    final bytes = ring.readAll();
+    var offset = 0;
 
     while (true) {
-      if (_buf.length < Frame.headerSize) return;
+      if (bytes.length - offset < Frame.headerSize) break;
 
-      final payloadLength = (_buf[4] << 8) | _buf[5];
+      final payloadLength = (bytes[offset + 4] << 8) | bytes[offset + 5];
       if (payloadLength > Frame.maxPayloadSize) {
         // 长度字段不可能这么大，说明流已经错位，没法再对齐了。
         AppLog.error(
           _tag,
           '控制流错位（载荷长度 $payloadLength 超出上限），已丢弃缓冲区',
         );
-        _buf.clear();
         return;
       }
 
       final total = Frame.headerSize + payloadLength;
-      if (_buf.length < total) return;
+      if (bytes.length - offset < total) break;
 
-      final raw = Uint8List.fromList(_buf.sublist(0, total));
-      _buf.removeRange(0, total);
+      final raw = Uint8List.sublistView(bytes, offset, offset + total);
+      offset += total;
+
+      final frame = Frame.decode(raw);
+      if (frame == null) {
+        AppLog.warn(_tag, '收到无法解析的控制帧（$total 字节），已跳过');
+        continue;
+      }
+      yield frame;
+    }
+
+    // 把没拼完的半帧写回环形缓冲，等下一次回调补齐。
+    if (offset < bytes.length) {
+      ring.write(Uint8List.fromList(bytes.sublist(offset)));
+    }
+  }
+
+  Iterable<Frame> _addWithDartBuffer(List<int> chunk) sync* {
+    _fallback.addAll(chunk);
+
+    while (true) {
+      if (_fallback.length < Frame.headerSize) return;
+
+      final payloadLength = (_fallback[4] << 8) | _fallback[5];
+      if (payloadLength > Frame.maxPayloadSize) {
+        AppLog.error(
+          _tag,
+          '控制流错位（载荷长度 $payloadLength 超出上限），已丢弃缓冲区',
+        );
+        _fallback.clear();
+        return;
+      }
+
+      final total = Frame.headerSize + payloadLength;
+      if (_fallback.length < total) return;
+
+      final raw = Uint8List.fromList(_fallback.sublist(0, total));
+      _fallback.removeRange(0, total);
 
       final frame = Frame.decode(raw);
       if (frame == null) {
@@ -57,6 +107,8 @@ class _FrameAccumulator {
       yield frame;
     }
   }
+
+  void dispose() => _ring?.dispose();
 }
 
 /// 局域网/热点下的真实传输层：控制帧走 TCP，语音帧走 UDP，房主负责中继。
@@ -82,12 +134,14 @@ class LanTransport implements RoomTransport {
   final Map<Socket, Uint8List> _clientSessionTokens = {};
   final Map<Socket, int> _clientMemberIds = {};
   final Map<Socket, Timer> _clientJoinTimers = {};
+  final Map<Socket, _FrameAccumulator> _clientAccumulators = {};
   final Map<int, Socket> _memberSockets = {};
   final Map<int, _Endpoint> _audioEndpoints = {};
 
   // 客户端侧
   Socket? _hostSocket;
   InternetAddress? _hostAddress;
+  _FrameAccumulator? _hostAccumulator;
 
   RawDatagramSocket? _udp;
   Timer? _udpKeepalive;
@@ -233,6 +287,7 @@ class LanTransport implements RoomTransport {
     }
 
     final accumulator = _FrameAccumulator();
+    _clientAccumulators[socket] = accumulator;
     _clientLabels[socket] = label;
     _clientJoinTimers[socket] = Timer(const Duration(seconds: 5), () {
       if (!_clientSessionTokens.containsKey(socket)) {
@@ -303,6 +358,7 @@ class LanTransport implements RoomTransport {
   void _removeClient(Socket socket, String label) {
     if (_clientLabels.remove(socket) == null) return;
     _clientJoinTimers.remove(socket)?.cancel();
+    _clientAccumulators.remove(socket)?.dispose();
     final memberId = _clientMemberIds.remove(socket);
     if (memberId != null && identical(_memberSockets[memberId], socket)) {
       _memberSockets.remove(memberId);
@@ -394,6 +450,8 @@ class LanTransport implements RoomTransport {
     }
 
     final accumulator = _FrameAccumulator();
+    _hostAccumulator?.dispose();
+    _hostAccumulator = accumulator;
     final hostSocket = _hostSocket!;
     hostSocket.listen(
       (chunk) {
@@ -661,6 +719,10 @@ class LanTransport implements RoomTransport {
     _clientJoinTimers.clear();
     _clientSessionTokens.clear();
     _clientMemberIds.clear();
+    for (final accumulator in _clientAccumulators.values) {
+      accumulator.dispose();
+    }
+    _clientAccumulators.clear();
     _memberSockets.clear();
     _audioEndpoints.clear();
     _knownMemberIds.clear();
@@ -675,6 +737,8 @@ class LanTransport implements RoomTransport {
     _hostSocket?.destroy();
     _hostSocket = null;
     _hostAddress = null;
+    _hostAccumulator?.dispose();
+    _hostAccumulator = null;
 
     _udp?.close();
     _udp = null;
