@@ -198,7 +198,7 @@ class RoomSession {
     _incomingSubscription = null;
     _disconnectSubscription = null;
     transport = value;
-    onSendFrame = value.send;
+    _replaceSendPipeline(value.send);
     _incomingSubscription = value.incoming.listen((frame) {
       if (_disposed || generation != _transportGeneration) return;
       _queueIncomingFrame(frame);
@@ -525,10 +525,17 @@ class RoomSession {
 
     for (final rm in payload.members) {
       _recordMemberIdentity(rm.memberId, rm.nickname);
+      // 名单帧不携带 endpoint / joinOrder（那是连接层与房主本地才知道的信息），
+      // 重建成员对象时必须从上一份名单里继承，否则每次名单广播都会把它们抹成
+      // 空值：endpoint 一空，`_buildTransferPlan` 就找不到任何继任候选，
+      // 房主转移会在「房主刚广播过名单」之后**静默失效**。
+      final previous = previousMembers[rm.memberId];
       _members[rm.memberId] = Member(
         memberId: rm.memberId,
         nickname: rm.nickname,
-        sessionToken: previousMembers[rm.memberId]?.sessionToken,
+        sessionToken: previous?.sessionToken,
+        joinOrder: previous?.joinOrder ?? 0,
+        endpoint: previous?.endpoint ?? '',
         isHost: rm.isHost,
         isMuted: rm.isMuted,
         isSpeaking: rm.isSpeaking,
@@ -688,47 +695,38 @@ class RoomSession {
   }
 
   Future<void> _becomeHost(HostTransferPlan plan, RoomTransport t) async {
-    final seed = HostTransferSeed.from(plan);
     _updateState(RoomState.reconnecting);
 
+    // 先把监听起起来再改状态：起不来就明确进入 disconnected，
+    // 不能留下「自认房主但没人连得上」的半死状态。
     if (!await t.becomeHost()) {
       AppLog.error('RoomSession', '接任房主失败：无法开始监听');
       _updateState(RoomState.disconnected);
       return;
     }
 
-    // 交接快照带有每个成员的 token，可以先恢复「预留身份」，等 JOIN
-    // 到达时由 _handleJoinReq 重新绑定实际 socket；这不会把未认证连接当成已连接。
-    _members.clear();
-    _lastAudioAt.clear();
-    final successor = seed.host;
-    _members[1] = Member(
-      memberId: 1,
-      nickname: selfNickname,
-      sessionToken: sessionToken,
-      joinOrder: successor.joinOrder,
-      isHost: true,
+    // 成员表的组装是纯逻辑，交给 HostSuccession（可单测的那部分）。
+    // 交接快照带每个成员的 token，可以先恢复「预留身份」，等 JOIN 到达时由
+    // _handleJoinReq 重新绑定实际 socket——这不会把未认证连接当成已连接。
+    final succession = HostSuccession.build(
+      plan: plan,
+      selfNickname: selfNickname,
+      selfSessionToken: sessionToken,
     );
 
-    for (final member in plan.members) {
-      if (member.memberId == plan.successorId) continue;
-      // 正常计划只包含旧房主之外的远端成员，因此 ID 1 不应出现。
-      // 即使收到异常计划，也不能覆盖新房主的本地身份。
-      if (member.memberId == 1) {
-        AppLog.warn('RoomSession', '忽略交接计划中的冲突成员 ID 1');
-        continue;
-      }
-      _members[member.memberId] = Member(
-        memberId: member.memberId,
-        nickname: member.nickname,
-        sessionToken: member.sessionToken,
-        joinOrder: member.joinOrder,
-        endpoint: member.endpoint,
+    if (succession.conflictedMemberIds.isNotEmpty) {
+      AppLog.warn(
+        'RoomSession',
+        '交接计划含冲突成员号 ${succession.conflictedMemberIds}，已忽略',
       );
     }
 
-    _selfMemberId = 1;
-    _nextJoinOrder = seed.nextJoinOrder;
+    _members
+      ..clear()
+      ..addAll(succession.members);
+    _lastAudioAt.clear();
+    _selfMemberId = HostSuccession.successorMemberId;
+    _nextJoinOrder = succession.nextJoinOrder;
     _isHost = true;
     t.updateSelfMemberId(_selfMemberId);
 
@@ -1034,7 +1032,65 @@ class RoomSession {
     _reconnectController.start();
   }
 
-  /// Hook for network transmission
+  /// 发送钩子。
+  ///
+  /// **不要**在 `attachTransport` 之后直接赋这个字段——`attachTransport` 会把它
+  /// 指向 `transport.send`，后赋的值会把发送链路整个切断（帧静静地发不出去，
+  /// 调用方只看到"什么都没发生"）。要观测或改写发送行为，用
+  /// [addSendObserver] / [setSendInterceptor]。
+  /// 发送链路的最内层：真正把帧交给传输层。
+  void Function(Frame)? _sendSink;
+
+  /// 每次发送都会调用的观察者（测试、埋点用）。不参与改写。
+  final List<void Function(Frame)> _sendObservers = [];
+
+  /// 可选的改写层。设置后由它决定是否放行。
+  void Function(Frame frame, void Function(Frame) next)? _sendInterceptor;
+
+  /// 重建发送链路：底层 sink 变化时，观察者与改写层按当前注册顺序重新串联。
+  void _replaceSendPipeline(void Function(Frame) sink) {
+    _sendSink = sink;
+    void Function(Frame) chain = sink;
+
+    // 改写层在最外层：它能看到原始帧，并决定是否放行。
+    final interceptor = _sendInterceptor;
+    if (interceptor != null) {
+      final next = chain;
+      chain = (frame) => interceptor(frame, next);
+    }
+
+    // 观察者串在外层，只读不改写。
+    for (final observer in _sendObservers.reversed) {
+      final next = chain;
+      chain = (frame) {
+        observer(frame);
+        next(frame);
+      };
+    }
+
+    onSendFrame = chain;
+  }
+
+  /// 注册一个只读观察者，观察每次实际发出的帧。
+  ///
+  /// 相比直接赋值 [onSendFrame]，它**不会**被 `attachTransport` 抹掉——
+  /// 这正是它存在的理由：`attachTransport` 会重建发送链路，而观察者会在
+  /// 重建时被重新串进去。
+  void addSendObserver(void Function(Frame frame) observer) {
+    _sendObservers.add(observer);
+    final sink = _sendSink;
+    if (sink != null) _replaceSendPipeline(sink);
+  }
+
+  /// 注册一个改写层（例如测试里模拟丢包）。传 null 移除。
+  void setSendInterceptor(
+    void Function(Frame frame, void Function(Frame) next)? interceptor,
+  ) {
+    _sendInterceptor = interceptor;
+    final sink = _sendSink;
+    if (sink != null) _replaceSendPipeline(sink);
+  }
+
   void Function(Frame frame)? onSendFrame;
 
   Future<void> sendFrame(Frame frame) async {

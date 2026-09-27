@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../protocol/frame.dart';
+import 'member.dart';
 import 'session_token.dart';
 
 /// 房主转移的候选成员快照。
@@ -237,6 +238,83 @@ class HostTransferSeed {
         endpoint: m.endpoint,
         sessionToken: m.sessionToken,
       );
+}
+
+/// 从一份交接计划推导「接任后本机的成员表」。
+///
+/// 纯逻辑，不碰传输层与 Stream——`RoomSession._becomeHost` 原来把这段夹在
+/// IO 调用之间（先 `becomeHost()` 起监听，再拼成员表），使得「成员表拼得对不对」
+/// 必须先真的把监听起起来才能验证。抽出来后它可以被直接单测。
+class HostSuccession {
+  const HostSuccession._();
+
+  /// 接任者本机的新成员号。继任者永远接管 #1 这个房主席位。
+  static const int successorMemberId = 1;
+
+  /// 依据 [plan] 组装接任后的成员表。
+  ///
+  /// [selfNickname] / [selfSessionToken] 是本机身份，用于覆盖计划里对「自己」的
+  /// 描述——计划里的自述可能被改写，必须用本地真值兜底。
+  ///
+  /// 计划里若出现成员号 1（正常不该有：1 是房主席位，而计划只包含「旧房主之外
+  /// 的成员」），一律跳过并记入 [HostSuccessionResult.conflictedMemberIds]，
+  /// 绝不允许覆盖接任者的本地身份。
+  static HostSuccessionResult build({
+    required HostTransferPlan plan,
+    required String selfNickname,
+    required Uint8List selfSessionToken,
+  }) {
+    final seed = HostTransferSeed.from(plan);
+    final members = <int, Member>{};
+    final conflicts = <int>[];
+
+    members[successorMemberId] = Member(
+      memberId: successorMemberId,
+      nickname: selfNickname,
+      sessionToken: selfSessionToken,
+      joinOrder: seed.host.joinOrder,
+      isHost: true,
+    );
+
+    for (final member in plan.members) {
+      if (member.memberId == plan.successorId) continue;
+      if (member.memberId == successorMemberId) {
+        conflicts.add(member.memberId);
+        continue;
+      }
+      members[member.memberId] = Member(
+        memberId: member.memberId,
+        nickname: member.nickname,
+        sessionToken: member.sessionToken,
+        joinOrder: member.joinOrder,
+        endpoint: member.endpoint,
+      );
+    }
+
+    return HostSuccessionResult(
+      members: members,
+      nextJoinOrder: seed.nextJoinOrder,
+      conflictedMemberIds: conflicts,
+    );
+  }
+}
+
+/// [HostSuccession.build] 的产物。
+class HostSuccessionResult {
+  /// 接任后的完整成员表，键为成员号。
+  final Map<int, Member> members;
+
+  /// 下一个可分配的 joinOrder。
+  final int nextJoinOrder;
+
+  /// 计划里与房主席位冲突、被忽略的成员号。
+  final List<int> conflictedMemberIds;
+
+  const HostSuccessionResult({
+    required this.members,
+    required this.nextJoinOrder,
+    required this.conflictedMemberIds,
+  });
 }
 
 /// 交接计划的二进制编解码。
