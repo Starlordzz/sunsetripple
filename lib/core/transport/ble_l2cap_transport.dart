@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 
 import '../diagnostics/app_log.dart';
 import '../protocol/frame.dart';
+import '../protocol/frame_type.dart';
+import '../protocol/payloads/join_request.dart';
 import 'room_transport.dart';
 
 const String _tag = '蓝牙';
@@ -67,6 +69,17 @@ class BleL2capTransport implements RoomTransport {
   final StreamController<List<DiscoveredBleRoom>> _roomsController =
       StreamController<List<DiscoveredBleRoom>>.broadcast();
 
+  /// 房主侧：已建立 L2CAP 链路的对端地址。
+  final Set<String> _knownPeers = <String>{};
+
+  /// 房主侧：`sessionToken(hex) -> peerAddress`。JOIN 帧到达时登记，
+  /// `bindMemberForSessionToken` 到达时消费。这样多个成员同时在途时也能
+  /// 把成员号绑到正确的链路，而不是靠「只有一个未绑定链路」的赌运气。
+  final Map<String, String> _pendingJoinPeerByToken = <String, String>{};
+
+  /// 房主侧：`peerAddress -> memberId`。用于移除成员时按号找链路。
+  final Map<String, int> _boundMemberByPeer = <String, int>{};
+
   @override
   Stream<Frame> get incoming => _incoming.stream;
 
@@ -75,11 +88,71 @@ class BleL2capTransport implements RoomTransport {
   @override
   Stream<void> get disconnected => const Stream<void>.empty();
 
+  /// 房主把成员号绑定到 L2CAP 链路。
+  ///
+  /// 蓝牙房没有 TCP 那样的「连接身份」：L2CAP 是链路寻址，客户端之间物理上
+  /// 无法直连，接收端也没有房主那份 endpoint 白名单。因此成员号只能在房主侧
+  /// 建立绑定，并在原生转发时按绑定重写帧头 senderId——否则任何成员都能把
+  /// senderId 填成别人的号，冒用身份发言或撤回。
+  ///
+  /// [peerAddress] 取自原生事件里的 `peerAddress`；未知地址时无法绑定，
+  /// 该链路的帧会被原生侧按 senderId=0 丢弃（默认关闭）。
   @override
-  void bindMemberForSessionToken(Uint8List token, int memberId) {}
+  void bindMemberForSessionToken(Uint8List token, int memberId) {
+    if (!isHost || memberId <= 0) return;
+    final tokenKey = _hexKey(token);
+    final address = _pendingJoinPeerByToken[tokenKey] ?? _singleUnboundPeer();
+    if (address == null) {
+      AppLog.warn(_tag, '找不到可绑定的蓝牙链路，成员 #$memberId 的帧将不被转发');
+      return;
+    }
+    _boundMemberByPeer[address] = memberId;
+    _pendingJoinPeerByToken.remove(tokenKey);
+    unawaited(_invokeVoid('bindMember', {
+      'peerAddress': address,
+      'memberId': memberId,
+    }));
+  }
+
+  static String _hexKey(Uint8List bytes) {
+    final buffer = StringBuffer();
+    for (final b in bytes) {
+      buffer.write(b.toRadixString(16).padLeft(2, '0'));
+    }
+    return buffer.toString();
+  }
 
   @override
-  void removeMember(int memberId) {}
+  void removeMember(int memberId) {
+    if (memberId <= 0) return;
+    final address = _boundMemberByPeer.entries
+        .firstWhere(
+          (e) => e.value == memberId,
+          orElse: () => const MapEntry<String, int>('', 0),
+        )
+        .key;
+    if (address.isEmpty) return;
+    _boundMemberByPeer.remove(address);
+    unawaited(_invokeVoid('unbindMember', {'memberId': memberId}));
+  }
+
+  /// 房主侧当前只有一个 JOIN 在途时，直接用它作为绑定目标。
+  /// 多成员同时 JOIN 时靠 [_pendingJoinPeerByToken] 精确匹配。
+  String? _singleUnboundPeer() {
+    final unbound = _knownPeers.where(
+      (addr) => !_boundMemberByPeer.containsKey(addr),
+    );
+    if (unbound.length == 1) return unbound.first;
+    return null;
+  }
+
+  Future<void> _invokeVoid(String method, Map<String, dynamic> args) async {
+    try {
+      await _channel.invokeMethod(method, args);
+    } catch (e) {
+      AppLog.warn(_tag, '$method 调用失败', e);
+    }
+  }
 
   @override
   Future<bool> reconnect() async => false;
@@ -300,6 +373,9 @@ class BleL2capTransport implements RoomTransport {
       _dataSubscription = null;
     }
     _rooms.clear();
+    _knownPeers.clear();
+    _pendingJoinPeerByToken.clear();
+    _boundMemberByPeer.clear();
 
     try {
       await _channel.invokeMethod('stop');
@@ -328,6 +404,18 @@ class BleL2capTransport implements RoomTransport {
           AppLog.warn(_tag, '收到无法解析的蓝牙帧（${data.length} 字节），来自 $peerAddress');
           return;
         }
+
+        _knownPeers.add(peerAddress);
+
+        // 房主侧的 JOIN：登记「这条链路用哪个会话令牌入房」，
+        // 等 RoomSession 分配完成员号回调 bindMemberForSessionToken 时消费。
+        if (isHost && frame.type == FrameType.joinReq) {
+          final join = JoinRequestPayload.decode(frame.payload);
+          if (join != null) {
+            _pendingJoinPeerByToken[_hexKey(join.sessionToken)] = peerAddress;
+          }
+        }
+
         if (!_incoming.isClosed) _incoming.add(frame);
       },
       onError: (Object e) => AppLog.error(_tag, '蓝牙数据通道中断', e),

@@ -1,21 +1,29 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sunset_ripple/core/update/update_service.dart';
+import 'package:sunset_ripple/core/version.dart';
 
 void main() {
   group('UpdateService SemVer Comparison Tests', () {
-    test('Older pre-release (alpha.9) is NOT newer than current (alpha.10)', () {
+    test('Older pre-release (alpha.9) is NOT newer than current (alpha.10)',
+        () {
       expect(UpdateService.isNewer('0.1.0-alpha.9', '0.1.0-alpha.10'), isFalse);
-      expect(UpdateService.isNewer('v0.1.0-alpha.9', '0.1.0-alpha.10'), isFalse);
+      expect(
+          UpdateService.isNewer('v0.1.0-alpha.9', '0.1.0-alpha.10'), isFalse);
     });
 
     test('Identical version is NOT newer', () {
-      expect(UpdateService.isNewer('0.1.0-alpha.10', '0.1.0-alpha.10'), isFalse);
-      expect(UpdateService.isNewer('v0.1.0-alpha.10', '0.1.0-alpha.10'), isFalse);
+      expect(
+          UpdateService.isNewer('0.1.0-alpha.10', '0.1.0-alpha.10'), isFalse);
+      expect(
+          UpdateService.isNewer('v0.1.0-alpha.10', '0.1.0-alpha.10'), isFalse);
     });
 
-    test('Newer pre-release or channel (alpha.11, beta.1, rc.1) IS newer than alpha.10', () {
+    test(
+        'Newer pre-release or channel (alpha.11, beta.1, rc.1) IS newer than alpha.10',
+        () {
       expect(UpdateService.isNewer('0.1.0-alpha.11', '0.1.0-alpha.10'), isTrue);
-      expect(UpdateService.isNewer('v0.1.0-alpha.11', '0.1.0-alpha.10'), isTrue);
+      expect(
+          UpdateService.isNewer('v0.1.0-alpha.11', '0.1.0-alpha.10'), isTrue);
       expect(UpdateService.isNewer('0.1.0-beta.1', '0.1.0-alpha.10'), isTrue);
       expect(UpdateService.isNewer('0.1.0-rc.1', '0.1.0-alpha.10'), isTrue);
     });
@@ -33,13 +41,16 @@ void main() {
 
     test('Build metadata (+...) is handled correctly', () {
       // Build metadata should be ignored in version precedence comparison
-      expect(UpdateService.isNewer('0.1.0-alpha.11+13', '0.1.0-alpha.11+12'), isFalse);
-      expect(UpdateService.isNewer('0.1.0-alpha.11+12', '0.1.0-alpha.11'), isFalse);
-      expect(UpdateService.isNewer('0.1.0-alpha.12+1', '0.1.0-alpha.11+12'), isTrue);
+      expect(UpdateService.isNewer('0.1.0-alpha.11+13', '0.1.0-alpha.11+12'),
+          isFalse);
+      expect(UpdateService.isNewer('0.1.0-alpha.11+12', '0.1.0-alpha.11'),
+          isFalse);
+      expect(UpdateService.isNewer('0.1.0-alpha.12+1', '0.1.0-alpha.11+12'),
+          isTrue);
     });
 
     test('Current version constant matches pubspec.yaml', () {
-      expect(UpdateService.currentVersion, '0.1.0-alpha.13');
+      expect(UpdateService.currentVersion, AppVersion.name);
     });
   });
 }

@@ -24,9 +24,11 @@ class AudioControlsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    final leaveColor = isNight ? AppTheme.darkLeaveRosePink : AppTheme.lightLeaveAccent;
+    final leaveColor =
+        isNight ? AppTheme.darkLeaveRosePink : AppTheme.lightLeaveAccent;
     final cardBg = isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg;
-    final textPrimary = isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textPrimary =
+        isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 18),
@@ -108,7 +110,10 @@ class _ActionButton extends StatelessWidget {
               color: bgColor,
               borderRadius: BorderRadius.circular(26),
               border: Border.all(
-                color: borderColor ?? (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
+                color: borderColor ??
+                    (isNight
+                        ? const Color(0xFF283A52)
+                        : const Color(0xFFDCCEC8)),
                 width: 1.4,
               ),
             ),

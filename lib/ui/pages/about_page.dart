@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/diagnostics/app_log.dart';
@@ -39,6 +41,11 @@ class _AboutPageState extends State<AboutPage> {
       appVersion: UpdateService.currentVersion,
       roomType: 'Idle / Standby',
       recentErrors: AppLog.recent.map((e) => e.message).toList(),
+      // 平台/宿主版本有助于定位平台通道差异，且会先过脱敏。
+      environmentNotes: [
+        'host: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+        'log entries retained: ${AppLog.recent.length}',
+      ],
     );
 
     showModalBottomSheet(

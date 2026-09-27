@@ -28,18 +28,20 @@ void main() {
   group('LanTransport UDP 白名单', () {
     test('不在册 senderId 的帧不注册语音端点、不转发给其他成员', () async {
       final host = LanTransport();
-      expect(
-        await host.startHost(),
-        isTrue,
-        reason: '测试需要绑定 TCP 8988 / UDP 8989，端口被占用时先关掉正在运行的应用',
-      );
+      // 端口 0 = 内核分配临时端口。固定端口会让并行运行的测试文件互相抢
+      // 同一个 socket（原先用 shared:true 时两次 bind 都成功，连接却被内核
+      // 随机分给其中一个），表现为随机失败。
+      expect(await host.startHost(port: 0), isTrue, reason: '临时端口绑定失败');
       addTearDown(() => host.stop());
+      final hostAudioPort = host.boundAudioPort;
 
       // 名单由 RoomSession 的名单广播驱动，这里直接注入测试成员。
       host.updateKnownMemberIds({2, 3});
 
-      final speaker = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
-      final listener = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final speaker =
+          await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final listener =
+          await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() {
         speaker.close();
         listener.close();
@@ -65,7 +67,7 @@ void main() {
       speaker.send(
         heartbeat(2).encode(),
         InternetAddress.loopbackIPv4,
-        LanTransport.audioPort,
+        hostAudioPort,
       );
       await pumpUntil(
         () => host.peerEndpoints.containsKey(2),
@@ -74,7 +76,7 @@ void main() {
       listener.send(
         heartbeat(3).encode(),
         InternetAddress.loopbackIPv4,
-        LanTransport.audioPort,
+        hostAudioPort,
       );
       await pumpUntil(
         () => host.peerEndpoints.containsKey(3),
@@ -91,7 +93,7 @@ void main() {
       speaker.send(
         audio.encode(),
         InternetAddress.loopbackIPv4,
-        LanTransport.audioPort,
+        hostAudioPort,
       );
       await pumpUntil(
         () => received.any((f) => f.type == FrameType.audio && f.senderId == 2),
@@ -108,7 +110,7 @@ void main() {
       speaker.send(
         forged.encode(),
         InternetAddress.loopbackIPv4,
-        LanTransport.audioPort,
+        hostAudioPort,
       );
       await Future<void>.delayed(const Duration(milliseconds: 400));
 
@@ -146,19 +148,17 @@ void main() {
         }
       });
 
-      expect(
-        await host.startHost(),
-        isTrue,
-        reason: '测试需要绑定 TCP 8988 / UDP 8989，端口被占用时先关掉正在运行的应用',
-      );
+      // 临时端口：固定 8988/8989 会与并行运行的其它测试文件抢同一个 socket。
+      expect(await host.startHost(port: 0), isTrue, reason: '临时端口绑定失败');
       final client = await Socket.connect(
-          InternetAddress.loopbackIPv4, LanTransport.controlPort);
+          InternetAddress.loopbackIPv4, host.boundControlPort);
 
       client.add(Uint8List.fromList(Frame(
         type: FrameType.joinReq,
         senderId: 0,
         seq: 0,
-        payload: JoinRequestPayload(nickname: 'n', sessionToken: token).encode(),
+        payload:
+            JoinRequestPayload(nickname: 'n', sessionToken: token).encode(),
       ).encode()));
       await client.flush();
       await pumpUntil(() => bound, reason: 'JOIN 必须先被处理');
@@ -193,7 +193,8 @@ void main() {
       // 留出时间，确认没有多出来的重复帧。
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
-      final rosters = received.where((f) => f.type == FrameType.roster).toList();
+      final rosters =
+          received.where((f) => f.type == FrameType.roster).toList();
       expect(rosters.length, 1, reason: '同一帧不能被交付两次');
       expect(rosters.single.seq, 9);
       expect(rosters.single.payload.length, 200, reason: '载荷长度必须完整');

@@ -1,10 +1,10 @@
 name: sunset_ripple
-description: "SunsetRipple - Near-field voice intercom for Android, iOS, Windows, macOS, Linux."
+description: "SunsetRipple - Near-field voice intercom for Android and iOS."
 publish_to: 'none'
 
 # versionName 取 `+` 前半段，versionCode 取后半段。
 # 0.1.0-alpha.13 / versionCode 14
-version: 0.1.0-alpha.13+14
+version: 0.1.0-alpha.14+15
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

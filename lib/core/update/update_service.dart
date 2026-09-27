@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import '../diagnostics/app_log.dart';
+import '../version.dart';
 
 sealed class UpdateState {
   const UpdateState();
@@ -135,7 +136,8 @@ class SemVer implements Comparable<SemVer> {
 }
 
 class UpdateService {
-  static const String currentVersion = '0.1.0-alpha.13';
+  /// 与 `pubspec.yaml` 同源，见 [AppVersion]。
+  static const String currentVersion = AppVersion.name;
   static const String latestReleaseUrl =
       'https://api.github.com/repos/Starlordzz/sunsetripple/releases/latest';
 
@@ -165,7 +167,8 @@ class UpdateService {
           return const UpdateUpToDate();
         }
       } else {
-        AppLog.warn('UpdateService', 'Check update HTTP ${response.statusCode}');
+        AppLog.warn(
+            'UpdateService', 'Check update HTTP ${response.statusCode}');
         return UpdateFailed('HTTP ${response.statusCode}');
       }
     } catch (e) {

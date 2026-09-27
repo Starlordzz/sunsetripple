@@ -64,7 +64,11 @@ keyPassword=<强密码>
 
 ### Signing Guard
 
-`app/build.gradle.kts` registers a `verifyReleaseSigning` task that is attached before `packageRelease` / `bundleRelease`. If the configuration file is missing, a field is missing, or the key file does not exist, the build **fails early** with a reason (in Chinese), preventing unsigned or wrongly signed artifacts.
+`android/app/build.gradle.kts` guards `assembleRelease` in a `doFirst` block: when `android/key.properties` is missing, the build **fails immediately** and prints three remediation paths instead of silently falling back to debug signing.
+
+> **Why this is a hard constraint**: CI previously could not obtain signing material, so `flutter build apk --release` always fell back to debug signing. A GitHub runner generates a fresh debug key every run, so **every release was signed differently** — users hit `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and had to uninstall. Since alpha.14, `release.yml` restores the keystore from secrets and additionally asserts with `apksigner` that the artifact is not `CN=Android Debug`.
+
+For local self-testing that explicitly accepts an unreleasable package, pass `-PallowDebugSigning=true`.
 
 ### Packaging
 
@@ -78,17 +82,37 @@ Artifacts:
 - Sideloadable APK: `app/build/outputs/apk/release/app-release.apk`
 - App-store AAB: `app/build/outputs/bundle/release/app-release.aab`
 
-CI or a temporary signing configuration can point Gradle properties elsewhere (absolute paths accepted):
+Configure signing material:
 
 ```bash
-./gradlew :app:assembleRelease -PsunsetRipple.signingProperties=/secure/path/keystore.properties
+bash scripts/setup-release-signing.sh
 ```
+
+The wizard generates a long-lived PKCS12 key, writes the `android/key.properties` that
+Gradle actually reads, and — when `gh` is available — sets the four repository secrets
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+`ANDROID_KEY_PASSWORD`.
+
+> **Note**: up to alpha.13 the wizard wrote `keystore.properties` at the repository root
+> while Gradle reads `android/key.properties` (`rootProject` is `android/`), so local
+> release builds still fell back to debug signing. Fixed in alpha.14.
 
 ### Publishing to GitHub Releases
 
-Published versions are listed under [Releases](https://github.com/Starlordzz/sunsetripple/releases). `.github/workflows/release.yml` automatically runs tests, Release lint, signs the APK/AAB, signs the `update.json` manifest, and uploads the GitHub Release after a `v*` tag is pushed.
+Published versions are listed under [Releases](https://github.com/Starlordzz/sunsetripple/releases). `.github/workflows/release.yml` runs tests, restores the signing material, builds the
+release APK, verifies the signature, and uploads the GitHub Release after a `v*` tag is
+pushed. It also produces an unsigned iOS `.ipa` and a HarmonyOS source-project zip.
 
-Before enabling this for the first time, configure `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and `UPDATE_PRIVATE_KEY_PKCS8_BASE64` in GitHub Actions Secrets, plus the non-sensitive variable `UPDATE_PUBLIC_KEY_BASE64`. The update private key and the Android keystore must be backed up offline.
+Before the first run, configure the four secrets `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
+(`scripts/setup-release-signing.sh` can write them). Back the keystore up offline.
+
+> **Not implemented**: the `update.json` manifest signing, APK SHA-256 verification and
+> in-app auto-install chain this document used to describe **do not exist in the current
+> code**. `UpdateService` only compares SemVer and stores `html_url` for display; nothing
+> downloads, installs or verifies. The helpers (`scripts/SignUpdateManifest.java`,
+> `GenerateUpdateSigningKey.java`) produce a key and a manifest that have no consumer.
+> Do not claim update integrity verification until that path is wired.
 
 Release steps:
 

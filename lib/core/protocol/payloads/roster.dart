@@ -52,7 +52,8 @@ class RosterPayload {
     for (final m in members) {
       final nickBytes = utf8.encode(m.nickname);
       if (m.memberId <= 0 || m.memberId > 255 || !ids.add(m.memberId)) {
-        throw ArgumentError('memberId must be unique, non-zero, and fit in one byte.');
+        throw ArgumentError(
+            'memberId must be unique, non-zero, and fit in one byte.');
       }
       if (nickBytes.length > maxNicknameBytes) {
         throw ArgumentError('nickname exceeds $maxNicknameBytes UTF-8 bytes.');
@@ -64,7 +65,9 @@ class RosterPayload {
       bytesList.add(nickLen);
       bytesList.addAll(nickBytes);
     }
-    if (!ids.contains(hostId) || hostFlags != 1 || bytesList.length > maxPayloadBytes) {
+    if (!ids.contains(hostId) ||
+        hostFlags != 1 ||
+        bytesList.length > maxPayloadBytes) {
       throw ArgumentError('roster host flags or payload length is invalid.');
     }
     return Uint8List.fromList(bytesList);
@@ -85,7 +88,9 @@ class RosterPayload {
       final mId = bytes[offset++];
       final flags = bytes[offset++];
       final nickLen = bytes[offset++];
-      if (mId == 0 || !ids.add(mId) || offset + nickLen > bytes.length) return null;
+      if (mId == 0 || !ids.add(mId) || offset + nickLen > bytes.length) {
+        return null;
+      }
       final nickBytes = bytes.sublist(offset, offset + nickLen);
       final String nick;
       try {
@@ -98,7 +103,9 @@ class RosterPayload {
       members.add(RosterMember(memberId: mId, flags: flags, nickname: nick));
     }
 
-    if (offset != bytes.length || !ids.contains(hostId) || hostFlags != 1) return null;
+    if (offset != bytes.length || !ids.contains(hostId) || hostFlags != 1) {
+      return null;
+    }
     return RosterPayload(hostId: hostId, members: members);
   }
 }

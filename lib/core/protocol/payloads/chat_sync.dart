@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'chat_message.dart';
+
 /// Binary codec for syncing historical chat messages to newly joined room members.
 ///
 /// Format:
@@ -16,7 +18,9 @@ import 'dart:typed_data';
 /// [K+3..N] : Text UTF-8
 class ChatSyncPayload {
   static const int maxPayloadBytes = 512;
-  static const int maxFieldBytes = 64;
+  static const int maxFieldBytes = ChatMessagePayload.maxFieldBytes;
+  static const int maxNicknameBytes = ChatMessagePayload.maxNicknameBytes;
+  static const int chatSyncHeaderBytes = ChatMessagePayload.chatSyncHeaderBytes;
 
   final int targetMemberId;
   final int senderId;
@@ -39,21 +43,33 @@ class ChatSyncPayload {
   Uint8List encode() {
     final msgIdBytes = utf8.encode(messageId);
     if (msgIdBytes.isEmpty || msgIdBytes.length > maxFieldBytes) {
-      throw ArgumentError('messageId must contain 1 to $maxFieldBytes UTF-8 bytes.');
+      throw ArgumentError(
+          'messageId must contain 1 to $maxFieldBytes UTF-8 bytes.');
     }
     final msgIdLen = msgIdBytes.length;
 
     final nickBytes = utf8.encode(nickname);
-    if (nickBytes.isEmpty || nickBytes.length > maxFieldBytes) {
-      throw ArgumentError('nickname must contain 1 to $maxFieldBytes UTF-8 bytes.');
+    if (nickBytes.isEmpty || nickBytes.length > maxNicknameBytes) {
+      throw ArgumentError(
+          'nickname must contain 1 to $maxNicknameBytes UTF-8 bytes in chat sync.');
     }
     final nickLen = nickBytes.length;
 
-    final maxAllowedText = maxPayloadBytes - (18 + msgIdLen + nickLen);
+    // 与 live chat 共享同一条业务上限：任何 sendChat 接受的消息都必须能同步给
+    // 新成员，否则历史补发会在循环中途抛错并整段中断。
+    final budgetText =
+        maxPayloadBytes - (chatSyncHeaderBytes + msgIdLen + nickLen);
+    final maxAllowedText = budgetText < ChatMessagePayload.maxTextBytes
+        ? budgetText
+        : ChatMessagePayload.maxTextBytes;
     final textBytes = utf8.encode(text);
     final textLen = textBytes.length;
     if (textBytes.isEmpty || textBytes.length > maxAllowedText) {
-      throw ArgumentError('chat sync text exceeds the available UTF-8 payload budget.');
+      throw ArgumentError(
+        'chat sync text exceeds the available UTF-8 payload budget '
+        '(limit: $maxAllowedText bytes, actual: $textLen, '
+        'messageId: $msgIdLen, nickname: $nickLen).',
+      );
     }
 
     final codeBytes = ascii.encode(senderCode.padRight(4, ' ').substring(0, 4));
@@ -84,7 +100,7 @@ class ChatSyncPayload {
   }
 
   static ChatSyncPayload? decode(Uint8List data) {
-    if (data.length < 18) return null;
+    if (data.length < chatSyncHeaderBytes) return null;
 
     final targetMemberId = data[0];
     final senderId = data[1];
@@ -98,6 +114,7 @@ class ChatSyncPayload {
 
     int offset = 14;
     final msgIdLen = data[offset++];
+    if (msgIdLen == 0 || msgIdLen > maxFieldBytes) return null;
     if (offset + msgIdLen > data.length) return null;
     final String messageId;
     try {
@@ -112,6 +129,7 @@ class ChatSyncPayload {
 
     if (offset >= data.length) return null;
     final nickLen = data[offset++];
+    if (nickLen == 0 || nickLen > maxNicknameBytes) return null;
     if (offset + nickLen > data.length) return null;
     final String nickname;
     try {
@@ -172,4 +190,3 @@ class ChatSyncPayload {
       nickname.hashCode ^
       text.hashCode;
 }
-

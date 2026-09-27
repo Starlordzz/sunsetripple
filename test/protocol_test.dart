@@ -151,32 +151,35 @@ void main() {
             throwsArgumentError);
       });
 
-      test(
-          'Boundary: exactly 480 UTF-8 bytes succeeds, 481 throws ArgumentError',
+      test('Boundary: exactly the shared budget succeeds, one byte more throws',
           () {
-        // 480 ASCII bytes
-        final validText = 'A' * 480;
+        const budget = ChatMessagePayload.maxTextBytes;
+
+        // 恰好等于上限
+        final validText = 'A' * budget;
         final payload = ChatMessagePayload(text: validText);
         final encoded = payload.encode();
-        expect(encoded.length, 15 + 480);
+        expect(encoded.length, ChatMessagePayload.headerBytes + budget);
         final decoded = ChatMessagePayload.decode(encoded);
         expect(decoded!.text, validText);
 
-        // 481 ASCII bytes
-        final invalidText = 'A' * 481;
+        // 超一字节
         expect(
-          () => ChatMessagePayload(text: invalidText).encode(),
+          () => ChatMessagePayload(text: 'A' * (budget + 1)).encode(),
           throwsArgumentError,
         );
 
-        // Multi-byte boundary: 160 Chinese characters = 160 * 3 = 480 bytes
-        final validChinese = '中' * 160;
+        // 多字节边界：中文 3 字节，按整字符刚好放下
+        const chineseChars = budget ~/ 3;
+        final validChinese = '中' * chineseChars;
         expect(
-            ChatMessagePayload(text: validChinese).encode().length, 15 + 480);
+          ChatMessagePayload(text: validChinese).encode().length,
+          ChatMessagePayload.headerBytes + chineseChars * 3,
+        );
 
-        // 160 Chinese + 1 byte = 481 bytes
+        // 多加一个中文字符就越界
         expect(
-          () => ChatMessagePayload(text: '${validChinese}a').encode(),
+          () => ChatMessagePayload(text: '$validChinese中').encode(),
           throwsArgumentError,
         );
       });
@@ -240,6 +243,63 @@ void main() {
     });
 
     group('ChatSyncPayload Tests', () {
+      test('Regression: 任何 sendChat 接受的文本都能被历史同步编码（预算不再有裂缝）', () {
+        // 最坏情况：消息 ID 取最长形态，昵称取协议上限 64 字节。
+        final worstMsgId = '108_${DateTime.now().millisecondsSinceEpoch}_65535';
+        final worstNick = 'N' * ChatMessagePayload.maxNicknameBytes;
+        final longestText = 'A' * ChatMessagePayload.maxTextBytes;
+
+        // 1) live chat 接受它（不抛异常）
+        final chatFramePayload = ChatMessagePayload(text: longestText).encode();
+        expect(
+          ChatMessagePayload.decode(chatFramePayload)!.text,
+          longestText,
+        );
+
+        // 2) 同一段文本塞进 chatSync 也必须成功——这正是此前会整段中断
+        //    历史同步的那条路径（480 字节消息 vs ≈466 字节预算）。
+        final sync = ChatSyncPayload(
+          targetMemberId: 2,
+          senderId: 1,
+          senderCode: '108',
+          timestampMs: 1700000000000,
+          messageId: worstMsgId,
+          nickname: worstNick,
+          text: longestText,
+        );
+        final encoded = sync.encode();
+        expect(encoded.length, lessThanOrEqualTo(Frame.maxPayloadSize));
+        expect(ChatSyncPayload.decode(encoded)!.text, longestText);
+
+        // 3) 加上安全信封开销后仍不超过传输上限
+        expect(
+          encoded.length + ChatMessagePayload.sealedOverheadBytes,
+          lessThanOrEqualTo(Frame.maxPayloadSize),
+          reason: '启用 secureCodec 时也必须装得下，否则 sendChat 会静默失败',
+        );
+      });
+
+      test('chatSync decode 拒绝超长 messageId / nickname 字段', () {
+        final ok = const ChatSyncPayload(
+          targetMemberId: 2,
+          senderId: 1,
+          senderCode: '108',
+          timestampMs: 1700000000000,
+          messageId: '108_1700000000000_1',
+          nickname: '阿远',
+          text: '你好',
+        ).encode();
+        expect(ChatSyncPayload.decode(ok), isNotNull);
+
+        // 把 msgIdLen 改成 0（合法结构但语义非法）→ 必须拒绝
+        final zeroMsgId = Uint8List.fromList(ok)..[14] = 0;
+        expect(ChatSyncPayload.decode(zeroMsgId), isNull);
+
+        // 把 msgIdLen 改成超过上限 → 必须拒绝，而不是按长度越界读
+        final hugeMsgId = Uint8List.fromList(ok)..[14] = 200;
+        expect(ChatSyncPayload.decode(hugeMsgId), isNull);
+      });
+
       test('ChatSyncPayload encode and decode roundtrip', () {
         const sync = ChatSyncPayload(
           targetMemberId: 2,

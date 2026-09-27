@@ -77,6 +77,6 @@ class ChatDeletePayload {
           messageId == other.messageId;
 
   @override
-  int get hashCode => version.hashCode ^ senderCode.hashCode ^ messageId.hashCode;
+  int get hashCode =>
+      version.hashCode ^ senderCode.hashCode ^ messageId.hashCode;
 }
-

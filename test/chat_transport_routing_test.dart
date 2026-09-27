@@ -14,7 +14,8 @@ void main() {
       final lan = LanTransport();
 
       // 在未启动状态下发送 chat 帧，断言其进入控制面逻辑且不会抛异常或混入 UDP
-      final chatPayload = const ChatMessagePayload(text: '测试 WiFi 路由隔离').encode();
+      final chatPayload =
+          const ChatMessagePayload(text: '测试 WiFi 路由隔离').encode();
       final chatFrame = Frame(
         type: FrameType.chat,
         senderId: 1,
@@ -49,7 +50,8 @@ void main() {
       // 启动并模拟进入 Host 角色
       await ble.startHost(roomName: '测试蓝牙房');
 
-      final chatPayload = const ChatMessagePayload(text: '测试 BLE L2CAP 路由').encode();
+      final chatPayload =
+          const ChatMessagePayload(text: '测试 BLE L2CAP 路由').encode();
       final chatFrame = Frame(
         type: FrameType.chat,
         senderId: 1,

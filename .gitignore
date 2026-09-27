@@ -19,7 +19,6 @@ keystore.properties
 # 堆转储可能含运行时内存里的签名口令，本仓库公开，绝不能入库。
 *.hprof
 commandlinetools-*
-scripts/setup-release-signing.sh
 .superpowers/
 docs/superpowers/
 .grok/

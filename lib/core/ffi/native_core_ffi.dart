@@ -28,11 +28,15 @@ final class SunsetNativeFrame extends ffi.Struct {
   external ffi.Array<ffi.Uint8> payload;
 }
 
-typedef SunsetRbCreateNative = ffi.Pointer<SunsetRingBufferOpaque> Function(ffi.Size capacity);
-typedef SunsetRbCreateDart = ffi.Pointer<SunsetRingBufferOpaque> Function(int capacity);
+typedef SunsetRbCreateNative = ffi.Pointer<SunsetRingBufferOpaque> Function(
+    ffi.Size capacity);
+typedef SunsetRbCreateDart = ffi.Pointer<SunsetRingBufferOpaque> Function(
+    int capacity);
 
-typedef SunsetRbFreeNative = ffi.Void Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
-typedef SunsetRbFreeDart = void Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbFreeNative = ffi.Void Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbFreeDart = void Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
 
 typedef SunsetRbWriteNative = ffi.Size Function(
   ffi.Pointer<SunsetRingBufferOpaque> rb,
@@ -56,14 +60,20 @@ typedef SunsetRbReadDart = int Function(
   int length,
 );
 
-typedef SunsetRbAvailableReadNative = ffi.Size Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
-typedef SunsetRbAvailableReadDart = int Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbAvailableReadNative = ffi.Size Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbAvailableReadDart = int Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
 
-typedef SunsetRbAvailableWriteNative = ffi.Size Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
-typedef SunsetRbAvailableWriteDart = int Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbAvailableWriteNative = ffi.Size Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbAvailableWriteDart = int Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
 
-typedef SunsetRbClearNative = ffi.Void Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
-typedef SunsetRbClearDart = void Function(ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbClearNative = ffi.Void Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
+typedef SunsetRbClearDart = void Function(
+    ffi.Pointer<SunsetRingBufferOpaque> rb);
 
 typedef SunsetCalculateRmsNative = ffi.Float Function(
   ffi.Pointer<ffi.Int16> samples,
@@ -166,32 +176,39 @@ class NativeCoreFfi {
       if (_lib != null) {
         // 每个符号独立绑定：某个符号在旧产物里缺失时，其余能力仍可用。
         final lib = _lib!;
-        _rbCreate = _lookup(() => lib.lookupFunction<SunsetRbCreateNative,
-            SunsetRbCreateDart>('sunset_ring_buffer_create'));
-        _rbFree = _lookup(() => lib.lookupFunction<SunsetRbFreeNative,
-            SunsetRbFreeDart>('sunset_ring_buffer_free'));
-        _rbWrite = _lookup(() => lib.lookupFunction<SunsetRbWriteNative,
-            SunsetRbWriteDart>('sunset_ring_buffer_write'));
-        _rbRead = _lookup(() => lib.lookupFunction<SunsetRbReadNative,
-            SunsetRbReadDart>('sunset_ring_buffer_read'));
-        _rbAvailableRead = _lookup(() => lib
-            .lookupFunction<SunsetRbAvailableReadNative,
-                SunsetRbAvailableReadDart>('sunset_ring_buffer_available_read'));
+        _rbCreate = _lookup(() =>
+            lib.lookupFunction<SunsetRbCreateNative, SunsetRbCreateDart>(
+                'sunset_ring_buffer_create'));
+        _rbFree = _lookup(() =>
+            lib.lookupFunction<SunsetRbFreeNative, SunsetRbFreeDart>(
+                'sunset_ring_buffer_free'));
+        _rbWrite = _lookup(() =>
+            lib.lookupFunction<SunsetRbWriteNative, SunsetRbWriteDart>(
+                'sunset_ring_buffer_write'));
+        _rbRead = _lookup(() =>
+            lib.lookupFunction<SunsetRbReadNative, SunsetRbReadDart>(
+                'sunset_ring_buffer_read'));
+        _rbAvailableRead = _lookup(() => lib.lookupFunction<
+            SunsetRbAvailableReadNative,
+            SunsetRbAvailableReadDart>('sunset_ring_buffer_available_read'));
         _rbAvailableWrite = _lookup(() => lib.lookupFunction<
-                SunsetRbAvailableWriteNative, SunsetRbAvailableWriteDart>(
-            'sunset_ring_buffer_available_write'));
-        _rbClear = _lookup(() => lib.lookupFunction<SunsetRbClearNative,
-            SunsetRbClearDart>('sunset_ring_buffer_clear'));
+            SunsetRbAvailableWriteNative,
+            SunsetRbAvailableWriteDart>('sunset_ring_buffer_available_write'));
+        _rbClear = _lookup(() =>
+            lib.lookupFunction<SunsetRbClearNative, SunsetRbClearDart>(
+                'sunset_ring_buffer_clear'));
         _calculateRms = _lookup(() => lib.lookupFunction<
             SunsetCalculateRmsNative,
             SunsetCalculateRmsDart>('sunset_calculate_rms'));
         _mixPcmStreams = _lookup(() => lib.lookupFunction<
             SunsetMixPcmStreamsNative,
             SunsetMixPcmStreamsDart>('sunset_mix_pcm_streams'));
-        _frameEncode = _lookup(() => lib.lookupFunction<SunsetFrameEncodeNative,
-            SunsetFrameEncodeDart>('sunset_frame_encode'));
-        _frameDecode = _lookup(() => lib.lookupFunction<SunsetFrameDecodeNative,
-            SunsetFrameDecodeDart>('sunset_frame_decode'));
+        _frameEncode = _lookup(() =>
+            lib.lookupFunction<SunsetFrameEncodeNative, SunsetFrameEncodeDart>(
+                'sunset_frame_encode'));
+        _frameDecode = _lookup(() =>
+            lib.lookupFunction<SunsetFrameDecodeNative, SunsetFrameDecodeDart>(
+                'sunset_frame_decode'));
         _isLoaded = _rbCreate != null;
       }
     } catch (e) {
@@ -222,12 +239,14 @@ class NativeCoreFfi {
     _rbFree!(rb);
   }
 
-  static int writeRingBuffer(ffi.Pointer<SunsetRingBufferOpaque> rb, ffi.Pointer<ffi.Uint8> data, int length) {
+  static int writeRingBuffer(ffi.Pointer<SunsetRingBufferOpaque> rb,
+      ffi.Pointer<ffi.Uint8> data, int length) {
     if (!_isLoaded || _rbWrite == null) return 0;
     return _rbWrite!(rb, data, length);
   }
 
-  static int readRingBuffer(ffi.Pointer<SunsetRingBufferOpaque> rb, ffi.Pointer<ffi.Uint8> outData, int length) {
+  static int readRingBuffer(ffi.Pointer<SunsetRingBufferOpaque> rb,
+      ffi.Pointer<ffi.Uint8> outData, int length) {
     if (!_isLoaded || _rbRead == null) return 0;
     return _rbRead!(rb, outData, length);
   }
@@ -261,8 +280,7 @@ class NativeCoreFfi {
   }
 
   /// 读出当前可读的全部字节。
-  static Uint8List readRingBufferBytes(
-      ffi.Pointer<SunsetRingBufferOpaque> rb) {
+  static Uint8List readRingBufferBytes(ffi.Pointer<SunsetRingBufferOpaque> rb) {
     final available = availableRead(rb);
     if (available <= 0 || _rbRead == null) return Uint8List(0);
     final ptr = malloc<ffi.Uint8>(available);
@@ -317,9 +335,8 @@ class NativeCoreFfi {
     try {
       for (var i = 0; i < streamPtrsLen; i++) {
         final buffer = malloc<ffi.Int16>(sampleCount);
-        final copy = streams[i].length < sampleCount
-            ? streams[i].length
-            : sampleCount;
+        final copy =
+            streams[i].length < sampleCount ? streams[i].length : sampleCount;
         buffer.asTypedList(sampleCount).fillRange(0, sampleCount, 0);
         buffer.asTypedList(copy).setAll(0, streams[i].sublist(0, copy));
         buffers.add(buffer);
@@ -349,8 +366,8 @@ class NativeCoreFfi {
       if (payload.isNotEmpty) {
         payloadPtr.asTypedList(payload.length).setAll(0, payload);
       }
-      final written = _frameEncode!(
-          type, senderId, seq & 0xFFFF, payloadPtr, payload.length, out, outCapacity);
+      final written = _frameEncode!(type, senderId, seq & 0xFFFF, payloadPtr,
+          payload.length, out, outCapacity);
       if (written <= 0) return null;
       return Uint8List.fromList(out.asTypedList(written));
     } finally {

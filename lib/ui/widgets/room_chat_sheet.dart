@@ -342,7 +342,8 @@ class _RoomChatSheetState extends State<RoomChatSheet> {
     // 未唤起键盘时高度占屏幕约 74%（平板 65%），底部紧贴屏幕边缘彻底盖住底层控制栏；
     // 唤起键盘时，高度自适应键盘上方空间，直接由 viewInsets 驱动，彻底杜绝回落时的时延 Overflow。
     final double maxAvailableHeight =
-        (screenHeight - topPadding - keyboardHeight - 16).clamp(240.0, screenHeight);
+        (screenHeight - topPadding - keyboardHeight - 16)
+            .clamp(240.0, screenHeight);
     final double defaultHeight =
         (screenHeight * (isTablet ? 0.65 : 0.74)).clamp(280.0, screenHeight);
     final double targetHeight = keyboardHeight > 0

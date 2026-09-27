@@ -65,6 +65,9 @@ class BleL2capPlugin(
 
         private const val FRAME_HEADER_SIZE = 6
 
+        /** `FrameType.joinReq`：房主靠它把链路与成员号绑定，不参与 senderId 重写。 */
+        private const val FRAME_TYPE_JOIN_REQ = 0x02
+
         /** 与 Dart 侧 Frame.maxPayloadSize 严格一致：协议帧载荷上限就是 512。 */
         private const val MAX_PAYLOAD = 512
 
@@ -195,6 +198,25 @@ class BleL2capPlugin(
                     return
                 }
                 result.success(sendData(data, excludeAddress = null))
+            }
+
+            // 房主把链路与成员号绑定。L2CAP 是链路寻址，接收端无法自行校验
+            // 来源，只能由房主在转发时按绑定关系重写 senderId。
+            "bindMember" -> {
+                val peerAddress = call.argument<String>("peerAddress")
+                val memberId = call.argument<Int>("memberId") ?: 0
+                if (peerAddress.isNullOrBlank() || memberId <= 0) {
+                    result.error("BAD_ARGS", "bindMember 需要 peerAddress 与 memberId", null)
+                    return
+                }
+                bindMember(peerAddress, memberId)
+                result.success(true)
+            }
+
+            "unbindMember" -> {
+                val memberId = call.argument<Int>("memberId") ?: 0
+                if (memberId > 0) unbindMember(memberId)
+                result.success(true)
             }
 
             "stop" -> {
@@ -517,6 +539,13 @@ class BleL2capPlugin(
         val alive = AtomicBoolean(true)
         private val writeLock = Any()
 
+        /**
+         * 房主侧为这条链路绑定的成员号（由 Dart 层的 JOIN 触发）。0 = 尚未绑定。
+         * 绑定前一律用 0 转发（会话层会按名单丢弃），避免转发未认证连接的身份。
+         */
+        @Volatile
+        var memberId: Int = 0
+
         fun write(data: ByteArray) {
             synchronized(writeLock) {
                 if (!alive.get()) return
@@ -532,6 +561,40 @@ class BleL2capPlugin(
             } catch (e: IOException) {
                 Log.d(TAG, "关闭 $address 时被忽略的异常：$e")
             }
+        }
+    }
+
+    /**
+     * 把帧头第 [1] 字节（senderId）改写成 [memberId]。
+     *
+     * JOIN 帧（type 0x02，senderId 固定 0）不参与重写：房主靠它建立绑定。
+     * 未绑定的链路（memberId == 0）直接返回 null，调用方应当丢弃而不是转发。
+     */
+    private fun rewriteSender(frame: ByteArray, memberId: Int): ByteArray? {
+        if (frame.size < FRAME_HEADER_SIZE) return null
+        val type = frame[0].toInt() and 0xFF
+        if (type == FRAME_TYPE_JOIN_REQ) return null
+        if (memberId <= 0) return null
+        val copy = frame.copyOf()
+        copy[1] = memberId.toByte()
+        return copy
+    }
+
+    /** 供 Dart 层在 JOIN 完成后调用，把链路与房主分配的成员号绑定。 */
+    private fun bindMember(address: String, memberId: Int) {
+        val link = peers[address]
+        if (link == null) {
+            Log.w(TAG, "绑定成员号失败：找不到链路 $address")
+            return
+        }
+        link.memberId = memberId
+        Log.i(TAG, "链路 $address 绑定成员号 #$memberId")
+    }
+
+    private fun unbindMember(memberId: Int) {
+        peers.values.firstOrNull { it.memberId == memberId }?.let { link ->
+            link.memberId = 0
+            Log.i(TAG, "成员 #$memberId 已解绑（${link.address}）")
         }
     }
 
@@ -579,7 +642,16 @@ class BleL2capPlugin(
             }
 
             // 房主负责把一个成员的帧转给其他成员（星型拓扑，与 WiFi 房一致）。
-            if (isHost) sendData(full, excludeAddress = link.address)
+            //
+            // 转发前必须把帧头 [1] 的 senderId 改写成这条链路在房主侧绑定的
+            // 成员号：L2CAP 是链路寻址，客户端之间物理上无法直连，接收端没法
+            // 自行校验来源。不改写的话任何成员都能把 senderId 填成别人的号，
+            // 冒用他人身份发言、撤回甚至伪造 PTT 状态——与 LAN 房
+            // `_relayControl` 里的重写逻辑保持同一语义。
+            val forwarded = if (isHost) rewriteSender(full, link.memberId) else full
+            if (isHost && forwarded != null) {
+                sendData(forwarded, excludeAddress = link.address)
+            }
 
             val event = mapOf<String, Any>(
                 "data" to full,

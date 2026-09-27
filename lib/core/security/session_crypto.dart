@@ -25,7 +25,9 @@ class DeviceFingerprint {
   /// 全量指纹：SHA-256 摘要，十六进制大写，冒号分隔（如 "3A:5F:..."）。
   static String full(List<int> publicKey) {
     final digest = crypto.sha256.convert(publicKey).bytes;
-    return digest.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(':');
+    return digest
+        .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+        .join(':');
   }
 
   /// 6 位安全短码：取 SHA-256 前 4 字节大端无符号整数模 1,000,000，分成三三两段（如 "123 456"）。
@@ -152,7 +154,8 @@ class SessionCipher {
   static const int maxSeenNonces = 65536;
 
   final crypt.SecretKey _secretKey;
-  final crypt.AesGcm _aesGcm = crypt.AesGcm.with256bits(nonceLength: nonceBytes);
+  final crypt.AesGcm _aesGcm =
+      crypt.AesGcm.with256bits(nonceLength: nonceBytes);
   final Set<String> _seenNonces = <String>{};
   final ListQueue<String> _nonceOrder = ListQueue<String>();
   final Random _random = Random.secure();
@@ -263,7 +266,8 @@ class SessionCipher {
     );
 
     // secretBox.cipherText + secretBox.mac.bytes (16 bytes tag)
-    final ciphertext = Uint8List(secretBox.cipherText.length + secretBox.mac.bytes.length);
+    final ciphertext =
+        Uint8List(secretBox.cipherText.length + secretBox.mac.bytes.length);
     ciphertext.setRange(0, secretBox.cipherText.length, secretBox.cipherText);
     ciphertext.setRange(
       secretBox.cipherText.length,
@@ -323,4 +327,3 @@ class SessionCipher {
     }
   }
 }
-

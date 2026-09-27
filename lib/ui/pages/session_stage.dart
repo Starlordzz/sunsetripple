@@ -364,7 +364,9 @@ class _SessionStageState extends State<SessionStage>
                 iconSize: 28,
                 padding: const EdgeInsets.all(10),
                 icon: Icon(
-                  widget.isNight ? Icons.nightlight_round : Icons.wb_sunny_rounded,
+                  widget.isNight
+                      ? Icons.nightlight_round
+                      : Icons.wb_sunny_rounded,
                   color: Colors.white,
                 ),
                 onPressed: widget.onToggleTheme,
@@ -514,7 +516,9 @@ class _SessionStageState extends State<SessionStage>
               ),
               const SizedBox(height: 6),
               Text(
-                session.isHost ? s.hostBroadcastingStatus : s.memberConnectedStatus,
+                session.isHost
+                    ? s.hostBroadcastingStatus
+                    : s.memberConnectedStatus,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(

@@ -280,7 +280,8 @@ class LanRoomDiscovery {
       // 若来自另一源地址，不能被后来的包静默劫持；明文模式下这是能做到的
       // 最小身份绑定，真正的认证仍需后续握手协议。
       final known = _discoveredRooms[roomId];
-      if (known != null && known.hostAddress.address != datagram.address.address) {
+      if (known != null &&
+          known.hostAddress.address != datagram.address.address) {
         AppLog.warn(
           _tag,
           '忽略来自 ${datagram.address.address} 的重复 roomId $roomId 广播（已绑定 ${known.hostAddress.address}）',

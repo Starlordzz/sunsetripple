@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart';
+
 enum LogLevel { debug, info, warn, error }
 
 /// 一条诊断记录。
@@ -71,6 +73,13 @@ class AppLog {
       _add(LogLevel.error, tag, message, error);
 
   static void _add(LogLevel level, String tag, String message, Object? error) {
+    // release 构建丢弃 debug/info：这些日志会通过对端 IP、端口、成员昵称
+    // 泄出局域网拓扑，而用户抓 logcat 提交 issue 时并不会去审这一层。
+    // warn/error 保留，诊断面板要靠它们。
+    if (kReleaseMode && level != LogLevel.warn && level != LogLevel.error) {
+      return;
+    }
+
     final entry = LogEntry(
       level: level,
       tag: tag,
@@ -83,8 +92,9 @@ class AppLog {
       _retained.removeFirst();
     }
 
-    // ignore: avoid_print
-    print(entry.toString());
+    // 日志可能与平台通道/媒体管线竞争主线程，release 下 `print` 会同步写
+    // stdout 并拖慢音频路径；用 debugPrint（带节流）替代。
+    debugPrint(entry.toString());
 
     if (!_controller.isClosed) {
       _controller.add(entry);

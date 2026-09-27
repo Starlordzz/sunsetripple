@@ -78,8 +78,52 @@ jobs:
       - name: Run unit tests
         run: flutter test
 
+      - name: Restore Android release signing material
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
+            echo "::error::缺少 ANDROID_KEYSTORE_BASE64 secret。发布包必须用固定密钥签名，" >&2
+            echo "::error::否则每次发布的签名都不同，用户无法覆盖升级。请先运行：" >&2
+            echo "::error::  bash scripts/setup-release-signing.sh" >&2
+            exit 1
+          fi
+
+          key_store_path="$RUNNER_TEMP/sunset-ripple-release.p12"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$key_store_path"
+
+          cat > android/key.properties <<EOF
+          storeFile=$key_store_path
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          echo "已写入 android/key.properties（keystore 位于 \$RUNNER_TEMP，不入库）"
+
       - name: Build Android Release APK
         run: flutter build apk --release
+
+      - name: Verify APK is signed with the release key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 兜底断言：万一有人放宽 Gradle 守卫，这里也要拦住 debug 签名的「正式包」。
+          apksigner="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
+          if [[ -z "$apksigner" ]]; then
+            echo "::warning::找不到 apksigner，跳过签名断言"
+            exit 0
+          fi
+          cert="$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -i 'Signer #1 certificate DN' || true)"
+          echo "$cert"
+          if [[ "$cert" == *"CN=Android Debug"* ]]; then
+            echo "::error::release APK 是 debug 签名，绝不允许发布。" >&2
+            exit 1
+          fi
 
       - name: Prepare release artifacts
         shell: bash

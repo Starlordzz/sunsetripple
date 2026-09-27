@@ -97,7 +97,11 @@ class _CelestialPainter extends CustomPainter {
     // 1. Sky Gradient
     final skyColors = isNight
         ? [AppTheme.nightSkyBlue, AppTheme.nightDeepOcean, AppTheme.nightAbyss]
-        : [AppTheme.sunsetCoral, AppTheme.sunsetBurgundy, AppTheme.sunsetDeepPlum];
+        : [
+            AppTheme.sunsetCoral,
+            AppTheme.sunsetBurgundy,
+            AppTheme.sunsetDeepPlum
+          ];
 
     final skyPaint = Paint()
       ..shader = LinearGradient(
@@ -113,7 +117,8 @@ class _CelestialPainter extends CustomPainter {
         Offset(size.width / 2, size.height * celestialCenterFactorY);
     final radius = celestialRadius;
 
-    final celestialColor = isNight ? AppTheme.moonSilverWhite : AppTheme.sunWarmYellow;
+    final celestialColor =
+        isNight ? AppTheme.moonSilverWhite : AppTheme.sunWarmYellow;
 
     // Outer Glow: GPU RadialGradient shader instead of expensive MaskFilter.blur
     final glowRadius = radius + 26;
@@ -177,4 +182,3 @@ class _CelestialPainter extends CustomPainter {
         oldDelegate.waterLineFactor != waterLineFactor;
   }
 }
-

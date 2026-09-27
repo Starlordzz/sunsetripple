@@ -54,7 +54,8 @@ class _MemberAvatarChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeBorderColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral;
+    final activeBorderColor =
+        isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral;
     final speakingGlow = member.isSpeaking
         ? (isNight ? const Color(0xFF6B9BE8) : const Color(0xFFF39C82))
         : Colors.transparent;
@@ -75,7 +76,11 @@ class _MemberAvatarChip extends StatelessWidget {
               shape: BoxShape.circle,
               color: isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg,
               border: Border.all(
-                color: member.isSpeaking ? activeBorderColor : (isNight ? const Color(0xFF283A52) : const Color(0xFFDCCEC8)),
+                color: member.isSpeaking
+                    ? activeBorderColor
+                    : (isNight
+                        ? const Color(0xFF283A52)
+                        : const Color(0xFFDCCEC8)),
                 width: member.isSpeaking ? 3.0 : 1.4,
               ),
               boxShadow: member.isSpeaking
@@ -90,9 +95,13 @@ class _MemberAvatarChip extends StatelessWidget {
             ),
             child: Center(
               child: Text(
-                member.nickname.isNotEmpty ? member.nickname.characters.first : "?",
+                member.nickname.isNotEmpty
+                    ? member.nickname.characters.first
+                    : "?",
                 style: TextStyle(
-                  color: isNight ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+                  color: isNight
+                      ? AppTheme.darkTextPrimary
+                      : AppTheme.lightTextPrimary,
                   fontWeight: FontWeight.bold,
                   fontSize: 22,
                 ),
@@ -109,7 +118,9 @@ class _MemberAvatarChip extends StatelessWidget {
                   child: Icon(
                     Icons.star,
                     size: 14,
-                    color: isNight ? AppTheme.moonSilverWhite : AppTheme.sunsetCoral,
+                    color: isNight
+                        ? AppTheme.moonSilverWhite
+                        : AppTheme.sunsetCoral,
                   ),
                 ),
               Flexible(
@@ -117,7 +128,9 @@ class _MemberAvatarChip extends StatelessWidget {
                   displayName,
                   style: TextStyle(
                     fontSize: 14,
-                    color: isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                    color: isNight
+                        ? AppTheme.darkTextSecondary
+                        : AppTheme.lightTextSecondary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -132,7 +145,9 @@ class _MemberAvatarChip extends StatelessWidget {
                 fontSize: 11,
                 letterSpacing: 0.4,
                 fontFeatures: const [FontFeature.tabularFigures()],
-                color: (isNight ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary)
+                color: (isNight
+                        ? AppTheme.darkTextSecondary
+                        : AppTheme.lightTextSecondary)
                     .withValues(alpha: 0.7),
               ),
             ),

@@ -105,7 +105,8 @@ class SessionHandshake {
       ...nonces[0],
       ...nonces[1],
     ];
-    final roomContext = Uint8List.fromList(crypto.sha256.convert(combined).bytes);
+    final roomContext =
+        Uint8List.fromList(crypto.sha256.convert(combined).bytes);
 
     return SessionCipher.establish(
       localIdentity: localIdentity,
@@ -212,4 +213,3 @@ class SecureFrameCodec {
     return buffer;
   }
 }
-

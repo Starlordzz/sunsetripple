@@ -121,7 +121,8 @@ class _RoomContentState extends State<RoomContent> {
 
   Widget _buildDuplexDisc(bool isNight, double size) {
     final s = AppStrings.of(context);
-    final activeColor = isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
+    final activeColor =
+        isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
 
     // 光晕做在外层、参数固定：BoxShadow 的模糊是这里最贵的绘制，若
     // blurRadius/spreadRadius 跟着音量逐帧变，GPU 就得逐帧重做高斯模糊——

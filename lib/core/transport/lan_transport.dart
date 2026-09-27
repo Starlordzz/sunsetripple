@@ -164,13 +164,25 @@ class LanTransport implements RoomTransport {
 
   int _selfMemberId = 0;
 
+  /// 实际绑定到的端口。产品路径下等于 [controlPort]/[audioPort]；
+  /// 测试传 0 时由内核分配，客户端必须按实际端口连接而不是常量。
+  int _boundControlPort = controlPort;
+  int _boundAudioPort = audioPort;
+
+  /// 客户端侧要发往的房主语音端口。产品路径是 8989；测试用临时端口时必须显式传入。
+  int _hostAudioPort = audioPort;
+
+  /// 客户端实际连上的房主控制端口，用于断线重连回同一端口。
+  int _clientControlPort = controlPort;
+
   /// 房主侧在册成员号白名单，来自 [RoomSession] 的名单广播。
   /// UDP 帧头里的 senderId 是自报的，不在名单里的一律丢弃。
   final Set<int> _knownMemberIds = <int>{};
 
   final StreamController<Frame> _incoming = StreamController<Frame>.broadcast();
   final StreamController<int> _peerCount = StreamController<int>.broadcast();
-  final StreamController<void> _disconnected = StreamController<void>.broadcast();
+  final StreamController<void> _disconnected =
+      StreamController<void>.broadcast();
   bool _disconnectSignaled = false;
 
   /// 收到的、需要交给 [RoomSession.handleIncomingFrame] 的帧。
@@ -196,7 +208,10 @@ class LanTransport implements RoomTransport {
   @override
   void updateSelfMemberId(int id) {
     _selfMemberId = id;
-    if (_role == TransportRole.client && _udp != null && _hostAddress != null && id > 0) {
+    if (_role == TransportRole.client &&
+        _udp != null &&
+        _hostAddress != null &&
+        id > 0) {
       _sendUdpToHost(
         Frame(
           type: FrameType.heartbeat,
@@ -259,38 +274,60 @@ class LanTransport implements RoomTransport {
   Future<bool> reconnect() async {
     if (_role != TransportRole.client || _hostAddress == null) return false;
     final address = _hostAddress!;
+    final port = _clientControlPort;
+    final voicePort = _hostAudioPort;
     await stop();
-    return startClient(hostAddress: address, silent: true);
+    return startClient(
+      hostAddress: address,
+      port: port,
+      hostAudioPort: voicePort,
+      silent: true,
+    );
   }
 
   // ---------------------------------------------------------------- 房主
 
-  Future<bool> startHost() async {
+  /// 启动房主监听。
+  ///
+  /// [port] / [udpPort] 默认取产品端口（8988/8989）。传 `0` 让内核分配临时端口，
+  /// 这是测试专用路径：固定端口会让并行运行的多个测试文件互相抢同一个 socket
+  /// （`shared: true` 下两次 bind 都成功，连接却被内核随机分给其中一个）。
+  Future<bool> startHost({int port = controlPort, int? udpPort}) async {
     await stop();
     _role = TransportRole.host;
     _disconnectSignaled = false;
 
     try {
-      _server = await ServerSocket.bind(InternetAddress.anyIPv4, controlPort, shared: true);
+      _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
     } on SocketException catch (e) {
-      AppLog.error(_tag, '控制端口 $controlPort 监听失败，其他人无法加入房间', e);
+      AppLog.error(_tag, '控制端口 $port 监听失败，其他人无法加入房间', e);
       _role = TransportRole.idle;
       return false;
     }
+    _boundControlPort = _server!.port;
 
     _server!.listen(
       _onClientConnected,
       onError: (Object e) => AppLog.error(_tag, '监听连接时出错', e),
     );
 
-    if (!await _bindUdp(audioPort)) {
+    final voicePort = udpPort ?? (port == 0 ? 0 : audioPort);
+    if (!await _bindUdp(voicePort)) {
       await stop();
       return false;
     }
+    _boundAudioPort = _udp?.port ?? voicePort;
 
-    AppLog.info(_tag, '房间已开启：控制 TCP $controlPort，语音 UDP $audioPort');
+    AppLog.info(
+        _tag, '房间已开启：控制 TCP $_boundControlPort，语音 UDP $_boundAudioPort');
     return true;
   }
+
+  /// 房主实际监听的控制端口（临时端口模式下才有意义）。
+  int get boundControlPort => _boundControlPort;
+
+  /// 房主实际监听的语音端口。
+  int get boundAudioPort => _boundAudioPort;
 
   void _onClientConnected(Socket socket) {
     // remoteAddress 在 socket 关闭后会抛异常，先把地址记下来。
@@ -439,11 +476,14 @@ class LanTransport implements RoomTransport {
   Future<bool> startClient({
     required InternetAddress hostAddress,
     int port = controlPort,
+    int? hostAudioPort,
     bool silent = false,
   }) async {
     await stop();
     _role = TransportRole.client;
     _hostAddress = hostAddress;
+    _hostAudioPort = hostAudioPort ?? (port == 0 ? 0 : audioPort);
+    _clientControlPort = port;
 
     try {
       _hostSocket = await Socket.connect(
@@ -459,7 +499,8 @@ class LanTransport implements RoomTransport {
       return false;
     } on TimeoutException {
       if (!silent) {
-        AppLog.error(_tag, '连接房主 ${hostAddress.address}:$port 超时，请确认在同一个 WiFi/热点下');
+        AppLog.error(
+            _tag, '连接房主 ${hostAddress.address}:$port 超时，请确认在同一个 WiFi/热点下');
       }
       _role = TransportRole.idle;
       return false;
@@ -550,7 +591,8 @@ class LanTransport implements RoomTransport {
     if (_role == TransportRole.client) {
       if (frame.type != FrameType.audio) return;
       // 安全校验：客户端只接收来自房主 IP 的语音包
-      if (_hostAddress != null && datagram.address.address != _hostAddress!.address) {
+      if (_hostAddress != null &&
+          datagram.address.address != _hostAddress!.address) {
         AppLog.warn(_tag, '丢弃非房主来源的伪造语音包: ${datagram.address.address}');
         return;
       }
@@ -682,7 +724,7 @@ class LanTransport implements RoomTransport {
       return;
     }
     try {
-      socket.send(frame.encode(), host, audioPort);
+      socket.send(frame.encode(), host, _hostAudioPort);
     } catch (e) {
       AppLog.debug(_tag, '发送语音帧失败：$e');
     }

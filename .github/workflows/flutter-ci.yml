@@ -24,11 +24,54 @@ jobs:
           channel: 'stable'
           cache: true
 
+      # 锁文件已入库，必须按锁文件解析：否则上游发新版会被静默采用，
+      # 本地与 CI 解析出不同的依赖树就再也复现不了线上问题。
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
-      - name: Run unit tests
+      # job 叫 Code Quality 就必须真的查质量，而不是只跑测试。
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Run unit tests with coverage
         run: flutter test --coverage
+
+      # 覆盖率此前只生成不上传、也不设阈值，等于白插桩一遍。
+      - name: Enforce coverage threshold
+        run: |
+          set -euo pipefail
+          if [[ ! -f coverage/lcov.info ]]; then
+            echo "::error::coverage/lcov.info 不存在，覆盖率没有生成"
+            exit 1
+          fi
+          # 统计 LF(可测行) 与 LH(已覆盖行)
+          lf=$(grep -c '^LF:' coverage/lcov.info || true)
+          total_lf=$(grep '^LF:' coverage/lcov.info | cut -d: -f2 | paste -sd+ | bc)
+          total_lh=$(grep '^LH:' coverage/lcov.info | cut -d: -f2 | paste -sd+ | bc)
+          if [[ -z "$total_lf" || "$total_lf" -eq 0 ]]; then
+            echo "::error::lcov 里没有可测行统计"
+            exit 1
+          fi
+          percent=$(awk "BEGIN { printf \"%.1f\", ($total_lh / $total_lf) * 100 }")
+          echo "行覆盖率：$percent%（$total_lh / $total_lf）"
+          # 当前基线 65.5%（151 用例）。门槛取 60，留出重构余量但能拦住
+          # 「新增大段无测试代码」这类静默退化。
+          awk "BEGIN { exit !($percent >= ${{ vars.MIN_COVERAGE_PERCENT || 60 }}) }" || {
+            echo "::error::行覆盖率 $percent% 低于门槛"
+            exit 1
+          }
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-coverage
+          path: coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
 
   build-android:
     name: Build Flutter Android (.apk)
@@ -52,7 +95,7 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Build Android APK
         run: flutter build apk --debug
@@ -63,4 +106,3 @@ jobs:
           name: flutter-android-apk
           path: build/app/outputs/flutter-apk/
           if-no-files-found: ignore
-

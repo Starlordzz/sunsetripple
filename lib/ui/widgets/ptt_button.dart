@@ -24,7 +24,8 @@ class PttButton extends StatefulWidget {
   State<PttButton> createState() => _PttButtonState();
 }
 
-class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMixin {
+class _PttButtonState extends State<PttButton>
+    with SingleTickerProviderStateMixin {
   late AnimationController _animController;
   late Animation<double> _scaleAnim;
 
@@ -75,8 +76,10 @@ class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    final activeColor = widget.isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
-    final pressedColor = widget.isNight ? const Color(0xFF5D85C2) : const Color(0xFFBA5F68);
+    final activeColor =
+        widget.isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetBurgundy;
+    final pressedColor =
+        widget.isNight ? const Color(0xFF5D85C2) : const Color(0xFFBA5F68);
 
     return GestureDetector(
       onTapDown: _onPressDown,
@@ -95,7 +98,8 @@ class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMix
                 color: widget.isPressed ? pressedColor : activeColor,
                 boxShadow: [
                   BoxShadow(
-                    color: (widget.isPressed ? pressedColor : activeColor).withValues(alpha: 0.38),
+                    color: (widget.isPressed ? pressedColor : activeColor)
+                        .withValues(alpha: 0.38),
                     blurRadius: widget.isPressed ? 32 : 18,
                     spreadRadius: widget.isPressed ? 6 : 2,
                   ),
@@ -130,4 +134,3 @@ class _PttButtonState extends State<PttButton> with SingleTickerProviderStateMix
     );
   }
 }
-

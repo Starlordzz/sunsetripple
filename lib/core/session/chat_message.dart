@@ -71,4 +71,3 @@ class ChatMessage {
   String toString() =>
       'ChatMessage(id: $messageId, sender: $senderId, code: $senderCode, nickname: $senderNickname, local: $isLocal)';
 }
-

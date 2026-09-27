@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/version.dart';
+
 /// App-wide typed bilingual strings.
 class AppStrings {
   final bool isEn;
@@ -107,9 +109,7 @@ class AppStrings {
       ? 'Could not check for updates. Please try again later.'
       : '这次没查到更新，稍后再试一次';
   String get changelogTitle => isEn ? 'Recent changes' : '最近的变化';
-  String get changelogBody => isEn
-      ? '0.1.0-alpha.13\nUnified Flutter & C++ architecture with legacy subprojects cleaned up.\nStrict protocol standardization with mandatory 16-byte session tokens.\nEnhanced frame boundary & host transfer payload overflow protection.\nStandardized 3-digit device code parsing and conflict indicators.\nUpdated bilingual architecture and protocol specifications.'
-      : '0.1.0-alpha.13\n全面精简废弃原生子工程，收拢统一至 Flutter 与 C++ FFI 架构。\n协议层全面规范化收拢，入房鉴权与房主交接强制校验 16 字节会话令牌。\n增强端到端帧边界防护与交接超限保护，杜绝异常帧与身份冲突。\n规范化 3 位数字设备标识码与同名冲突智能标注。\n中英文协议规范与架构文档全量同步更新。';
+  String get changelogBody => isEn ? AppChangelog.enBody : AppChangelog.zhBody;
   String get licenseTitle => isEn ? 'Open source license' : '开源许可';
   String get licenseBody => isEn
       ? 'Apache License 2.0\nSunsetRipple is licensed under Apache License 2.0.\nhttps://www.apache.org/licenses/LICENSE-2.0'
@@ -126,8 +126,7 @@ class AppStrings {
   String get themeDark => isEn ? 'Moonlit sea' : '月色入海';
 
   // Home & Stage
-  String get appSubheading =>
-      isEn ? 'Never Meant.' : '越过地平线，看海洋辽阔的延绵。';
+  String get appSubheading => isEn ? 'Never Meant.' : '越过地平线，看海洋辽阔的延绵。';
   String get defaultNickname => isEn ? 'Explorer' : '探索者';
   String get nicknameValidationEmpty =>
       isEn ? 'Leave a nickname first' : '先留个称呼吧';

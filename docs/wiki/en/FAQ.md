@@ -46,7 +46,7 @@ Both are supported. The color scheme has three settings — Follow system / Alwa
 
 **Can it record? Can it send text?**
 
-It can send text: open the message panel inside a room to exchange messages (protocol frames `FrameType.chat` / `chatSync` / `chatDelete`). Messages are kept in memory only and are cleared when you leave, with long-press recall supported. A single message is capped at 480 UTF-8 bytes; the protocol frame payload limit is 512 bytes. Recording and file transfer are not supported.
+It can send text: open the message panel inside a room to exchange messages (protocol frames `FrameType.chat` / `chatSync` / `chatDelete`). Messages are kept in memory only and are cleared when you leave, with long-press recall supported. A single message is capped at 368 UTF-8 bytes; the protocol frame payload limit is 512 bytes. Recording and file transfer are not supported.
 
 ## Privacy
 

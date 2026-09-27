@@ -32,6 +32,16 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
     private var pendingWrites: [ObjectIdentifier: Data] = [:]
     private var streamPeerAddresses: [ObjectIdentifier: String] = [:]
 
+    /// 房主侧：`输出流标识 -> 成员号`，由 Dart 层在 JOIN 完成后通过
+    /// `bindMember` 写入。转发前据此重写帧头 senderId。
+    private var boundMemberByStream: [ObjectIdentifier: Int] = [:]
+
+    /// `FrameType.joinReq`：房主靠它建立绑定，不参与 senderId 重写。
+    private let frameTypeJoinReq: UInt8 = 0x02
+
+    /// 与 Dart 侧 `Frame.headerSize` 一致。
+    private let frameHeaderSize = 6
+
     // 成员 (Client / Central) 状态
     private var isScanning: Bool = false
     private var targetPsm: CBL2CAPPSM?
@@ -129,6 +139,23 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             let success = sendFrame(data: typedData.data)
             result(success)
 
+        // 房主把链路与成员号绑定。L2CAP 是链路寻址，接收端无法自行校验
+        // 来源，只能由房主在转发时按绑定关系重写 senderId。
+        case "bindMember":
+            guard let args = call.arguments as? [String: Any],
+                  let peerAddress = args["peerAddress"] as? String,
+                  let memberId = args["memberId"] as? Int else {
+                result(FlutterError(code: "INVALID_ARGS", message: "bindMember 缺少参数", details: nil))
+                return
+            }
+            bindMember(peerAddress: peerAddress, memberId: memberId)
+            result(true)
+
+        case "unbindMember":
+            let memberId = (call.arguments as? [String: Any])?["memberId"] as? Int ?? 0
+            unbindMember(memberId: memberId)
+            result(true)
+
         case "updateMemberCount":
             advertisedMemberCount = max(1, min(6, (call.arguments as? [String: Any])?["memberCount"] as? Int ?? 1))
             if isHosting {
@@ -170,6 +197,7 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             publishedPsm = nil
         }
         peripheralManager?.stopAdvertising()
+        boundMemberByStream.removeAll()
         for channel in hostChannels {
             channel.inputStream.close()
             channel.outputStream.close()
@@ -288,8 +316,15 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
 
     fileprivate func handleReceivedData(_ data: Data, from inputStream: InputStream) {
         if isHosting {
-            for channel in hostChannels where channel.inputStream !== inputStream {
-                _ = writeToStream(channel.outputStream, data: data)
+            // 转发前把帧头 [1] 的 senderId 改写成这条链路在房主侧绑定的成员号。
+            // L2CAP 是链路寻址，接收端没有房主那份 endpoint 白名单，没法自行
+            // 校验来源；不改写的话任何成员都能冒用他人身份发言、撤回或伪造
+            // PTT 状态。与 Android 的 BleL2capPlugin.rewriteSender 语义一致。
+            let memberId = boundMemberByStream[ObjectIdentifier(inputStream)] ?? 0
+            if let rewritten = rewriteSender(data: data, memberId: memberId) {
+                for channel in hostChannels where channel.inputStream !== inputStream {
+                    _ = writeToStream(channel.outputStream, data: rewritten)
+                }
             }
         }
         let peerAddress = streamPeerAddresses[ObjectIdentifier(inputStream)] ?? "unknown"
@@ -299,6 +334,33 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
                 "data": FlutterStandardTypedData(bytes: data),
                 "peerAddress": peerAddress,
             ])
+        }
+    }
+
+    /// 把帧头第 1 字节（senderId）改写成 `memberId`。
+    ///
+    /// JOIN 帧（type 0x02，senderId 固定 0）不参与重写：房主靠它建立绑定。
+    /// 未绑定（memberId <= 0）时返回 nil，调用方应丢弃而不是转发。
+    private func rewriteSender(data: Data, memberId: Int) -> Data? {
+        guard memberId > 0, data.count >= frameHeaderSize else { return nil }
+        let bytes = [UInt8](data)
+        if bytes[0] == frameTypeJoinReq { return nil }
+        var out = bytes
+        out[1] = UInt8(truncatingIfNeeded: memberId)
+        return Data(out)
+    }
+
+    private func bindMember(peerAddress: String, memberId: Int) {
+        guard memberId > 0 else { return }
+        for (key, value) in streamPeerAddresses where value == peerAddress {
+            boundMemberByStream[key] = memberId
+            return
+        }
+    }
+
+    private func unbindMember(memberId: Int) {
+        for (key, value) in boundMemberByStream where value == memberId {
+            boundMemberByStream.removeValue(forKey: key)
         }
     }
 

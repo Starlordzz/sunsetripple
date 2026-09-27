@@ -261,9 +261,10 @@ class _HomeContentState extends State<HomeContent> {
                                     _selectedMode == RoomMode.wifiFullDuplex,
                                 isNight: isNight,
                                 onTap: () {
-                                  if (_selectedMode != RoomMode.wifiFullDuplex) {
-                                    setState(() =>
-                                        _selectedMode = RoomMode.wifiFullDuplex);
+                                  if (_selectedMode !=
+                                      RoomMode.wifiFullDuplex) {
+                                    setState(() => _selectedMode =
+                                        RoomMode.wifiFullDuplex);
                                     _startScan();
                                   }
                                 },

@@ -53,7 +53,9 @@ void main() {
       expect(find.text('首页'), findsOneWidget);
       // 房间元素仍在树里占位，但透明度为 0。
       final enterOpacity = tester.widget<Opacity>(
-        find.ancestor(of: find.text('房间'), matching: find.byType(Opacity)).first,
+        find
+            .ancestor(of: find.text('房间'), matching: find.byType(Opacity))
+            .first,
       );
       expect(enterOpacity.opacity, 0.0);
     });

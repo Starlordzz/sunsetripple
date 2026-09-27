@@ -178,8 +178,8 @@ the online members of the same room.
 | `version` | 1 B | Fixed at `0x02`; non-2 frames are dropped |
 | `timestamp` | 8 B BE | Unix milliseconds |
 | `senderCode` | 4 B ASCII | Sender device code, space-padded when shorter than 4 bytes |
-| `textLength` | 2 B BE | UTF-8 byte count of the following text, `1..480` |
-| `textBytes` | variable | UTF-8 text; empty/whitespace-only rejected, at most 480 bytes |
+| `textLength` | 2 B BE | UTF-8 byte count of the following text, `1..368` |
+| `textBytes` | variable | UTF-8 text; empty/whitespace-only rejected, at most 368 bytes (shared budget with chatSync, see below) |
 
 - **Channel isolation**: in Wi-Fi rooms CHAT frames take the TCP 8988 control channel and
   host relay and **never** enter the UDP 8989 audio port; Bluetooth rooms use the L2CAP channel.

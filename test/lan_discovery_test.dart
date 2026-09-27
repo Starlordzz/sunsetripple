@@ -27,7 +27,8 @@ void main() {
       await discovery.startListening();
       addTearDown(discovery.dispose);
 
-      final advertiser = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final advertiser =
+          await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(advertiser.close);
 
       void advertise({required int port, String? name, String? action}) {
@@ -69,9 +70,9 @@ void main() {
       await pumpUntil(
         () =>
             discovery.currentRooms
-                    .firstWhere((r) => r.roomId == 'room_origin_test')
-                    .roomName
-                    .length <=
+                .firstWhere((r) => r.roomId == 'room_origin_test')
+                .roomName
+                .length <=
             LanRoomDiscovery.maxAdvertisedTextLength,
         reason: '广播里的房名不受任何校验，必须钳制长度',
       );
@@ -79,7 +80,8 @@ void main() {
       // 同源解散通知：立即移除
       advertise(port: 8988, action: 'ROOM_CLOSED');
       await pumpUntil(
-        () => discovery.currentRooms.every((r) => r.roomId != 'room_origin_test'),
+        () =>
+            discovery.currentRooms.every((r) => r.roomId != 'room_origin_test'),
         reason: '同源的 ROOM_CLOSED 必须即时移除房间',
       );
     });
@@ -89,7 +91,8 @@ void main() {
       await discovery.startListening();
       addTearDown(discovery.dispose);
 
-      final advertiser = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final advertiser =
+          await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(advertiser.close);
 
       for (int i = 0; i < LanRoomDiscovery.maxDiscoveredRooms + 20; i++) {

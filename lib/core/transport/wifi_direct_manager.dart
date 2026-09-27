@@ -52,17 +52,21 @@ class WifiP2pConnectionInfo {
 
 /// Wi-Fi Direct (Wi-Fi P2P) 近场直连管理器。
 class WifiDirectManager {
-  static const MethodChannel _channel = MethodChannel('host.msknet.sunsetripple/wifi_direct');
-  static const EventChannel _eventChannel = EventChannel('host.msknet.sunsetripple/wifi_direct_events');
+  static const MethodChannel _channel =
+      MethodChannel('host.msknet.sunsetripple/wifi_direct');
+  static const EventChannel _eventChannel =
+      EventChannel('host.msknet.sunsetripple/wifi_direct_events');
 
   static final WifiDirectManager instance = WifiDirectManager._internal();
 
   StreamSubscription? _eventSubscription;
   final _peersController = StreamController<List<WifiP2pPeer>>.broadcast();
-  final _connectionController = StreamController<WifiP2pConnectionInfo>.broadcast();
+  final _connectionController =
+      StreamController<WifiP2pConnectionInfo>.broadcast();
 
   Stream<List<WifiP2pPeer>> get peersStream => _peersController.stream;
-  Stream<WifiP2pConnectionInfo> get connectionStream => _connectionController.stream;
+  Stream<WifiP2pConnectionInfo> get connectionStream =>
+      _connectionController.stream;
 
   bool _isListening = false;
 
@@ -172,7 +176,9 @@ class WifiDirectManager {
     if (!await isSupported()) return false;
     await startListeningEvents();
     try {
-      final success = await _channel.invokeMethod<bool>('connect', {'deviceAddress': deviceAddress}) ?? false;
+      final success = await _channel.invokeMethod<bool>(
+              'connect', {'deviceAddress': deviceAddress}) ??
+          false;
       if (success) {
         AppLog.info(_tag, '已向 $deviceAddress 发起 Wi-Fi Direct 连接请求');
       }
@@ -196,7 +202,8 @@ class WifiDirectManager {
 
     try {
       final info = await connectionStream
-          .firstWhere((info) => info.isConnected && info.groupOwnerAddress.isNotEmpty)
+          .firstWhere(
+              (info) => info.isConnected && info.groupOwnerAddress.isNotEmpty)
           .timeout(timeout);
       AppLog.info(_tag, 'Wi-Fi Direct 直连链路已就绪 (GO=${info.groupOwnerAddress})');
       return info;
@@ -219,7 +226,8 @@ class WifiDirectManager {
 
   Future<WifiP2pConnectionInfo> getConnectionInfo() async {
     try {
-      final res = await _channel.invokeMapMethod<String, dynamic>('getConnectionInfo');
+      final res =
+          await _channel.invokeMapMethod<String, dynamic>('getConnectionInfo');
       return WifiP2pConnectionInfo.fromMap(res ?? {});
     } catch (_) {
       return const WifiP2pConnectionInfo(

@@ -21,6 +21,14 @@ val keystoreProperties = Properties().apply {
 }
 val hasReleaseSigning = keystorePropertiesFile.exists()
 
+/// CI 上宁可让构建直接失败，也不能产出 debug 签名的「正式包」：
+/// 每个 runner 的 debug keystore 都不同，用户会 INSTALL_FAILED_UPDATE_INCOMPATIBLE，
+/// 只能卸载重装——那是比构建失败严重得多的发布事故。
+/// 本地自测想要 debug 签名时显式传 -PallowDebugSigning=true。
+val allowDebugSigning = providers.gradleProperty("allowDebugSigning")
+    .map { it.equals("true", ignoreCase = true) }
+    .getOrElse(false)
+
 android {
     // 必须与线上已发布版本一致，否则装不上去覆盖升级。
     namespace = "host.msknet.sunsetripple"
@@ -79,12 +87,36 @@ android {
         release {
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
-            } else {
+            } else if (allowDebugSigning) {
                 logger.warn(
-                    "[sunsetripple] 未找到 android/key.properties，release 包将使用 debug 签名，" +
-                        "只能自测，不能发布。"
+                    "[sunsetripple] -PallowDebugSigning=true：本次 release 包使用 debug 签名，仅限本地自测。"
                 )
                 signingConfigs.getByName("debug")
+            } else {
+                null
+            }
+        }
+    }
+}
+
+// 没有签名材料时不产出 release 产物，而是直接失败并给出修复指令。
+afterEvaluate {
+    val releaseTasks = tasks.matching { it.name.startsWith("assembleRelease") }
+    releaseTasks.configureEach {
+        doFirst {
+            if (!hasReleaseSigning && !allowDebugSigning) {
+                throw GradleException(
+                    """
+                    缺少发布签名材料：找不到 ${keystorePropertiesFile.path}
+
+                    修复方式（三选一）：
+                      1) 本地运行 bash scripts/setup-release-signing.sh 生成并写入 android/key.properties
+                      2) CI 上配置 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
+                         ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD 四个 repository secret
+                         （release.yml 会自动还原）
+                      3) 仅本地自测、明确接受不可发布的包：加 -PallowDebugSigning=true
+                    """.trimIndent()
+                )
             }
         }
     }

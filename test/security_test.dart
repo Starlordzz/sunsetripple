@@ -11,7 +11,9 @@ import 'package:sunset_ripple/core/session/room_session.dart';
 
 void main() {
   group('SessionCrypto Tests', () {
-    test('DeviceIdentity generates valid fingerprint, shortCode, and signs payloads', () async {
+    test(
+        'DeviceIdentity generates valid fingerprint, shortCode, and signs payloads',
+        () async {
       final identity = await DeviceIdentity.generate();
       expect(identity.publicKeyBase64.isNotEmpty, isTrue);
       expect(identity.fingerprint.split(':').length, 32);
@@ -37,7 +39,8 @@ void main() {
       expect(isTamperedValid, isFalse);
     });
 
-    test('SessionCipher roundtrip encryption and decryption with AAD', () async {
+    test('SessionCipher roundtrip encryption and decryption with AAD',
+        () async {
       final keyBytes = Uint8List(32);
       for (int i = 0; i < 32; i++) {
         keyBytes[i] = i + 1;
@@ -49,7 +52,8 @@ void main() {
 
       final packet = await cipher.encrypt(plaintext, associatedData: aad);
       expect(packet.nonce.length, SessionCipher.nonceBytes);
-      expect(packet.ciphertext.length, plaintext.length + SessionCipher.tagBytes);
+      expect(
+          packet.ciphertext.length, plaintext.length + SessionCipher.tagBytes);
 
       final decrypted = await cipher.decrypt(packet, associatedData: aad);
       expect(decrypted, equals(plaintext));
@@ -95,7 +99,8 @@ void main() {
   });
 
   group('SessionHandshake & SecureFrameCodec Tests', () {
-    test('Handshake establishes matching ciphers and seals/opens frames', () async {
+    test('Handshake establishes matching ciphers and seals/opens frames',
+        () async {
       final host = await DeviceIdentity.generate();
       final guest = await DeviceIdentity.generate();
       const roomId = 'sunset-test-room-101';
@@ -185,7 +190,8 @@ void main() {
       );
     });
 
-    test('SecureFrameCodec rejects already sealed frame or mismatched header', () async {
+    test('SecureFrameCodec rejects already sealed frame or mismatched header',
+        () async {
       final keyBytes = Uint8List(32);
       final cipher = await SessionCipher.fromKey(keyBytes);
       final codec = SecureFrameCodec(cipher);
@@ -200,7 +206,9 @@ void main() {
       expect(() async => await codec.seal(frame), throwsArgumentError);
     });
 
-    test('RoomSession chat sealing pipeline: unsealed by default, sealed when secureCodec is set', () async {
+    test(
+        'RoomSession chat sealing pipeline: unsealed by default, sealed when secureCodec is set',
+        () async {
       final sent = <Frame>[];
       final session = RoomSession(
         audioIo: MockAudioIo(),
@@ -240,4 +248,3 @@ void main() {
     });
   });
 }
-

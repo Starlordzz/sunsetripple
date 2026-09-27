@@ -317,7 +317,8 @@ class RoomSession {
   ///
   /// [recordStats] 仅供加密帧内部递归调用时传 false：外层信封已经计过一次，
   /// 解出来的内层帧不能再重复计数。
-  Future<void> handleIncomingFrame(Frame frame, {bool recordStats = true}) async {
+  Future<void> handleIncomingFrame(Frame frame,
+      {bool recordStats = true}) async {
     if (_disposed) return;
     if (recordStats) _recordFrameStats(frame);
     if (frame.type == FrameType.sealed) {
@@ -331,6 +332,20 @@ class RoomSession {
       } catch (e) {
         AppLog.error('RoomSession', '解封加密帧失败，可能为伪造或重放帧', e);
       }
+      return;
+    }
+
+    // 失败关闭（fail-closed）：安全信封一旦启用，明文业务帧一律拒绝。
+    // 否则攻击者只需继续发明文帧就能注入聊天与状态，AES 信封形同虚设——
+    // 这比不加密更危险，因为它会让人得出「已启用端到端加密」的错误结论。
+    // 握手帧保持放行：它们本身就是建立 codec 之前的明文协商。
+    if (secureCodec != null &&
+        frame.type != FrameType.handshakeHello &&
+        frame.type != FrameType.handshakeConfirm) {
+      AppLog.warn(
+        'RoomSession',
+        '安全信封已启用，丢弃明文 ${frame.type.name} 帧（sender #${frame.senderId}）',
+      );
       return;
     }
 
@@ -1104,7 +1119,7 @@ class RoomSession {
     final seq = _nextSeq();
     final messageId = '${code}_${timestampMs}_$seq';
 
-    // ChatMessagePayload 会校验 480 字节 UTF-8 上限，超长直接抛出 ArgumentError
+    // ChatMessagePayload 会校验共享文本预算，超长直接抛出 ArgumentError
     final payload = ChatMessagePayload(
       text: trimmed,
       timestampMs: timestampMs,
@@ -1209,20 +1224,19 @@ class RoomSession {
     if (!_isHost) return;
     for (final msg in _chatMessages) {
       if (msg.isRecalled) continue;
-      final syncPayload = ChatSyncPayload(
-        targetMemberId: targetMemberId,
-        senderId: msg.senderId,
-        senderCode: msg.senderCode,
-        timestampMs: msg.timestamp.millisecondsSinceEpoch,
-        messageId: msg.messageId,
-        nickname: msg.senderNickname,
-        text: msg.text,
-      );
       final frame = Frame(
         type: FrameType.chatSync,
         senderId: _selfMemberId,
         seq: _nextSeq(),
-        payload: syncPayload.encode(),
+        payload: ChatSyncPayload(
+          targetMemberId: targetMemberId,
+          senderId: msg.senderId,
+          senderCode: msg.senderCode,
+          timestampMs: msg.timestamp.millisecondsSinceEpoch,
+          messageId: msg.messageId,
+          nickname: msg.senderNickname,
+          text: msg.text,
+        ).encode(),
       );
       sendFrame(frame);
     }

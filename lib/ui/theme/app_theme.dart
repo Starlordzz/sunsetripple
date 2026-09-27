@@ -22,7 +22,8 @@ class AppTheme {
   static const Color darkCardBg = Color(0xFF182437);
   static const Color darkTextPrimary = Color(0xFFE4EBF4);
   static const Color darkTextSecondary = Color(0xFF8FA2BC);
-  static const Color darkLeaveRosePink = Color(0xFFFF7B92); // High-contrast (>7.5:1)
+  static const Color darkLeaveRosePink =
+      Color(0xFFFF7B92); // High-contrast (>7.5:1)
 
   static ThemeData light() {
     return ThemeData(
@@ -52,4 +53,3 @@ class AppTheme {
     );
   }
 }
-
