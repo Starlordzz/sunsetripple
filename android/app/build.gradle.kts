@@ -130,4 +130,8 @@ dependencies {
     // Opus 编解码。纯 JVM 实现，不需要额外的 .so。
     // 版本与已发布的 Kotlin 版 alpha.7 一致，保证两版音频互通。
     implementation("io.github.jaredmdobson:concentus:1.0.2")
+
+    // JitterBuffer / OpusCodec 都是纯 JVM 逻辑，普通 JUnit 单测即可覆盖
+    // （不需要 Robolectric 或真机）。跑法：cd android && ./gradlew :app:testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }

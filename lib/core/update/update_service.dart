@@ -22,12 +22,20 @@ class UpdateUpToDate extends UpdateState {
 class UpdateAvailable extends UpdateState {
   final String versionName;
   final String releaseNotes;
+
+  /// Release 页面地址（`html_url`），iOS 与「不想自装」的用户从这里手动下载。
   final String downloadUrl;
+
+  /// Release 资产里 `update.json` 的直链；老版本发布没有这个资产时为 null。
+  ///
+  /// 只有拿到它，应用内「下载并安装」才能走「验签 → 下载 → 校验 → 系统安装」这条路。
+  final String? manifestUrl;
 
   const UpdateAvailable({
     required this.versionName,
     required this.releaseNotes,
     required this.downloadUrl,
+    this.manifestUrl,
   });
 }
 
@@ -162,6 +170,7 @@ class UpdateService {
             versionName: tagName.replaceFirst('v', ''),
             releaseNotes: releaseNotes,
             downloadUrl: htmlUrl,
+            manifestUrl: findManifestAssetUrl(data['assets']),
           );
         } else {
           return const UpdateUpToDate();
@@ -177,6 +186,20 @@ class UpdateService {
     } finally {
       client.close();
     }
+  }
+
+  /// 从 GitHub Release 的 `assets` 数组里找签名清单资产（`update.json`）的直链。
+  ///
+  /// 找不到就返回 null：应用会退化成「打开 Release 页面手动下载」，而不是假装能自装。
+  static String? findManifestAssetUrl(Object? assets) {
+    if (assets is! List) return null;
+    for (final asset in assets) {
+      if (asset is! Map) continue;
+      if (asset['name'] != 'update.json') continue;
+      final url = asset['browser_download_url'];
+      if (url is String && url.startsWith('https://')) return url;
+    }
+    return null;
   }
 
   /// 真正的语义版本比较：只有 remote 严格大于 current 时才返回 true

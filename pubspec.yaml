@@ -4,7 +4,7 @@ publish_to: 'none'
 
 # versionName 取 `+` 前半段，versionCode 取后半段。
 # 0.1.0-alpha.13 / versionCode 14
-version: 0.1.0-alpha.14+15
+version: 0.1.0-alpha.15+16
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

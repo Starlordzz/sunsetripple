@@ -23,6 +23,7 @@
 | 你想做的事 | 去这里 |
 | --- | --- |
 | 跨平台架构与 Core-Shell 设计 | [Core-Shell 统一多端架构](Core-Shell统一多端架构.md) |
+| 哪些平台真的能用（权威声明） | [平台支持范围](../../platform-support.md) |
 | 适配 iOS 苹果端 (AudioUnit / CoreBluetooth L2CAP) | [iOS 平台适配指南](iOS平台适配指南.md) |
 | 适配 HarmonyOS NEXT 纯血鸿蒙 | [HarmonyOS 平台适配指南](HarmonyOS平台适配指南.md) |
 | 快速理解整个项目怎么搭的 | [架构总览](架构总览.md) |

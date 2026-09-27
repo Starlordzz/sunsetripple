@@ -17,6 +17,7 @@ An Android near-field voice intercom app: voice never passes through a server. U
 | What you want to do | Go here |
 | --- | --- |
 | Cross-platform architecture and the Core-Shell design | [Core-Shell Unified Multi-Platform Architecture](Core-Shell-Architecture.md) |
+| Which platforms actually work (authoritative) | [Platform Support](../../platform-support.md) |
 | Adapting the iOS side (AudioUnit / CoreBluetooth L2CAP) | [iOS Platform Guide](iOS-Platform-Guide.md) |
 | Adapting HarmonyOS NEXT | [HarmonyOS Platform Guide](HarmonyOS-Platform-Guide.md) |
 | Quickly understanding how the whole project fits together | [Architecture Overview](Architecture-Overview.md) |

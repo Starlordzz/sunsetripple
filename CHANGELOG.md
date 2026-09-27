@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.1.0-alpha.15 - 2026-09-27
+
+### 架构：拆解两个上帝对象
+
+- **`RoomSession` 1565 → 1419 行**，外提两个纯逻辑协作对象：
+  - `SessionChatHub`：聊天历史表、`(senderId,seq)` 去重窗口、撤回、历史同步、
+    跨进退房同人识别。会话层只保留**鉴权**（发送者是否在册、是否房主）与**发帧**
+  - `SessionTelemetry`：帧计数、丢包估算（uint16 序号的正确回绕处理）、
+    入房往返时延。纯计算，可直接单测
+- **`home_page.dart` 1017 → 916 行**，建房/入房编排外提到
+  `lib/ui/services/room_launcher.dart`。四条启动路径（WiFi 建房、蓝牙建房、
+  局域网入房、Wi-Fi Direct 直连）原本各自夹在 1000 行 Widget 里按顺序装配
+  2~3 个对象、失败时逆序拆解，极易漏掉一次 `dispose()` 而泄漏 socket 与端口；
+  现在失败回滚收敛到一处，且不碰 `BuildContext`
+
+### 安全：安全层从死代码变成可达路径
+
+- **新增 `SecureSessionNegotiator`**：在既有 `SessionHandshake` 之上补齐
+  「谁在什么时候驱动握手、成功后把 codec 装到哪」这段缺失的编排。
+  此前 `lib/core/security/` 实现齐全却**零生产调用**——`RoomSession` 对
+  `handshakeHello` 直接 `break`，`secureCodec` 永远为 null
+- `RoomSession` 现在处理握手帧并在入房后自动发起；握手成功即装上 `secureCodec`，
+  业务帧自动密封。**握手失败保持明文并在诊断面板留痕，不静默假装加密**
+- 新增**带外安全短码**（6 位十进制，取自双方公钥的排序拼接哈希），
+  供用户口头比对以抵御主动中间人。安全边界已在代码注释与文档中如实标注：
+  签名校验只证明「对端持有其自称公钥的私钥」，不比对短码前不声称防 MITM
+- 明文默认仍为明文（产品取舍未变），但现在**有了一条真正可用的加密路径**，
+  而不是一层对外宣称存在、实际不可达的代码
+
+### 更新链路：从"只比较版本号"到真正可安装
+
+- 新增 `update_manifest.dart`：拉取 `update.json`，**ECDSA-P256 验签**
+  （签对象为规范化 JSON），校验包名、`minimumVersionCode`、SHA-256
+- 新增 `update_installer.dart`：HTTPS + 域名白名单（github.com 系）、
+  流式下载、**边下边算 SHA-256**、响应体大小上限、整体超时；
+  摘要不符即删除临时文件并报错
+- 新增 Android `UpdateInstallerPlugin`：`REQUEST_INSTALL_PACKAGES` 权限检查、
+  跳系统「安装未知应用」设置页、FileProvider + `ACTION_VIEW` 拉起安装器，
+  安装前**原生侧二次核对**包名 / versionCode / 签名证书 SHA-256
+- iOS 明确回 `unsupported`（沙箱不允许自装），只提供「打开下载页」
+- `release.yml` 构建后生成并签名 `update.json` 作为 release 资产；
+  并比对 Dart 内置公钥常量与 `UPDATE_PUBLIC_KEY_BASE64` secret 是否一致，
+  不一致直接让发布失败
+
+### 可观测性
+
+- 新增 `TraceId`：会话级 8 字节随机 hex，入房生成、退房释放；
+  `AppLog` 输出格式变为 `[HH:mm:ss][LEVEL][traceId][tag] message`，
+  用户导出的诊断报告可据此挑出一次完整会话的日志
+- 新增 `SessionMetrics` + `NetworkQuality` 分级（loss/RTT 双阈值，边界可测），
+  `DiagnosticsSheet` 从「只有一个延迟值」扩展为完整指标区
+- 传输层补齐 9 处关键路径日志（白名单拦截、来源不符、成员移除、重连结果、
+  链路关闭），这些此前是**裸 return**，事故现场完全没有痕迹
+
+### 测试
+
+- 新增 **JUnit 原生单测 21 条**（`android/app/src/test`）：`JitterBuffer` 14 条
+  （预缓冲、乱序、丢包报 `Lost` 而非 `NotReady`、16 位序号回绕、积压上限、
+  迟到帧、断流重对齐）、`OpusCodec` 7 条（编解码往返、PLC、码率边界、实例隔离）。
+  **原生音频层此前零覆盖**，而它决定断音/回声等全部音质问题
+- 新增 `ReconnectController` 测试 8 条：退避序列、耗尽后放弃回调只触发一次、
+  `cancel()` 后定时器彻底静默、在途尝试结果被丢弃、重复 `start()` 不叠加链路。
+  断线重连此前**完全没有测试**
+- 新增 `SecureSessionNegotiator` 测试 10 条：双方派生出**同一个短码**、
+  派生的 codec 能双向加解密且密文不含明文、幂等、畸形/空字段 Hello 不崩溃、
+  `roomId` 不一致必然验签失败
+- 新增 `update_manifest_test.dart` 41 条 + 下载校验路径 8 条冒烟
+- 新增 `i18n_parity_test.dart` 5 条：**机械阻止**「裸中文字面量绕过 AppStrings」
+  这类回归，并校验全部 getter 在中英文下都非空
+- CI 增加 `:app:testDebugUnitTest` 步骤与报告上传
+
+### 修整
+
+- UI 层 6 处硬编码中英文提示（建房/入房失败、断线）归位 `AppStrings`；
+  删除 `about_page` 的私有 `_bilingual` 与 `diagnostics_sheet` 的临时扩展
+- 删除 `gradle-wrapper.properties` 里重复的 `distributionUrl`（8.9 / 8.12 两行，
+  后者生效）
+- 新增 `docs/platform-support.md` 作为**平台能力权威声明**：明确
+  Windows/macOS/Linux 因缺少桌面音频后端而**不支持**（可编译出窗口但无声音），
+  iOS 搜房未接入 Bonjour 因而不可用，鸿蒙仅有 UDP 发现。
+  README 平台表与此对齐
+
 ## 0.1.0-alpha.14 - 2026-09-27
 
 ### 发布链路（最高优先级）

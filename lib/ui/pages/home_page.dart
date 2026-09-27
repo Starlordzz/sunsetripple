@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../core/audio/audio_io.dart';
 import '../../core/session/device_code.dart';
+import '../services/room_launcher.dart';
 import '../../core/session/room_session.dart';
 import '../../core/transport/ble_l2cap_transport.dart';
 import '../../core/transport/lan_discovery.dart';
-import '../../core/transport/lan_transport.dart';
 import '../../core/transport/wifi_direct_manager.dart';
 import '../theme/app_theme.dart';
 import '../transitions/stage_choreography.dart';
@@ -45,6 +44,15 @@ class _HomeContentState extends State<HomeContent> {
   String? _defaultNickname;
   final _lanDiscovery = LanRoomDiscovery();
   final _bleTransport = BleL2capTransport();
+  late final RoomLauncher _launcher = RoomLauncher(
+    audioIo: widget.audioIo,
+    discovery: _lanDiscovery,
+    bleTransport: _bleTransport,
+  );
+
+  /// 自己作为房主时广播的房间号，用来把自己从「附近的房间」列表里滤掉。
+  late final String _roomId =
+      DateTime.now().microsecondsSinceEpoch.toRadixString(36);
   RoomMode _selectedMode = RoomMode.wifiFullDuplex;
   bool _isScanning = false;
   List<WifiP2pPeer> _p2pPeers = [];
@@ -728,6 +736,7 @@ class _HomeContentState extends State<HomeContent> {
   /// 房名仍然用不带码的昵称，免得标题变得很长。
   String get _identityNickname => DeviceCode.attach(_nickname);
 
+  /// 建房：装配逻辑全部交给 [RoomLauncher]，这里只负责 UI 反馈与转场。
   void _onCreateRoom() async {
     FocusScope.of(context).unfocus();
     final s = AppStrings.of(context);
@@ -736,205 +745,97 @@ class _HomeContentState extends State<HomeContent> {
         ? s.defaultWifiRoomTitle(nickname)
         : s.defaultBleRoomTitle(nickname);
 
-    final session = RoomSession(
-      audioIo: widget.audioIo,
-      selfNickname: _identityNickname,
-      mode: _selectedMode,
-    );
-
     if (_selectedMode == RoomMode.wifiFullDuplex) {
       _isHostingWifiDirect = true;
       unawaited(WifiDirectManager.instance.createGroup());
       _startPeriodicScan();
-      final transport = LanTransport();
-      final ok = await transport.startHost();
-      if (!ok) {
-        await transport.dispose();
-        await session.dispose();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(s.isEn
-                  ? 'Failed to start Wi-Fi room, please check network and permissions'
-                  : '开启 Wi-Fi 房间失败，请检查网络权限与端口占用'),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-        return;
-      }
-      session.attachTransport(transport);
-    } else {
-      final transport = BleL2capTransport();
-      final ok = await transport.startHost(roomName: roomName);
-      if (!ok) {
-        await transport.dispose();
-        await session.dispose();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(s.isEn
-                  ? 'Failed to start Bluetooth room, please check Bluetooth state'
-                  : '开启蓝牙房间失败，请检查蓝牙是否开启及权限'),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-        return;
-      }
-      session.attachTransport(transport);
     }
 
-    // 不在这里开麦：AudioRecord/AudioTrack 的构造压在 Android 主线程上，
-    // 一次上百毫秒，塞进转场会掉帧。SessionStage 会在动画落位后调 startAudio。
-    await session.createRoom(startAudio: false);
+    final result = _selectedMode == RoomMode.wifiFullDuplex
+        ? await _launcher.createWifiRoom(
+            selfNickname: _identityNickname,
+            roomName: roomName,
+            roomId: _roomId,
+          )
+        : await _launcher.createBleRoom(
+            selfNickname: _identityNickname,
+            roomName: roomName,
+          );
 
-    if (_selectedMode == RoomMode.wifiFullDuplex) {
-      _lanDiscovery.startAdvertising(
-        roomId: "room_${DateTime.now().millisecondsSinceEpoch}",
-        roomName: roomName,
-        hostNickname: _identityNickname,
-        tcpPort: 8988,
-        getMemberCount: () => session.members.length,
-      );
+    switch (result) {
+      case RoomLaunchSuccess(:final session, :final roomName):
+        if (mounted) widget.onEnterRoom(session, roomName);
+      case RoomLaunchFailure():
+        _isHostingWifiDirect = false;
+        _stopPeriodicScan();
+        if (mounted) {
+          _showLaunchError(_selectedMode == RoomMode.wifiFullDuplex
+              ? s.errStartWifiRoom
+              : s.errStartBleRoom);
+        }
     }
-
-    if (mounted) widget.onEnterRoom(session, roomName);
   }
 
+  /// 加入局域网房间。
   void _onJoinRoom(DiscoveredRoom room) async {
     FocusScope.of(context).unfocus();
     final s = AppStrings.of(context);
-    final session = RoomSession(
-      audioIo: widget.audioIo,
+    final result = await _launcher.joinLanRoom(
+      room: room,
       selfNickname: _identityNickname,
-      mode: RoomMode.wifiFullDuplex,
     );
 
-    final transport = LanTransport();
-    final ok = await transport.startClient(
-      hostAddress: room.hostAddress,
-      port: room.port,
-    );
-    if (!ok) {
-      await transport.dispose();
-      await session.dispose();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(s.isEn
-                ? 'Failed to connect to room, please make sure on the same network'
-                : '连接房间失败，请确认在同一网络下'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-      return;
+    switch (result) {
+      case RoomLaunchSuccess(:final session, :final roomName):
+        if (mounted) widget.onEnterRoom(session, roomName);
+      case RoomLaunchFailure():
+        if (mounted) _showLaunchError(s.errJoinRoom);
     }
-    session.attachTransport(transport);
-
-    // 同 _onCreateRoom：开麦推迟到转场跑完。
-    await session.joinRoom(startAudio: false);
-
-    if (mounted) widget.onEnterRoom(session, room.roomName);
   }
 
+  /// 加入蓝牙 PTT 房。
   void _onJoinBleRoom(DiscoveredBleRoom room) async {
     FocusScope.of(context).unfocus();
     final s = AppStrings.of(context);
-    final session = RoomSession(
-      audioIo: widget.audioIo,
+    final result = await _launcher.joinBleRoom(
+      room: room,
       selfNickname: _identityNickname,
-      mode: RoomMode.bluetoothPtt,
     );
 
-    final transport = BleL2capTransport();
-    final ok = await transport.connectToHost(room);
-    if (!ok) {
-      await transport.dispose();
-      await session.dispose();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(s.isEn
-                ? 'Failed to connect to Bluetooth room, please stay close and retry'
-                : '连接蓝牙房间失败，请靠近后重试'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-      return;
+    switch (result) {
+      case RoomLaunchSuccess(:final session, :final roomName):
+        if (mounted) widget.onEnterRoom(session, roomName);
+      case RoomLaunchFailure():
+        if (mounted) _showLaunchError(s.errJoinBleRoom);
     }
-    session.attachTransport(transport);
-
-    await session.joinRoom(startAudio: false);
-
-    if (mounted) widget.onEnterRoom(session, room.roomName);
   }
 
+  /// 通过 Wi-Fi Direct 免路由直连房主。
   void _onJoinWifiDirectPeer(WifiP2pPeer peer) async {
     FocusScope.of(context).unfocus();
     final s = AppStrings.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-            s.connectingTo(peer.name.isNotEmpty ? peer.name : peer.address)),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-
-    final connectionInfo =
-        await WifiDirectManager.instance.connectAndWait(peer.address);
-    if (connectionInfo == null ||
-        !connectionInfo.isConnected ||
-        connectionInfo.groupOwnerAddress.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(s.directConnectPermissionFailed),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-      return;
-    }
-
-    final hostIp = InternetAddress(connectionInfo.groupOwnerAddress);
-    final session = RoomSession(
-      audioIo: widget.audioIo,
+    final result = await _launcher.joinWifiDirectPeer(
+      peer: peer,
       selfNickname: _identityNickname,
-      mode: RoomMode.wifiFullDuplex,
     );
 
-    final transport = LanTransport();
-    final ok = await transport.startClient(
-      hostAddress: hostIp,
-      port: 8988,
+    switch (result) {
+      case RoomLaunchSuccess(:final session):
+        if (mounted) {
+          final displayName = peer.name.isNotEmpty
+              ? s.defaultWifiRoomTitle(peer.name)
+              : s.wifiRoom;
+          widget.onEnterRoom(session, displayName);
+        }
+      case RoomLaunchFailure():
+        if (mounted) _showLaunchError(s.errJoinWifiDirectHost);
+    }
+  }
+
+  void _showLaunchError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
     );
-    if (!ok) {
-      await transport.dispose();
-      await session.dispose();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(s.isEn
-                ? 'Failed to connect to Wi-Fi Direct host'
-                : '直连房主失败，请重试'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-      return;
-    }
-    session.attachTransport(transport);
-
-    await session.joinRoom(startAudio: false);
-
-    if (mounted) {
-      final displayName =
-          peer.name.isNotEmpty ? s.defaultWifiRoomTitle(peer.name) : s.wifiRoom;
-      widget.onEnterRoom(session, displayName);
-    }
   }
 }
 

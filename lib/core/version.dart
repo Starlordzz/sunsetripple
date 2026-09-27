@@ -15,10 +15,10 @@ class AppVersion {
   const AppVersion._();
 
   /// 语义化版本名，与 `pubspec.yaml` 的 `version:` 前半段完全一致。
-  static const String name = '0.1.0-alpha.14';
+  static const String name = '0.1.0-alpha.15';
 
   /// 构建号（versionCode），与 `pubspec.yaml` 的 `version:` 后半段一致。
-  static const int buildNumber = 15;
+  static const int buildNumber = 16;
 }
 
 /// 上一次发版的更新摘要，供「关于」页展示。
@@ -29,21 +29,21 @@ class AppChangelog {
   const AppChangelog._();
 
   static const List<String> zh = <String>[
-    '修复发布链路：CI 注入固定签名密钥，缺少签名材料时构建直接失败而非产出 debug 签名包',
-    '安全信封改为失败关闭：启用 secureCodec 后一切明文业务帧被拒绝，杜绝单向加密的降级面',
-    '统一聊天文本预算：live chat 与历史同步共用同一上限，消除长消息导致历史同步中断的裂缝',
-    '蓝牙房房主转发按链路绑定重写 senderId，堵住成员冒用他人身份发言与撤回的路径',
-    '版本号收敛为单一真相源，CI 新增静态分析、格式校验、覆盖率门槛与锁文件校验',
-    '诊断日志 release 下丢弃 debug/info，导出报告补齐 IPv6 与平台信息脱敏',
+    'RoomSession 与首页双上帝对象拆解：聊天/遥测外提，建房入房编排独立成服务',
+    '安全层从死代码变为可达路径：新增握手协商器与带外短码，握手失败保持明文',
+    '更新链路真正落地：清单验签 + 流式下载校验 SHA-256 + Android 侧二次核对后安装',
+    '新增 traceId 贯穿与会话指标导出，传输层补齐 9 处关键路径日志',
+    '新增 21 条 JUnit 原生单测、8 条重连测试、10 条安全协商测试',
+    'UI 硬编码文案归位 AppStrings，并以 i18n 一致性测试机械阻止回归',
   ];
 
   static const List<String> en = <String>[
-    'Fixed the release pipeline: CI restores a pinned signing key, and builds fail instead of shipping debug-signed APKs',
-    'Security envelope is now fail-closed: with a secureCodec configured, all plaintext business frames are rejected',
-    'Unified the chat text budget so live chat and history sync agree, removing the mid-sync truncation gap',
-    'BLE host relay now rewrites senderId per bound link, closing the member impersonation path',
-    'Version number collapsed to a single source of truth; CI adds analyze, format, coverage and lockfile gates',
-    'Release builds drop debug/info logs; exported reports redact IPv6 and platform details',
+    'Split the two god objects: chat/telemetry extracted, room setup moved into a launcher service',
+    'Security layer is now reachable: handshake negotiator plus out-of-band safety code',
+    'Update chain implemented end to end: manifest signature, streamed SHA-256, Android re-verification',
+    'Added traceId threading and session metrics export; 9 missing transport log points filled',
+    'Added 21 JUnit native tests, 8 reconnect tests and 10 secure-negotiation tests',
+    'Moved hardcoded UI strings into AppStrings, with an i18n parity test to prevent regressions',
   ];
 
   /// 中文完整文本：版本号 + 逐条摘要。

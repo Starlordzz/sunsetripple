@@ -57,8 +57,9 @@ class PlatformAudioChannel implements AudioIo {
   }
 
   @override
-  Future<void> setBitrate(int bitrateBps) =>
-      _invoke('setBitrate', {'bitrate': bitrateBps}, '调整码率');
+  Future<void> setBitrate(int bitrateBps) async {
+    await _invoke('setBitrate', {'bitrate': bitrateBps}, '调整码率');
+  }
 
   @override
   Future<void> startCapture(
@@ -107,7 +108,10 @@ class PlatformAudioChannel implements AudioIo {
     _onFrameReady = null;
     await _eventSubscription?.cancel();
     _eventSubscription = null;
-    await _invoke('stopCapture', null, '关闭麦克风');
+    // 开麦有成功日志、关麦没有的话，日志里会出现「开着麦但没人说话」的假象。
+    if (await _invoke('stopCapture', null, '关闭麦克风')) {
+      AppLog.info(_tag, '麦克风已关闭');
+    }
   }
 
   @override
@@ -126,15 +130,21 @@ class PlatformAudioChannel implements AudioIo {
   }
 
   @override
-  Future<void> removeRemoteMember(int memberId) =>
-      _invoke('removeRemoteMember', {'memberId': memberId}, '移除成员音频流');
+  Future<void> removeRemoteMember(int memberId) async {
+    await _invoke('removeRemoteMember', {'memberId': memberId}, '移除成员音频流');
+  }
 
   @override
-  Future<void> clearRemoteMembers() =>
-      _invoke('clearRemoteMembers', null, '清空音频流');
+  Future<void> clearRemoteMembers() async {
+    await _invoke('clearRemoteMembers', null, '清空音频流');
+  }
 
   @override
-  Future<void> stopPlayback() => _invoke('stopPlayback', null, '关闭扬声器');
+  Future<void> stopPlayback() async {
+    if (await _invoke('stopPlayback', null, '关闭扬声器')) {
+      AppLog.info(_tag, '播放已停止');
+    }
+  }
 
   @override
   Future<void> dispose() async {
@@ -142,17 +152,24 @@ class PlatformAudioChannel implements AudioIo {
     await stopPlayback();
   }
 
-  Future<void> _invoke(
+  /// 调用平台通道；成功返回 true，失败已记进 [AppLog] 并返回 false。
+  ///
+  /// 返回值是给「关闭采集/播放」这类路径用的：只有真的关掉了才该打印
+  /// 「已关闭」，否则日志会把一次失败描述成一次成功。
+  Future<bool> _invoke(
     String method,
     Map<String, dynamic>? args,
     String what,
   ) async {
     try {
       await _methodChannel.invokeMethod(method, args);
+      return true;
     } on PlatformException catch (e) {
       AppLog.error(_tag, _describe(e, what), e);
+      return false;
     } on MissingPluginException catch (e) {
       AppLog.error(_tag, '当前平台没有实现音频通道，$what 失败', e);
+      return false;
     }
   }
 

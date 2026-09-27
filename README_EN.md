@@ -88,7 +88,7 @@
 - **Continuous room-enter transition** — the real room UI expands from the actual tap position; home and room share the same sunset header and palette, with no separate overlay or second page push.
 - **Day & night themes** — warm sunset gold by day, moon and sea at night (cold moonlight white + rose-pink leave button, contrast ratio > 7.5:1).
 - **Call-grade audio** — `VOICE_COMMUNICATION` capture, hardware echo cancellation (AEC/NS/AGC), audio focus negotiation, a 50-cycle HAL fault-tolerance buffer, and Opus packet-loss concealment.
-- **End-to-end session encryption** — built on ECDH P-256 key agreement, HKDF-SHA256 key derivation, and AES-256-GCM sealed frames (12-byte nonce + 16-byte tag) with a 65536-deep anti-replay window.
+- **Session security envelope (available, off by default)** — built on ECDH P-256 key agreement, HKDF-SHA256 derivation and AES-256-GCM sealed frames with a 65536-entry replay window. Inject a `SecureSessionNegotiator` and the session handshakes automatically on join, deriving the key and sealing business frames. **A failed handshake stays plaintext and says so in the diagnostics panel — it never pretends to be encrypted.** Once enabled, inbound plaintext business frames are rejected (fail-closed). Both sides derive the same **6-digit safety code** for out-of-band comparison; until you compare it, this only protects against passive eavesdropping and post-hoc tampering, not active man-in-the-middle.
 - **Sanitized diagnostics** — a built-in network & audio quality panel that generates sanitized reports with one tap for GitHub issues.
 
 <br>

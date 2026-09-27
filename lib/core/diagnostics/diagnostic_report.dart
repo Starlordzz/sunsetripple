@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'trace.dart';
+
 class DiagnosticSanitizer {
   static final RegExp _macAddress =
       RegExp(r'\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b', caseSensitive: false);
@@ -44,6 +46,10 @@ class DiagnosticReport {
   final String deviceModel;
   final String osVersion;
   final String roomType;
+
+  /// 生成报告时所在会话的 traceId；不在会话里时为 null。
+  /// 有了它，用户贴出来的一行日志和这份快照才对得上同一次会话。
+  final String? traceId;
   final bool connected;
   final int memberCount;
   final int receivedFrames;
@@ -58,6 +64,7 @@ class DiagnosticReport {
     required this.deviceModel,
     required this.osVersion,
     required this.roomType,
+    this.traceId,
     required this.connected,
     required this.memberCount,
     required this.receivedFrames,
@@ -77,6 +84,10 @@ class DiagnosticReport {
     String networkQuality = 'Unknown',
     List<String> recentErrors = const [],
 
+    /// 会话 traceId。默认取当前的 [TraceId.current]（不在会话里则为 null），
+    /// 这样调用方不必自己传，导出的报告也能和日志行对上。
+    String? traceId,
+
     /// 额外的原始日志行（例如宿主版本、平台信息）。会与 [recentErrors]
     /// 一样逐行脱敏后才进入报告。
     List<String> environmentNotes = const [],
@@ -91,6 +102,7 @@ class DiagnosticReport {
       deviceModel: Platform.operatingSystem,
       osVersion: DiagnosticSanitizer.sanitize(Platform.operatingSystemVersion),
       roomType: roomType,
+      traceId: traceId ?? TraceId.current,
       connected: connected,
       memberCount: memberCount,
       receivedFrames: receivedFrames,
@@ -107,6 +119,9 @@ class DiagnosticReport {
         'deviceModel': deviceModel,
         'osVersion': osVersion,
         'roomType': roomType,
+        // 固定出现：消费端可以直接 json['traceId']，不必先判断键是否存在；
+        // 不在会话里时为 null。
+        'traceId': traceId,
         'connected': connected,
         'memberCount': memberCount,
         'receivedFrames': receivedFrames,
@@ -124,6 +139,7 @@ class DiagnosticReport {
     buffer.writeln('- App: $appVersion');
     buffer.writeln('- OS: $deviceModel ($osVersion)');
     buffer.writeln('- Room Type: $roomType');
+    buffer.writeln('- Trace: ${traceId ?? '-'}');
     buffer.writeln('- Network: $networkQuality');
     buffer.writeln('- Concealed Frames: $concealedFrames / $receivedFrames');
     if (recentErrors.isNotEmpty) {

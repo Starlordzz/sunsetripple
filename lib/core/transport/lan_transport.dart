@@ -272,17 +272,22 @@ class LanTransport implements RoomTransport {
 
   @override
   Future<bool> reconnect() async {
-    if (_role != TransportRole.client || _hostAddress == null) return false;
+    if (_role != TransportRole.client || _hostAddress == null) {
+      AppLog.debug(_tag, '断线重连被跳过：当前不是客户端或没有房主地址');
+      return false;
+    }
     final address = _hostAddress!;
     final port = _clientControlPort;
     final voicePort = _hostAudioPort;
     await stop();
-    return startClient(
+    final ok = await startClient(
       hostAddress: address,
       port: port,
       hostAudioPort: voicePort,
       silent: true,
     );
+    AppLog.info(_tag, '断线重连${ok ? '成功' : '失败'} → ${address.address}:$port');
+    return ok;
   }
 
   // ---------------------------------------------------------------- 房主
@@ -458,6 +463,8 @@ class LanTransport implements RoomTransport {
     final socket = _memberSockets.remove(memberId);
     if (socket == null) return;
     final label = _clientLabels[socket];
+    AppLog.debug(
+        _tag, '按会话指令移除成员 #$memberId 的连接${label == null ? '' : '（$label）'}');
     _clientMemberIds.remove(socket);
     _clientSessionTokens.remove(socket);
     if (label != null) _removeClient(socket, label);
@@ -604,6 +611,10 @@ class LanTransport implements RoomTransport {
       }
       // 白名单：UDP 帧头的 senderId 是自报的，不在册的一律丢弃
       if (frame.senderId == 0 || !_knownMemberIds.contains(frame.senderId)) {
+        AppLog.debug(
+          _tag,
+          '白名单拦截：丢弃不在册成员（#${frame.senderId}）的语音包',
+        );
         return;
       }
 
@@ -611,6 +622,10 @@ class LanTransport implements RoomTransport {
       if (_memberSockets.isNotEmpty) {
         if (memberSocket == null ||
             memberSocket.remoteAddress.address != datagram.address.address) {
+          AppLog.debug(
+            _tag,
+            '丢弃来源与会话链路不符的语音包（成员 #${frame.senderId} ← ${datagram.address.address}）',
+          );
           return;
         }
       }
@@ -692,7 +707,10 @@ class LanTransport implements RoomTransport {
     final bytes = frame.encode();
 
     for (final entry in _audioEndpoints.entries) {
-      if (!_knownMemberIds.contains(entry.key)) continue;
+      if (!_knownMemberIds.contains(entry.key)) {
+        AppLog.debug(_tag, '不回传语音给不在册的成员 #${entry.key}');
+        continue;
+      }
       if (entry.key == excludeSenderId) continue;
       final endpoint = entry.value;
       try {
@@ -760,6 +778,7 @@ class LanTransport implements RoomTransport {
 
   @override
   Future<void> stop() async {
+    final wasActive = _role != TransportRole.idle;
     _udpKeepalive?.cancel();
     _udpKeepalive = null;
 
@@ -804,6 +823,8 @@ class LanTransport implements RoomTransport {
     _selfMemberId = 0;
     _role = TransportRole.idle;
     _disconnectSignaled = false;
+
+    if (wasActive) AppLog.info(_tag, '传输层已停止');
   }
 
   @override

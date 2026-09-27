@@ -67,8 +67,13 @@
 | 平台 | 技术栈 | 发布产物 | 状态 |
 | --- | --- | --- | --- |
 | Android 8.0+ | Flutter + Kotlin 原生插件 | `.apk`，直接安装 | ✅ 功能完整 |
-| iOS 15+ | Flutter + Swift 原生插件 | `.ipa`，**未签名**，需侧载重签 | 🚧 原生音频与 BLE 就绪，搜房待适配 Bonjour |
-| HarmonyOS NEXT | 独立原生 ArkTS | 源码工程 zip | 🚧 需本地 DevEco 构建签名 |
+| iOS 15+ | Flutter + Swift 原生插件 | `.ipa`，**未签名**，需侧载重签 | 🚧 音频与 BLE 就绪，**搜房未接入 Bonjour，实际不可用** |
+| HarmonyOS NEXT | 独立原生 ArkTS | 源码工程 zip | 🚧 仅有 UDP 发现，数据面未接通 |
+| Windows / macOS / Linux | Flutter 脚手架模板 | 无 | ❌ **不支持**（无桌面音频后端） |
+
+> 平台能力的**权威声明**见 [docs/platform-support.md](docs/platform-support.md)；
+> 与上表冲突时以该文件为准。桌面目录只是未来占位：可编译出窗口，
+> 但没有 `MethodChannel` 实现，**没有声音、无法对讲**。
 
 <br>
 
@@ -88,7 +93,7 @@
 - **连续建房转场**——从实际点击位置展开真实房间界面，首页与房间共享同一套落日页头和配色，不经过独立遮罩或二次弹页。
 - **昼夜双配色**——白天是落日暖金，夜里换成月与海面（冷月白 + 玫瑰粉离开按钮，对比度 > 7.5:1）。
 - **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除（AEC/NS/AGC）、音频焦点协商、50 周期 HAL 容错缓冲与 Opus 丢包补偿。
-- **安全信封（已实现，默认关闭）**——内置 ECDH P-256 密钥协商、HKDF-SHA256 密钥派生、12 字节 Nonce + 16 字节 Tag 的 AES-256-GCM 密封帧体系与 65536 深度防重放窗口。**当前产品默认明文传输**，安全层只在会话注入 `secureCodec` 后生效，且一旦启用即拒绝一切明文业务帧（fail-closed）。握手尚未接入设备身份绑定，在完成带外短码校验前不要把房间当作防中间人的信道。
+- **安全信封（可用，默认关闭）**——内置 ECDH P-256 密钥协商、HKDF-SHA256 密钥派生、12 字节 Nonce + 16 字节 Tag 的 AES-256-GCM 密封帧体系与 65536 深度防重放窗口。装配 `SecureSessionNegotiator` 后入房即自动握手并派生密钥，成功后业务帧自动密封；**握手失败保持明文并在诊断面板留痕，绝不假装加密**。启用后入站明文业务帧一律拒绝（fail-closed）。双方派生的 **6 位安全短码**可带外口头比对——在比对之前，它只提供防被动窃听与防事后篡改，不声称抵御主动中间人。
 - **脱敏诊断报告**——内置网络与音质诊断面板，一键生成脱敏日志便于提交 GitHub Issue。
 
 <br>
@@ -227,6 +232,7 @@ SunsetRipple/
 ├── lib/
 │   ├── core/
 │   │   ├── audio/         # 音频抽象接口 (AudioIo)
+│   │   ├── diagnostics/   # AppLog · TraceId · SessionMetrics · DiagnosticReport
 │   │   ├── diagnostics/   # 应用日志 (AppLog) 与脱敏报告生成 (DiagnosticReport)
 │   │   ├── ffi/           # 原生 C++ 动态链接桥接 (NativeCoreFfi)
 │   │   ├── platform/      # 平台通道实现 (PlatformAudioChannel)
@@ -253,6 +259,8 @@ SunsetRipple/
 <br>
 
 完整技术文档参见 **[Wiki 目录](docs/wiki/Home.md)**（**[English](docs/wiki/en/Home.md)**，双语同步）：
+
+- [平台支持范围（权威声明）](docs/platform-support.md)
 
 - [Core-Shell 统一多端架构](docs/wiki/Core-Shell统一多端架构.md)
 - [架构总览](docs/wiki/架构总览.md)

@@ -131,8 +131,12 @@ class BleL2capTransport implements RoomTransport {
           orElse: () => const MapEntry<String, int>('', 0),
         )
         .key;
-    if (address.isEmpty) return;
+    if (address.isEmpty) {
+      AppLog.debug(_tag, '成员 #$memberId 没有蓝牙链路绑定可解除');
+      return;
+    }
     _boundMemberByPeer.remove(address);
+    AppLog.info(_tag, '解除成员 #$memberId 的蓝牙链路绑定（$address）');
     unawaited(_invokeVoid('unbindMember', {'memberId': memberId}));
   }
 
@@ -359,6 +363,7 @@ class BleL2capTransport implements RoomTransport {
 
   @override
   Future<void> stop() async {
+    final wasActive = _role != BleRole.idle || _peerCount > 0;
     _role = BleRole.idle;
     _sendErrorReported = false;
     _peerCount = 0;
@@ -382,6 +387,8 @@ class BleL2capTransport implements RoomTransport {
     } catch (e) {
       AppLog.debug(_tag, '关闭蓝牙通道时被忽略的异常：$e');
     }
+
+    if (wasActive) AppLog.info(_tag, '蓝牙通道已关闭');
   }
 
   // -------------------------------------------------------------------- 内部
@@ -413,6 +420,10 @@ class BleL2capTransport implements RoomTransport {
           final join = JoinRequestPayload.decode(frame.payload);
           if (join != null) {
             _pendingJoinPeerByToken[_hexKey(join.sessionToken)] = peerAddress;
+          } else {
+            // 解不出来就绑不上成员号，这条链路的帧会被原生侧按 senderId=0
+            // 丢弃——不记一笔的话现象是「连上了但永远没人说话」。
+            AppLog.warn(_tag, '来自 $peerAddress 的 JOIN 无法解析，该链路不会被绑定成员号');
           }
         }
 

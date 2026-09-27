@@ -20,6 +20,7 @@ class MainActivity : FlutterActivity() {
     private var audioPlugin: PlatformAudioPlugin? = null
     private var blePlugin: BleL2capPlugin? = null
     private var wifiDirectPlugin: WifiDirectPlugin? = null
+    private var updateInstallerPlugin: UpdateInstallerPlugin? = null
     private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -35,6 +36,12 @@ class MainActivity : FlutterActivity() {
         // Wi-Fi Direct 插件必须在这里注册：漏掉的话 Dart 侧所有 wifi_direct
         // 通道调用会抛 MissingPluginException 并被吞掉，Wi-Fi Direct 房型整个不可用。
         wifiDirectPlugin = WifiDirectPlugin(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
+        // 更新安装插件同样必须在这里注册：漏掉的话 Dart 侧只会拿到
+        // MissingPluginException，「下载并安装」按钮点了没有任何反应。
+        updateInstallerPlugin = UpdateInstallerPlugin(
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
@@ -66,6 +73,8 @@ class MainActivity : FlutterActivity() {
         blePlugin = null
         wifiDirectPlugin?.dispose()
         wifiDirectPlugin = null
+        updateInstallerPlugin?.dispose()
+        updateInstallerPlugin = null
         try {
             multicastLock?.let {
                 if (it.isHeld) it.release()

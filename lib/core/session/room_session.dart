@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 import '../audio/audio_io.dart';
 import '../diagnostics/app_log.dart';
+import '../diagnostics/trace.dart';
 import '../protocol/frame.dart';
 import '../protocol/frame_type.dart';
 import '../protocol/payloads/chat_delete.dart';
@@ -12,6 +13,7 @@ import '../protocol/payloads/join_request.dart';
 import '../protocol/payloads/leave.dart';
 import '../protocol/payloads/ptt_state.dart';
 import '../protocol/payloads/roster.dart';
+import '../security/secure_session_negotiator.dart';
 import '../security/session_handshake.dart';
 import '../transport/room_transport.dart';
 import 'chat_message.dart';
@@ -19,6 +21,8 @@ import 'device_code.dart';
 import 'host_transfer.dart';
 import 'member.dart';
 import 'reconnect_controller.dart';
+import 'session_chat_hub.dart';
+import 'session_telemetry.dart';
 import 'session_token.dart';
 
 enum RoomMode { wifiFullDuplex, bluetoothPtt }
@@ -55,6 +59,21 @@ class RoomSession {
   /// 默认为 null，即按产品要求使用明文传输。配置后才启用安全信封。
   SecureFrameCodec? secureCodec;
 
+  /// 安全信封的协商器。非 null 时会在入房后自动走一次握手，成功后把
+  /// 派生出的 codec 装到 [secureCodec]。
+  ///
+  /// 之前 `lib/core/security/` 整层不可达（握手帧被直接 `break`，
+  /// `secureCodec` 永远是 null）。装上这个协商器，密码学才真的跑在
+  /// 生产路径上；握手失败则保持明文并在诊断面板留痕，**不**静默假装加密。
+  SecureSessionNegotiator? secureNegotiator;
+
+  /// 当前协商状态（明文 / 已加密 / 已带外确认），供 UI 展示。
+  Stream<SecureSessionState>? get secureStateStream =>
+      secureNegotiator?.stateStream;
+
+  /// 供用户带外比对的安全短码；尚未协商完成时为 null。
+  String? get secureSafetyCode => secureNegotiator?.safetyCode;
+
   RoomState _state = RoomState.idle;
   bool _isHost = false;
   int _selfMemberId = 0;
@@ -83,38 +102,20 @@ class RoomSession {
   Timer? _speakingWatchTimer;
   Timer? _heartbeatTimer;
 
-  // ---- 诊断面板遥测 ----
-  // 面板上的延迟/丢包过去是写死的默认值，这里改成会话真实统计。
-  /// 各发送方最近一次收到的帧序号，用于估算丢包。
-  final Map<int, int> _lastSeqBySender = {};
-  int _receivedFrameCount = 0;
-  int _lostFrameCount = 0;
-
-  /// 客户端从发出 JOIN 到收到第一份名单的往返耗时；房主或尚未测量时为 null。
-  int? _roundTripTimeMs;
-
-  /// 会话级入房时发出 JOIN 的时刻。房主转移后的重连与断线重连都只是重新
-  /// JOIN 一次，测不到真实往返，所以那时保持 null。
-  DateTime? _joinSentAt;
+  /// 诊断面板遥测（帧计数、丢包估算、入房往返时延），外提到
+  /// [SessionTelemetry]——纯计数逻辑不该和状态机纠缠在一起。
+  final SessionTelemetry _telemetry = SessionTelemetry();
 
   /// 麦克风/扬声器是否已经打开，[startAudio] 用它做幂等。
   bool _audioStarted = false;
   late ReconnectController _reconnectController;
 
-  // 纯内存聊天状态
-  final List<ChatMessage> _chatMessages = [];
-  final _chatStreamController =
-      StreamController<ChatMessage>.broadcast(sync: true);
-  final _chatListController =
-      StreamController<List<ChatMessage>>.broadcast(sync: true);
-  final _unreadStreamController = StreamController<int>.broadcast(sync: true);
-  int _unreadChatCount = 0;
-  final Set<String> _seenChatKeys = <String>{};
-  final List<String> _seenChatKeyOrder = <String>[];
-
-  // 跨进退房同人身份与曾用名追踪 (基于设备短码)
-  final Map<String, String> _currentNicknameByCode = {};
-  final Map<String, Set<String>> _previousNicknamesByCode = {};
+  /// 纯内存聊天状态与规则（历史表、去重窗口、撤回、同人识别）。
+  ///
+  /// 外提到 [SessionChatHub]：聊天在会话里占了近一半的私有方法，却几乎不
+  /// 依赖话权/房主选举/心跳，留在原地只会让 1500 行的状态机继续膨胀。
+  /// 会话层保留的只有**鉴权**（发送者是否在册、是否为房主）与**发帧**。
+  late final SessionChatHub _chat;
 
   // UI Reactive Streams
   final _stateController = StreamController<RoomState>.broadcast();
@@ -139,11 +140,11 @@ class RoomSession {
   Stream<RoomState> get stateStream => _stateController.stream;
   Stream<List<Member>> get membersStream => _membersController.stream;
   Stream<double> get waveStream => _waveController.stream;
-  Stream<ChatMessage> get chatStream => _chatStreamController.stream;
-  Stream<List<ChatMessage>> get chatListStream => _chatListController.stream;
-  List<ChatMessage> get chatMessages => List.unmodifiable(_chatMessages);
-  Stream<int> get unreadChatStream => _unreadStreamController.stream;
-  int get unreadChatCount => _unreadChatCount;
+  Stream<ChatMessage> get chatStream => _chat.messageStream;
+  Stream<List<ChatMessage>> get chatListStream => _chat.listStream;
+  List<ChatMessage> get chatMessages => _chat.messages;
+  Stream<int> get unreadChatStream => _chat.unreadStream;
+  int get unreadChatCount => _chat.unreadCount;
 
   RoomState get state => _state;
   bool get isHost => _isHost;
@@ -154,20 +155,16 @@ class RoomSession {
   bool get isFullDuplex => mode == RoomMode.wifiFullDuplex;
 
   /// 本轮会话累计收到的帧数（不含本机发送的回显）。
-  int get receivedFrameCount => _receivedFrameCount;
+  int get receivedFrameCount => _telemetry.receivedFrameCount;
 
   /// 按各发送方序号缺口估算出的丢失帧数。
-  int get lostFrameCount => _lostFrameCount;
+  int get lostFrameCount => _telemetry.lostFrameCount;
 
   /// 估算丢包率（0~100）。没有观测数据时为 0。
-  int get packetLossPercent {
-    final total = _receivedFrameCount + _lostFrameCount;
-    if (total == 0) return 0;
-    return ((_lostFrameCount * 100) / total).round().clamp(0, 100);
-  }
+  int get packetLossPercent => _telemetry.lossPercent;
 
   /// 实测往返延迟（毫秒）。仅客户端在收到首份名单时可测得，房主为 null。
-  int? get roundTripTimeMs => _roundTripTimeMs;
+  int? get roundTripTimeMs => _telemetry.roundTripTimeMs;
 
   /// 会话令牌：进房时随机生成，同一台设备跨重连保持不变。
   /// 房主用它判定成员重连。昵称不能作为身份依据。
@@ -182,6 +179,7 @@ class RoomSession {
     if (!isValidSessionToken(this.sessionToken)) {
       throw ArgumentError('sessionToken must be a non-zero 16-byte value.');
     }
+    _chat = SessionChatHub();
     _reconnectController = ReconnectController(
       onAttemptReconnect: _attemptReconnect,
       onMaxRetriesReached: () {
@@ -242,6 +240,10 @@ class RoomSession {
   /// [startAudio] 为 false 时不开麦，需要之后手动调用 [startAudio]。
   /// 进房转场期间要用它把开麦推迟到动画结束——原因见 [startAudio] 的说明。
   Future<void> createRoom({bool startAudio = true}) async {
+    // 会话级 trace：同一次会话的所有日志共享一个 id，便于从用户导出的
+    // 诊断报告里把一次完整会话的日志挑出来。已有在跑的 trace 就不新建
+    // （重连/房主迁移会再次走到这里）。
+    if (!TraceId.isActive) TraceId.begin();
     _isHost = true;
     _selfMemberId = 1;
     _members.clear();
@@ -266,10 +268,15 @@ class RoomSession {
 
     if (startAudio) await this.startAudio();
     _startHeartbeat();
+    // 房主作为握手发起方，避免双方同时发 Hello。
+    await _startSecureHandshake();
   }
 
   /// Join an existing room as Client.
   Future<void> joinRoom({bool startAudio = true}) async {
+    // 见 createRoom：重连与房主迁移也会走到这里，必须带 isActive 守卫，
+    // 否则同一场会话会被拆成多条 trace 并留下未弹出的栈帧。
+    if (!TraceId.isActive) TraceId.begin();
     _isHost = false;
     _selfMemberId = 0;
     _members.clear();
@@ -278,7 +285,7 @@ class RoomSession {
     // 耗时才是真实往返。房主转移后的重连（_followNewHost）与断线重连
     // （_attemptReconnect）也会走到这里，但它们重发 JOIN 时房主往往在同一批
     // 回调里就把名单补回来了，那种「往返」只有几毫秒，报给用户是错的。
-    _joinSentAt = _state == RoomState.idle ? DateTime.now() : null;
+    if (_state == RoomState.idle) _telemetry.beginJoinRoundTrip();
 
     _updateState(RoomState.connecting);
 
@@ -296,6 +303,8 @@ class RoomSession {
 
     if (startAudio) await this.startAudio();
     _startHeartbeat();
+    // 成员作为响应方：先发 Hello 也无妨（幂等），收到房主 Hello 时会回包。
+    await _startSecureHandshake();
   }
 
   /// 打开麦克风与扬声器。可重复调用，只生效一次。
@@ -320,7 +329,7 @@ class RoomSession {
   Future<void> handleIncomingFrame(Frame frame,
       {bool recordStats = true}) async {
     if (_disposed) return;
-    if (recordStats) _recordFrameStats(frame);
+    if (recordStats) _telemetry.recordFrame(frame, selfMemberId: _selfMemberId);
     if (frame.type == FrameType.sealed) {
       if (secureCodec == null) {
         AppLog.warn('RoomSession', '收到加密帧但未配置安全编解码器，已丢弃');
@@ -389,7 +398,12 @@ class RoomSession {
         _handleChatDeleteFrame(frame);
         break;
       case FrameType.handshakeHello:
+        _handleHandshakeHello(frame);
+        break;
       case FrameType.handshakeConfirm:
+        // 当前握手是「一次 Hello 交换即派生密钥」，没有独立的 confirm 帧。
+        // 保留分支是为了让旧版本发来的帧被安全忽略而不是当成未知类型。
+        break;
       case FrameType.sealed:
         break;
     }
@@ -497,7 +511,7 @@ class RoomSession {
 
     // 房主的第一份名单就是 JOIN 的回应：只有会话级入房那次能结算出 RTT，
     // 之后 `_joinSentAt` 已置空，成员增删引发的后续名单不会覆盖它。
-    if (!_isHost) _captureRoundTrip();
+    if (!_isHost) _telemetry.captureRoundTrip();
 
     // 如果本机已经持有非 0 的成员号，且名单中依然包含该 ID 且昵称一致，则优先保持
     final selfAlreadyAssigned = !isHost &&
@@ -1091,14 +1105,7 @@ class RoomSession {
   }
 
   /// 将未读数重置归零（面板打开或用户浏览时调用）
-  void markChatRead() {
-    if (_unreadChatCount != 0) {
-      _unreadChatCount = 0;
-      if (!_unreadStreamController.isClosed) {
-        _unreadStreamController.add(0);
-      }
-    }
-  }
+  void markChatRead() => _chat.markAllRead();
 
   /// 发送一条文字消息
   Future<void> sendChat(String text) async {
@@ -1117,48 +1124,80 @@ class RoomSession {
     final now = DateTime.now();
     final timestampMs = now.millisecondsSinceEpoch;
     final seq = _nextSeq();
-    final messageId = '${code}_${timestampMs}_$seq';
+    final messageId = SessionChatHub.buildMessageId(
+      code: code,
+      timestampMs: timestampMs,
+      seq: seq,
+    );
 
     // ChatMessagePayload 会校验共享文本预算，超长直接抛出 ArgumentError
-    final payload = ChatMessagePayload(
-      text: trimmed,
-      timestampMs: timestampMs,
-      senderCode: code,
-    );
-    final payloadBytes = payload.encode();
-
     final frame = Frame(
       type: FrameType.chat,
       senderId: _selfMemberId,
       seq: seq,
-      payload: payloadBytes,
+      payload: ChatMessagePayload(
+        text: trimmed,
+        timestampMs: timestampMs,
+        senderCode: code,
+      ).encode(),
     );
 
     // 记录本机发送键值，防止因广播回送导致重复追加
-    _markChatKeySeen(_selfMemberId, seq);
+    _chat.markSeen(_selfMemberId, seq);
 
     // 经由标准 sendFrame 发送（若配置了 secureCodec 将自动加密为 sealed 帧）
     await sendFrame(frame);
 
     // 本地立即追加一条 isLocal = true 消息
-    _recordMemberIdentity(_selfMemberId, fullNickname);
-    final cleanNickname =
-        _currentNicknameByCode[code] ?? DeviceCode.split(fullNickname).$1;
-    final prevNick = _previousNicknamesByCode[code]?.join('、');
-
-    final localMsg = ChatMessage(
-      messageId: messageId,
-      senderId: _selfMemberId,
-      senderCode: code,
-      senderNickname: cleanNickname,
-      previousNickname: prevNick,
-      seq: seq,
-      text: trimmed,
-      timestamp: now,
-      isLocal: true,
-      isHost: _isHost,
+    _chat.recordIdentity(code, fullNickname);
+    _chat.append(
+      ChatMessage(
+        messageId: messageId,
+        senderId: _selfMemberId,
+        senderCode: code,
+        senderNickname:
+            _chat.nicknameOf(code) ?? DeviceCode.split(fullNickname).$1,
+        previousNickname: _chat.previousNicknamesOf(code),
+        seq: seq,
+        text: trimmed,
+        timestamp: now,
+        isLocal: true,
+        isHost: _isHost,
+      ),
+      isIncoming: false,
     );
-    _appendChatMessage(localMsg, isIncoming: false);
+  }
+
+  /// 处理对端的安全信封 Hello。
+  ///
+  /// 校验失败时协商器会保持明文；这里只负责把回包发出去。
+  Future<void> _handleHandshakeHello(Frame frame) async {
+    final negotiator = secureNegotiator;
+    if (negotiator == null) return;
+    final reply = await negotiator.onHello(frame);
+    if (reply != null) await sendFrame(reply);
+    _adoptNegotiatedCodec();
+  }
+
+  /// 协商成功后把 codec 装到 [secureCodec]。
+  ///
+  /// 幂等：本机已经装过就不再覆盖，避免重连时用旧 codec 解密新会话的帧。
+  void _adoptNegotiatedCodec() {
+    final negotiator = secureNegotiator;
+    if (negotiator == null) return;
+    final negotiated = negotiator.codec;
+    if (negotiated != null && !identical(secureCodec, negotiated)) {
+      secureCodec = negotiated;
+      AppLog.info('RoomSession', '安全信封已启用，业务帧将自动密封');
+    }
+  }
+
+  /// 入房后主动发起握手（房主侧）。
+  Future<void> _startSecureHandshake() async {
+    final negotiator = secureNegotiator;
+    if (negotiator == null) return;
+    final hello = await negotiator.start();
+    if (hello != null) await sendFrame(hello);
   }
 
   void _handleChatFrame(Frame frame) {
@@ -1167,7 +1206,7 @@ class RoomSession {
     // 1. 过滤本机回送帧
     if (frame.senderId == _selfMemberId) return;
 
-    // 2. 过滤未在册成员的帧
+    // 2. 过滤未在册成员的帧（鉴权留在会话层：hub 不认识成员表）
     final sender = _members[frame.senderId];
     if (sender == null) {
       AppLog.warn('RoomSession', '收到未在册成员 #${frame.senderId} 的聊天帧，已忽略');
@@ -1175,10 +1214,8 @@ class RoomSession {
     }
 
     // 3. 有界去重检查 (senderId, seq)
-    if (_isChatKeySeen(frame.senderId, frame.seq)) {
-      return;
-    }
-    _markChatKeySeen(frame.senderId, frame.seq);
+    if (_chat.isDuplicate(frame.senderId, frame.seq)) return;
+    _chat.markSeen(frame.senderId, frame.seq);
 
     // 4. 解码 Payload
     final payload = ChatMessagePayload.decode(frame.payload);
@@ -1188,43 +1225,45 @@ class RoomSession {
     }
 
     // 5. 身份与曾用名关联
-    _recordMemberIdentity(frame.senderId, sender.nickname);
     final split = DeviceCode.split(sender.nickname);
     final senderCode =
         (payload.senderCode != '0000' && payload.senderCode.isNotEmpty)
             ? DeviceCode.toNumeric(payload.senderCode)
             : (split.$2 ?? 'M${frame.senderId}');
-    final cleanNickname = _currentNicknameByCode[senderCode] ?? split.$1;
-    final prevNick = _previousNicknamesByCode[senderCode]?.join('、');
+    _chat.recordIdentity(senderCode, sender.nickname);
 
     final timestamp = payload.timestampMs != 0
         ? DateTime.fromMillisecondsSinceEpoch(payload.timestampMs)
         : DateTime.now();
-    final messageId =
-        '${senderCode}_${timestamp.millisecondsSinceEpoch}_${frame.seq}';
 
     // 6. 组装并追加消息
-    final msg = ChatMessage(
-      messageId: messageId,
-      senderId: frame.senderId,
-      senderCode: senderCode,
-      senderNickname: cleanNickname,
-      previousNickname: prevNick,
-      seq: frame.seq,
-      text: payload.text,
-      timestamp: timestamp,
-      isLocal: false,
-      isHost: sender.isHost,
+    _chat.append(
+      ChatMessage(
+        messageId: SessionChatHub.buildMessageId(
+          code: senderCode,
+          timestampMs: timestamp.millisecondsSinceEpoch,
+          seq: frame.seq,
+        ),
+        senderId: frame.senderId,
+        senderCode: senderCode,
+        senderNickname: _chat.nicknameOf(senderCode) ?? split.$1,
+        previousNickname: _chat.previousNicknamesOf(senderCode),
+        seq: frame.seq,
+        text: payload.text,
+        timestamp: timestamp,
+        isLocal: false,
+        isHost: sender.isHost,
+      ),
+      isIncoming: true,
     );
-    _appendChatMessage(msg, isIncoming: true);
   }
 
   /// 房主向新加入成员同步现存的历史聊天记录
   void _syncChatHistoryTo(int targetMemberId) {
     if (!_isHost) return;
-    for (final msg in _chatMessages) {
+    for (final msg in _chat.messages) {
       if (msg.isRecalled) continue;
-      final frame = Frame(
+      sendFrame(Frame(
         type: FrameType.chatSync,
         senderId: _selfMemberId,
         seq: _nextSeq(),
@@ -1237,8 +1276,7 @@ class RoomSession {
           nickname: msg.senderNickname,
           text: msg.text,
         ).encode(),
-      );
-      sendFrame(frame);
+      ));
     }
   }
 
@@ -1262,46 +1300,34 @@ class RoomSession {
     }
 
     // 根据 messageId 去重，防止重复同步
-    if (_chatMessages.any((m) => m.messageId == payload.messageId)) {
-      return;
-    }
+    if (_chat.containsMessageId(payload.messageId)) return;
 
-    _recordMemberIdentity(payload.senderId, payload.nickname);
-    final cleanNick =
-        _currentNicknameByCode[payload.senderCode] ?? payload.nickname;
-    final prevNick = _previousNicknamesByCode[payload.senderCode]?.join('、');
+    _chat.recordIdentity(payload.senderCode, payload.nickname);
 
-    final msg = ChatMessage(
-      messageId: payload.messageId,
-      senderId: payload.senderId,
-      senderCode: payload.senderCode,
-      senderNickname: cleanNick,
-      previousNickname: prevNick,
-      seq: 0,
-      text: payload.text,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(payload.timestampMs),
-      isLocal: payload.senderCode == DeviceCode.current,
-      isHost: payload.senderId == 1,
+    _chat.append(
+      ChatMessage(
+        messageId: payload.messageId,
+        senderId: payload.senderId,
+        senderCode: payload.senderCode,
+        senderNickname:
+            _chat.nicknameOf(payload.senderCode) ?? payload.nickname,
+        previousNickname: _chat.previousNicknamesOf(payload.senderCode),
+        seq: 0,
+        text: payload.text,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(payload.timestampMs),
+        isLocal: payload.senderCode == DeviceCode.current,
+        isHost: payload.senderId == 1,
+      ),
+      // 补发的历史不计未读：它是进房时的一次性回填，不该弹红点。
+      isIncoming: false,
     );
-
-    _chatMessages.add(msg);
-    _chatMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    if (_chatMessages.length > maxChatHistory) {
-      _chatMessages.removeAt(0);
-    }
-    if (!_chatStreamController.isClosed) {
-      _chatStreamController.add(msg);
-    }
-    if (!_chatListController.isClosed) {
-      _chatListController.add(List.unmodifiable(_chatMessages));
-    }
   }
 
   /// 撤回 / 为所有人删除自己发送的消息
   Future<void> recallMessage(String messageId) async {
-    final idx = _chatMessages.indexWhere((m) => m.messageId == messageId);
-    if (idx == -1) return;
-    final target = _chatMessages[idx];
+    final target =
+        _chat.messages.where((m) => m.messageId == messageId).firstOrNull;
+    if (target == null) return;
 
     final myCode = DeviceCode.toNumeric(
         DeviceCode.split(selfNickname).$2 ?? DeviceCode.current);
@@ -1310,35 +1336,22 @@ class RoomSession {
       throw StateError('Cannot delete messages sent by other members.');
     }
 
-    // 本地移除
-    _chatMessages.removeAt(idx);
-    if (!_chatListController.isClosed) {
-      _chatListController.add(List.unmodifiable(_chatMessages));
-    }
+    _chat.recall(messageId);
 
-    // 广播撤回帧给所有人
-    final deletePayload = ChatDeletePayload(
-      senderCode: myCode,
-      messageId: messageId,
-    );
-    final frame = Frame(
+    await sendFrame(Frame(
       type: FrameType.chatDelete,
       senderId: _selfMemberId,
       seq: _nextSeq(),
-      payload: deletePayload.encode(),
-    );
-    await sendFrame(frame);
+      payload:
+          ChatDeletePayload(senderCode: myCode, messageId: messageId).encode(),
+    ));
   }
 
   void _handleChatDeleteFrame(Frame frame) {
     final payload = ChatDeletePayload.decode(frame.payload);
     if (payload == null) return;
+    if (!_chat.containsMessageId(payload.messageId)) return;
 
-    final idx =
-        _chatMessages.indexWhere((m) => m.messageId == payload.messageId);
-    if (idx == -1) return;
-
-    final target = _chatMessages[idx];
     // 权限校验：只比对 payload 里的 senderCode 不够——设备码在聊天界面
     // 可见且仅 3 位数字，任何成员都能冒填。改为取「帧的实际发送者」在
     // 名单里的设备码与消息作者比对，冒用他人短码的撤回请求一律无效。
@@ -1350,6 +1363,11 @@ class RoomSession {
     final senderCode = DeviceCode.toNumeric(
       DeviceCode.split(sender.nickname).$2 ?? 'M${frame.senderId}',
     );
+    final target = _chat.messages
+        .where((m) => m.messageId == payload.messageId)
+        .firstOrNull;
+    if (target == null) return;
+
     if (senderCode != DeviceCode.toNumeric(target.senderCode)) {
       AppLog.warn(
         'RoomSession',
@@ -1358,75 +1376,15 @@ class RoomSession {
       return;
     }
 
-    _chatMessages.removeAt(idx);
-    if (!_chatListController.isClosed) {
-      _chatListController.add(List.unmodifiable(_chatMessages));
-    }
+    _chat.recall(payload.messageId);
   }
 
+  /// 记录某成员当前昵称，并把旧昵称归档为曾用名。
+  ///
+  /// 只用成员号定位设备短码；昵称同步回填由 hub 负责。
   void _recordMemberIdentity(int memberId, String fullNickname) {
     final split = DeviceCode.split(fullNickname);
-    final cleanNick = split.$1;
-    final code = split.$2 ?? 'M$memberId';
-
-    if (_currentNicknameByCode.containsKey(code)) {
-      final oldNick = _currentNicknameByCode[code]!;
-      if (oldNick != cleanNick) {
-        _previousNicknamesByCode
-            .putIfAbsent(code, () => <String>{})
-            .add(oldNick);
-        _currentNicknameByCode[code] = cleanNick;
-        // 同步更新之前该成员发出的历史消息
-        bool changed = false;
-        for (int i = 0; i < _chatMessages.length; i++) {
-          if (_chatMessages[i].senderCode == code) {
-            _chatMessages[i] = _chatMessages[i].copyWith(
-              senderNickname: cleanNick,
-              previousNickname: _previousNicknamesByCode[code]?.join('、'),
-            );
-            changed = true;
-          }
-        }
-        if (changed && !_chatListController.isClosed) {
-          _chatListController.add(List.unmodifiable(_chatMessages));
-        }
-      }
-    } else {
-      _currentNicknameByCode[code] = cleanNick;
-    }
-  }
-
-  bool _isChatKeySeen(int senderId, int seq) =>
-      _seenChatKeys.contains('$senderId:$seq');
-
-  void _markChatKeySeen(int senderId, int seq) {
-    final key = '$senderId:$seq';
-    if (_seenChatKeys.add(key)) {
-      _seenChatKeyOrder.add(key);
-      if (_seenChatKeyOrder.length > maxDeduplicationKeys) {
-        final oldest = _seenChatKeyOrder.removeAt(0);
-        _seenChatKeys.remove(oldest);
-      }
-    }
-  }
-
-  void _appendChatMessage(ChatMessage msg, {required bool isIncoming}) {
-    _chatMessages.add(msg);
-    if (_chatMessages.length > maxChatHistory) {
-      _chatMessages.removeAt(0);
-    }
-    if (!_chatStreamController.isClosed) {
-      _chatStreamController.add(msg);
-    }
-    if (!_chatListController.isClosed) {
-      _chatListController.add(List.unmodifiable(_chatMessages));
-    }
-    if (isIncoming) {
-      _unreadChatCount++;
-      if (!_unreadStreamController.isClosed) {
-        _unreadStreamController.add(_unreadChatCount);
-      }
-    }
+    _chat.recordIdentity(split.$2 ?? 'M$memberId', fullNickname);
   }
 
   Future<void> leave() => _leaveFuture ??= _leaveImpl();
@@ -1466,20 +1424,12 @@ class RoomSession {
     _nextJoinOrder = 1;
     _resetTelemetry();
 
-    // 清空聊天状态
-    _chatMessages.clear();
-    _unreadChatCount = 0;
-    _seenChatKeys.clear();
-    _seenChatKeyOrder.clear();
-    if (!_chatListController.isClosed) {
-      _chatListController.add(const []);
-    }
-    if (!_unreadStreamController.isClosed) {
-      _unreadStreamController.add(0);
-    }
+    // 清空聊天状态（历史表、去重窗口、未读、同人识别一并重置）
+    _chat.clear();
 
     _updateState(RoomState.idle);
     _notifyMembers();
+    TraceId.end();
   }
 
   int _nextSeq() {
@@ -1487,42 +1437,7 @@ class RoomSession {
     return _seq;
   }
 
-  void _resetTelemetry() {
-    _lastSeqBySender.clear();
-    _receivedFrameCount = 0;
-    _lostFrameCount = 0;
-    _roundTripTimeMs = null;
-    _joinSentAt = null;
-  }
-
-  void _captureRoundTrip() {
-    final sentAt = _joinSentAt;
-    if (sentAt == null) return;
-    _roundTripTimeMs = DateTime.now().difference(sentAt).inMilliseconds;
-    _joinSentAt = null;
-  }
-
-  /// 用各发送方的序号缺口估算丢包。序号按发送方单调递增、溢出回绕，
-  /// 可靠（TCP）与不可靠（UDP 语音）通道共用同一计数器，因此缺口主要
-  /// 来自丢掉的语音帧；迟到或重排的旧帧不计入丢失，避免把抖动当成丢包。
-  void _recordFrameStats(Frame frame) {
-    if (frame.senderId == _selfMemberId) return;
-    _receivedFrameCount++;
-
-    final last = _lastSeqBySender[frame.senderId];
-    if (last == null) {
-      _lastSeqBySender[frame.senderId] = frame.seq;
-      return;
-    }
-
-    final diff = (frame.seq - last) & 0xFFFF;
-    if (diff == 0) return; // 重复帧
-    if (diff < 0x8000) {
-      _lostFrameCount += diff - 1;
-      _lastSeqBySender[frame.senderId] = frame.seq;
-    }
-    // diff >= 0x8000：迟到的旧帧，既不计丢失也不回退基准序号。
-  }
+  void _resetTelemetry() => _telemetry.reset();
 
   void _updateState(RoomState newState) {
     _state = newState;
@@ -1545,6 +1460,8 @@ class RoomSession {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    // 幂等：栈空时 end() 是无害的空操作，与 _leaveImpl 重复调用安全。
+    TraceId.end();
     _transportGeneration++;
     await leave();
     await _incomingSubscription?.cancel();
@@ -1552,12 +1469,7 @@ class RoomSession {
     _incomingSubscription = null;
     _disconnectSubscription = null;
     await transport?.dispose();
-    _chatMessages.clear();
-    _seenChatKeys.clear();
-    _seenChatKeyOrder.clear();
-    await _chatStreamController.close();
-    await _chatListController.close();
-    await _unreadStreamController.close();
+    await _chat.dispose();
     await _stateController.close();
     await _membersController.close();
     await _waveController.close();

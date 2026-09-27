@@ -3,12 +3,17 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import 'trace.dart';
+
 enum LogLevel { debug, info, warn, error }
 
 /// 一条诊断记录。
 class LogEntry {
   final DateTime time;
   final LogLevel level;
+
+  /// 写入时的会话 traceId 快照；不在会话里时为 null（打印成 `-`）。
+  final String? traceId;
   final String tag;
   final String message;
   final Object? error;
@@ -17,6 +22,7 @@ class LogEntry {
     required this.level,
     required this.tag,
     required this.message,
+    this.traceId,
     this.error,
     DateTime? time,
   }) : time = time ?? DateTime.now();
@@ -32,7 +38,8 @@ class LogEntry {
         '${time.minute.toString().padLeft(2, '0')}:'
         '${time.second.toString().padLeft(2, '0')}';
     final suffix = error == null ? '' : ' <- $error';
-    return '[$ts][${level.name.toUpperCase()}][$tag] $message$suffix';
+    return '[$ts][${level.name.toUpperCase()}][${traceId ?? '-'}][$tag] '
+        '$message$suffix';
   }
 }
 
@@ -84,6 +91,8 @@ class AppLog {
       level: level,
       tag: tag,
       message: message,
+      // 会话级 traceId 在这里取快照：调用点不用（也不该）关心它。
+      traceId: TraceId.current,
       error: error,
     );
 

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  更新包的 FileProvider 路径白名单。
+
+  只暴露应用缓存目录下的 update-downloads/ 这一段（Dart 侧常量
+  kUpdateDownloadDirectoryName = "update-downloads"，见
+  lib/core/update/update_manifest.dart）。目录之外的任何文件都无法通过
+  content:// URI 泄露给安装器 —— 这也是不要直接用 <cache-path path="." /> 的原因。
+
+  路径推导：Android 上 Dart 的 Directory.systemTemp 落在
+  /data/user/0/<package>/cache，所以临时 APK 的绝对路径是
+  /data/user/0/<package>/cache/update-downloads/apk-XXXX/update.apk。
+  文件名必须以 .apk 结尾：系统安装器与部分 ROM 会据此识别包类型。
+-->
+<paths>
+    <cache-path
+        name="update_downloads"
+        path="update-downloads/"/>
+</paths>

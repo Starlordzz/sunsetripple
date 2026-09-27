@@ -17,6 +17,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # test job 里也要跑 Kotlin 单测（JitterBuffer / OpusCodec），AGP 需要 JDK 17。
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -71,6 +78,26 @@ jobs:
           name: flutter-coverage
           path: coverage/lcov.info
           if-no-files-found: warn
+          retention-days: 14
+
+      # 抖动缓冲 / Opus 编解码是 Kotlin 原生逻辑，Flutter 侧测不到；
+      # 这层决定通话音质（断音/回声/丢包），必须单独把关。
+      - name: Run Android unit tests (JitterBuffer / OpusCodec)
+        working-directory: android
+        run: |
+          # Windows 检出可能丢失可执行位，runner 上补回来。
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest
+
+      - name: Upload Android unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-report
+          # 注意：android/build.gradle.kts 把 Gradle 构建目录重定向到了仓库根的 build/，
+          # 报告不在 android/app/build 下。
+          path: build/app/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
           retention-days: 14
 
   build-android:

@@ -98,7 +98,7 @@ class _SessionStageState extends State<SessionStage>
         final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(s.isEn ? 'Disconnected from chat' : '与房间的连接已断开'),
+            content: Text(s.connDisconnected),
             duration: const Duration(seconds: 3),
           ),
         );

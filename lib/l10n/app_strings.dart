@@ -125,6 +125,45 @@ class AppStrings {
   String get themeLight => isEn ? 'Sunset glow' : '落日余晖';
   String get themeDark => isEn ? 'Moonlit sea' : '月色入海';
 
+  // Room creation / join failures
+  String get errStartWifiRoom => isEn
+      ? 'Failed to start Wi-Fi room, please check network and permissions'
+      : '开启 Wi-Fi 房间失败，请检查网络权限与端口占用';
+  String get errStartBleRoom => isEn
+      ? 'Failed to start Bluetooth room, please check Bluetooth state'
+      : '开启蓝牙房间失败，请检查蓝牙是否开启及权限';
+  String get errJoinRoom => isEn
+      ? 'Failed to connect to room, please make sure on the same network'
+      : '连接房间失败，请确认在同一网络下';
+  String get errJoinBleRoom => isEn
+      ? 'Failed to connect to Bluetooth room, please stay close and retry'
+      : '连接蓝牙房间失败，请靠近后重试';
+  String get errJoinWifiDirectHost =>
+      isEn ? 'Failed to connect to Wi-Fi Direct host' : '直连房主失败，请重试';
+  String get connDisconnected => isEn ? 'Disconnected from chat' : '与房间的连接已断开';
+
+  // Diagnostics metrics
+  String get metricReceivedFrames => isEn ? 'Frames received' : '收到帧数';
+  String get metricLostFrames => isEn ? 'Frames lost' : '丢失帧数';
+  String get metricConcealedFrames => isEn ? 'Concealed frames' : '隐藏帧数';
+  String get metricNetworkQuality => isEn ? 'Network quality' : '网络质量';
+  String get metricUptime => isEn ? 'Session duration' : '会话时长';
+  String get metricPendingMeasurement => isEn ? 'Checking…' : '待测量';
+  String metricDuration(int seconds) {
+    final safe = seconds < 0 ? 0 : seconds;
+    return isEn
+        ? '${safe ~/ 60}m ${safe % 60}s'
+        : '${safe ~/ 60} 分 ${safe % 60} 秒';
+  }
+
+  // Update flow
+  String get updatePreparing => isEn ? 'Preparing the update…' : '正在准备更新…';
+  String get updateDownloadAndInstall =>
+      isEn ? 'Download and install' : '下载并安装';
+  String get updateOpenDownloadPage => isEn ? 'Open download page' : '打开下载页';
+  String get updateHandedToInstaller =>
+      isEn ? 'Handed the update to the system installer' : '已把更新包交给系统安装器';
+
   // Home & Stage
   String get appSubheading => isEn ? 'Never Meant.' : '越过地平线，看海洋辽阔的延绵。';
   String get defaultNickname => isEn ? 'Explorer' : '探索者';

@@ -153,6 +153,112 @@ jobs:
             echo "- 更新依赖项与常规问题修复" >> release-artifacts/release-notes.md
           fi
 
+      # ==========================================================
+      # 签名更新清单：App 内的「下载并安装」只认这份 update.json。
+      #
+      # 链路：sha256(APK) + 包名 + versionCode + 签名证书 SHA-256 + 摘要
+      #      → 规范化 JSON → ECDSA P-256/SHA-256 签名 → release 资产 update.json
+      # App 侧（lib/core/update/update_manifest.dart）用内置公钥验签，
+      # 再逐字节比对 APK 的 SHA-256，最后交系统安装器。
+      # 复用 scripts/SignUpdateManifest.java，绝不另写一套签名实现。
+      # ==========================================================
+      - name: Sign update manifest (update.json)
+        shell: bash
+        env:
+          UPDATE_PRIVATE_KEY_PKCS8_BASE64: ${{ secrets.UPDATE_PRIVATE_KEY_PKCS8_BASE64 }}
+          UPDATE_PUBLIC_KEY_BASE64: ${{ secrets.UPDATE_PUBLIC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${UPDATE_PRIVATE_KEY_PKCS8_BASE64:-}" || -z "${UPDATE_PUBLIC_KEY_BASE64:-}" ]]; then
+            echo "::error::缺少 UPDATE_PRIVATE_KEY_PKCS8_BASE64 / UPDATE_PUBLIC_KEY_BASE64 secret。" >&2
+            echo "::error::没有它们就无法产出可被 App 验签的 update.json，发布必须失败而不是发出一份装不上的包。" >&2
+            echo "::error::生成方式：java scripts/GenerateUpdateSigningKey.java .update-signing" >&2
+            exit 1
+          fi
+
+          # secret 常常是从文件里粘进来的，可能带上 CRLF/空格；base64 字母表里没有空白，
+          # 一律先清干净，免得因为一个 \r 让发布失败（或更糟：静默写出一个错公钥）。
+          UPDATE_PUBLIC_KEY_BASE64="$(printf '%s' "$UPDATE_PUBLIC_KEY_BASE64" | tr -d '[:space:]')"
+          UPDATE_PRIVATE_KEY_PKCS8_BASE64="$(printf '%s' "$UPDATE_PRIVATE_KEY_PKCS8_BASE64" | tr -d '[:space:]')"
+
+          # App 内置的公钥写死在 lib/core/update/update_manifest.dart（跨两行字符串字面量）。
+          # 它必须与 secret 完全一致：不一致就意味着用户拿到一份自己永远验不过的清单。
+          builtin_key="$(sed -n '/const String kUpdateManifestPublicKeyBase64/,/;/p' \
+            lib/core/update/update_manifest.dart | grep -o "'[^']*'" | tr -d "'" | tr -d '\n')"
+          if [[ "$builtin_key" != "$UPDATE_PUBLIC_KEY_BASE64" ]]; then
+            echo "::error::更新公钥不一致：" >&2
+            echo "::error::  App 内置 : $builtin_key" >&2
+            echo "::error::  CI secret: $UPDATE_PUBLIC_KEY_BASE64" >&2
+            echo "::error::请同步常量与 secret 后重新发布。" >&2
+            exit 1
+          fi
+
+          printf '%s' "$UPDATE_PRIVATE_KEY_PKCS8_BASE64" | base64 -d > "$RUNNER_TEMP/update-private-key.pk8"
+          chmod 600 "$RUNNER_TEMP/update-private-key.pk8"
+
+          # tag 与 pubspec 版本必须一致：清单里的 versionName/versionCode 来自它们，
+          # 两者不一致时 App 展示的版本号和实际 APK 会对不上。
+          # 用纯 bash 拆 `name+code`（先剥掉 CR，兼容 CRLF 检出）。
+          tag="${{ steps.metadata.outputs.tag }}"
+          version_name="${{ steps.metadata.outputs.version_name }}"
+          pubspec_version="$(tr -d '\r' < pubspec.yaml | sed -n 's/^version:[[:space:]]*//p' | head -1)"
+          pubspec_name="${pubspec_version%%+*}"
+          version_code="${pubspec_version##*+}"
+          if [[ -z "$pubspec_name" || "$pubspec_name" == "$pubspec_version" ]]; then
+            echo "::error::无法从 pubspec.yaml 解析版本号（得到 '$pubspec_version'）" >&2
+            exit 1
+          fi
+          if [[ "$pubspec_name" != "$version_name" ]]; then
+            echo "::error::tag $tag 与 pubspec.yaml 版本 $pubspec_name 不一致" >&2
+            exit 1
+          fi
+          if [[ ! "$version_code" =~ ^[0-9]+$ ]]; then
+            echo "::error::pubspec.yaml 的构建号 '$version_code' 不是数字" >&2
+            exit 1
+          fi
+
+          # 证书摘要取自**实际要发布的 APK**（而不是本地 keystore），
+          # 这样清单里承诺的就是用户真正会装上的那个包的签名。
+          apksigner="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::找不到 apksigner，无法读出 APK 的签名证书摘要" >&2
+            exit 1
+          fi
+          certificate_sha256="$("$apksigner" verify --print-certs \
+            build/app/outputs/flutter-apk/app-release.apk \
+            | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2)}')"
+          if [[ ! "$certificate_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::无法解析签名证书 SHA-256（得到 '$certificate_sha256'）" >&2
+            exit 1
+          fi
+
+          # 清单里的 summary：本次 CHANGELOG 小节的条目正文（去掉标题与空行）。
+          awk 'NR==1 && /^# / { next } /^[[:space:]]*$/ { next } { print }' \
+            release-artifacts/release-notes.md > release-artifacts/summary.txt
+          if [[ ! -s release-artifacts/summary.txt ]]; then
+            echo "::error::release-notes.md 里没有可用的更新摘要" >&2
+            exit 1
+          fi
+
+          apk_name="SunsetRipple-${tag}.apk"
+          java scripts/SignUpdateManifest.java \
+            --version-code "$version_code" \
+            --version-name "$version_name" \
+            --channel "${{ steps.metadata.outputs.channel }}" \
+            --minimum-version-code 1 \
+            --package-name host.msknet.sunsetripple \
+            --apk "release-artifacts/$apk_name" \
+            --apk-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${apk_name}" \
+            --certificate-sha256 "$certificate_sha256" \
+            --summary-file release-artifacts/summary.txt \
+            --private-key "$RUNNER_TEMP/update-private-key.pk8" \
+            --public-key-base64 "$UPDATE_PUBLIC_KEY_BASE64" \
+            --output release-artifacts/update.json
+
+          python3 -c "import json; json.load(open('release-artifacts/update.json'))"
+          echo "update.json 已签名（$(wc -c < release-artifacts/update.json) 字节）："
+          cat release-artifacts/update.json
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -302,7 +408,7 @@ jobs:
           fi
 
           shopt -s nullglob
-          upload_files=(final-artifacts/*.apk final-artifacts/*.ipa final-artifacts/*.zip)
+          upload_files=(final-artifacts/*.apk final-artifacts/*.ipa final-artifacts/*.zip final-artifacts/*.json)
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${upload_files[@]}" --clobber
