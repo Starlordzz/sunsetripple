@@ -27,8 +27,13 @@ class _Endpoint {
 ///
 /// 跨回调的半帧由原生 C++ 无锁环形缓冲持有（[NativeRingBuffer]）；原生库
 /// 不可用时退回纯 Dart List，语义完全一致。
+///
+/// 容量必须放得下 Dart 单次 `Socket` 读取的上限（64 KiB），再加上上一轮没拼完
+/// 的半帧：`sunset_ring_buffer_write` 放不下时会短写，而短写的字节就是丢掉的
+/// 帧字节；丢一个字节之后帧头再也无法对齐，整条控制流（心跳、聊天、PTT）随之
+/// 瘫痪——实测 99000 字节的突发只交付了 992/1500 帧。
 class _FrameAccumulator {
-  static const int _capacity = 64 * 1024;
+  static const int _capacity = 128 * 1024;
 
   final NativeRingBuffer? _ring = NativeRingBuffer.create(_capacity);
   final List<int> _fallback = <int>[];
@@ -40,8 +45,19 @@ class _FrameAccumulator {
       return;
     }
 
-    ring.write(Uint8List.fromList(chunk));
-    final bytes = ring.readAll();
+    final written = ring.write(Uint8List.fromList(chunk));
+    final drained = ring.readAll();
+    if (written < chunk.length) {
+      // 环形缓冲没吃下整段。没进去的尾部仍然在我们手里，接在已读出的字节
+      // 之后即可：顺序不变，也不丢字节。丢字节才是上面注释里的灾难。
+      AppLog.error(
+        _tag,
+        '重组缓冲写满（${chunk.length} 字节仅放入 $written），已绕开缓冲继续拼接',
+      );
+    }
+    final bytes = written == chunk.length
+        ? drained
+        : Uint8List.fromList(<int>[...drained, ...chunk.sublist(written)]);
     var offset = 0;
 
     while (true) {

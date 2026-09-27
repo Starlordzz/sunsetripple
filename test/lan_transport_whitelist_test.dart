@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sunset_ripple/core/protocol/frame.dart';
 import 'package:sunset_ripple/core/protocol/frame_type.dart';
+import 'package:sunset_ripple/core/protocol/payloads/join_request.dart';
 import 'package:sunset_ripple/core/transport/lan_transport.dart';
 
 /// 轮询直到 [probe] 为 true 或超时。真实回环 socket 的收发是异步的，
@@ -118,6 +119,84 @@ void main() {
       );
       expect(host.peerEndpoints.containsKey(99), isFalse,
           reason: '伪造帧不能在房主侧凭空登记语音端点');
+    });
+  });
+
+  /// TCP 控制流的帧重组。半帧要留到下一次回调补齐，且只能交付一次；
+  /// 同一段字节流不能因为缓冲容量不足而丢掉尾巴。
+  ///
+  /// 宿主测试里原生库不存在，走纯 Dart 分支；真机上原生环形缓冲可用。
+  /// 环形缓冲的容量必须放得下 Dart 单次 socket 读取的上限（64 KiB），
+  /// 否则 `sunset_ring_buffer_write` 会短写，剩下的字节就是丢掉的帧，
+  /// 帧头从此失去对齐——实测 99000 字节的突发只交付了 992/1500 帧。
+  group('TCP 控制流重组', () {
+    final token = Uint8List.fromList(List<int>.generate(16, (i) => i + 1));
+
+    /// 起房主、连一个客户端，并等 JOIN 被处理完（成员号绑定成功）之后再
+    /// 返回，这样后续突发的每一帧都已经有明确归属。
+    Future<(LanTransport, Socket, List<Frame>)> startHostWithClient() async {
+      final host = LanTransport();
+      final received = <Frame>[];
+      var bound = false;
+      host.incoming.listen((frame) {
+        received.add(frame);
+        if (frame.type == FrameType.joinReq && !bound) {
+          bound = true;
+          host.bindMemberForSessionToken(token, 2);
+        }
+      });
+
+      expect(
+        await host.startHost(),
+        isTrue,
+        reason: '测试需要绑定 TCP 8988 / UDP 8989，端口被占用时先关掉正在运行的应用',
+      );
+      final client = await Socket.connect(
+          InternetAddress.loopbackIPv4, LanTransport.controlPort);
+
+      client.add(Uint8List.fromList(Frame(
+        type: FrameType.joinReq,
+        senderId: 0,
+        seq: 0,
+        payload: JoinRequestPayload(nickname: 'n', sessionToken: token).encode(),
+      ).encode()));
+      await client.flush();
+      await pumpUntil(() => bound, reason: 'JOIN 必须先被处理');
+
+      return (host, client, received);
+    }
+
+    test('半帧跨两次读取续传：不重复交付、不打乱顺序、载荷完整', () async {
+      final (host, client, received) = await startHostWithClient();
+      addTearDown(() => host.stop());
+      addTearDown(() => client.destroy());
+
+      final roster = Frame(
+        type: FrameType.roster,
+        senderId: 2,
+        seq: 9,
+        payload: Uint8List(200),
+      ).encode();
+
+      // 第一批只送出帧头的前 3 字节，等它被处理完之后再送剩下的部分，
+      // 这样两批字节确实分属两次 socket 读取。
+      client.add(Uint8List.fromList(roster.sublist(0, 3)));
+      await client.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      client.add(Uint8List.fromList(roster.sublist(3)));
+      await client.flush();
+      await pumpUntil(
+        () => received.any((f) => f.type == FrameType.roster),
+        reason: '半帧必须被补齐',
+      );
+      // 留出时间，确认没有多出来的重复帧。
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      final rosters = received.where((f) => f.type == FrameType.roster).toList();
+      expect(rosters.length, 1, reason: '同一帧不能被交付两次');
+      expect(rosters.single.seq, 9);
+      expect(rosters.single.payload.length, 200, reason: '载荷长度必须完整');
     });
   });
 }

@@ -92,6 +92,9 @@ class RoomSession {
 
   /// 客户端从发出 JOIN 到收到第一份名单的往返耗时；房主或尚未测量时为 null。
   int? _roundTripTimeMs;
+
+  /// 会话级入房时发出 JOIN 的时刻。房主转移后的重连与断线重连都只是重新
+  /// JOIN 一次，测不到真实往返，所以那时保持 null。
   DateTime? _joinSentAt;
 
   /// 麦克风/扬声器是否已经打开，[startAudio] 用它做幂等。
@@ -271,8 +274,11 @@ class RoomSession {
     _selfMemberId = 0;
     _members.clear();
     _resetTelemetry();
-    // JOIN 之后再收到第一份名单，两者之间的耗时就是一次真实往返。
-    _joinSentAt = DateTime.now();
+    // 只在会话首次入房时计时：JOIN 之后收到房主的第一份名单，两者之间的
+    // 耗时才是真实往返。房主转移后的重连（_followNewHost）与断线重连
+    // （_attemptReconnect）也会走到这里，但它们重发 JOIN 时房主往往在同一批
+    // 回调里就把名单补回来了，那种「往返」只有几毫秒，报给用户是错的。
+    _joinSentAt = _state == RoomState.idle ? DateTime.now() : null;
 
     _updateState(RoomState.connecting);
 
@@ -474,7 +480,8 @@ class RoomSession {
     if (payload == null) return;
     if (!_isHost && frame.senderId != payload.hostId) return;
 
-    // 收到房主的第一份名单，说明一次 JOIN 往返已经完成，可以结算 RTT。
+    // 房主的第一份名单就是 JOIN 的回应：只有会话级入房那次能结算出 RTT，
+    // 之后 `_joinSentAt` 已置空，成员增删引发的后续名单不会覆盖它。
     if (!_isHost) _captureRoundTrip();
 
     // 如果本机已经持有非 0 的成员号，且名单中依然包含该 ID 且昵称一致，则优先保持

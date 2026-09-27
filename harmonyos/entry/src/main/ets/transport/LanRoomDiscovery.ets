@@ -50,9 +50,15 @@ export class HarmonyLanScanner {
 
           const key = `${roomId}`;
 
-          // 收到解散通知，即刻移除，无需等待超时。
+          // 收到解散通知，即刻移除，无需等待超时。广播谁都能发，只有与该房间
+          // 最后一次广播同源的解散包才算数——否则同网段任何设备都能把别人
+          // 列表里的房间踢掉。判定与 Dart 端 LanRoomDiscovery 保持一致。
           if ((json.action as string) === 'ROOM_CLOSED') {
-            if (this.rooms.delete(key)) this.notify();
+            const known = this.rooms.get(key);
+            const sourceIp = value.remoteInfo?.address ?? '';
+            if (known && known.hostIp === sourceIp && this.rooms.delete(key)) {
+              this.notify();
+            }
             return;
           }
 

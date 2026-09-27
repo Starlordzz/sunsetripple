@@ -1043,5 +1043,42 @@ void main() {
 
       expect(session.roundTripTimeMs, isNull);
     });
+
+    test('重连重新 JOIN 不会拿几毫秒的补发名单当成往返延迟', () async {
+      RosterPayload roster() => RosterPayload(
+            hostId: 1,
+            members: [
+              RosterMember(memberId: 1, flags: 0x01, nickname: '房主'),
+              RosterMember(memberId: 2, flags: 0x00, nickname: '测试者'),
+            ],
+          );
+
+      session = build();
+      await session.joinRoom(startAudio: false);
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 1,
+        payload: roster().encode(),
+      ));
+      final measured = session.roundTripTimeMs;
+      expect(measured, isNotNull, reason: '会话首次入房必须测出往返');
+
+      // _attemptReconnect / _followNewHost 都会再走一次 joinRoom，而房主
+      // 往往在同一批回调里就把名单补回来——那几毫秒不是网络往返。
+      await session.joinRoom(startAudio: false);
+      await session.handleIncomingFrame(Frame(
+        type: FrameType.roster,
+        senderId: 1,
+        seq: 2,
+        payload: roster().encode(),
+      ));
+
+      expect(
+        session.roundTripTimeMs,
+        isNull,
+        reason: '重连后的补发名单不是 JOIN 的往返，面板应显示未测量而不是假的 0ms',
+      );
+    });
   });
 }
