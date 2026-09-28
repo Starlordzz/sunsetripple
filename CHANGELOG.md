@@ -2,18 +2,43 @@
 
 ## 0.1.0-alpha.15 - 2026-09-27
 
-### 架构：拆解两个上帝对象
+### 修复：房主转移在名单广播后静默失效
 
-- **`RoomSession` 1565 → 1419 行**，外提两个纯逻辑协作对象：
+- `RoomSession._handleRoster` 每次重建成员对象时只继承了 `sessionToken`，
+  把 **`endpoint` 与 `joinOrder` 抹成空值/0**。后果是一条静默的失效链：
+  `_buildTransferPlan` 因端点为空跳过所有候选 → 候选表为空 → 返回 null →
+  **手动转让房主与房主故障自愈同时失效**。症状是「房主刚广播过名单，之后就
+  再也转让不了房主了」，且全程无任何报错。现已从上一份名单继承这两个字段
+- **`attachTransport` 会静默切断发送链路**：它把 `onSendFrame` 覆写成
+  `transport.send`，任何在其之前赋值的观测钩子会被悄悄丢掉，表现为
+  「帧一条都发不出去且没有报错」。新增 `addSendObserver` / `setSendInterceptor`，
+  注册的钩子会在传输层更换时被重新串进链路，不再依赖赋值顺序
+
+### 架构：拆解上帝对象
+
+- **`RoomSession` 1565 → 1511 行**，外提三个纯逻辑协作对象
+  （`SessionChatHub` 193 行 + `SessionTelemetry` 87 行 + `HostFailoverTracker` 154 行）：
   - `SessionChatHub`：聊天历史表、`(senderId,seq)` 去重窗口、撤回、历史同步、
     跨进退房同人识别。会话层只保留**鉴权**（发送者是否在册、是否房主）与**发帧**
   - `SessionTelemetry`：帧计数、丢包估算（uint16 序号的正确回绕处理）、
     入房往返时延。纯计算，可直接单测
+  - `HostFailoverTracker`：房主失联判定、交接计划防重放（joinOrder 水位）、
+    迁移互斥。`evaluate()` 要求调用方注入 `now`——原先直接读 `DateTime.now()`，
+    导致「失联 6 秒后接管」这条规则只能靠**真的等 6 秒**验证，实测覆盖率长期为 0
+  - 聚合魔法数：房主失联阈值 6000ms → 具名常量 `hostTimeout`，并写明它为何
+    比成员超时（10 秒）短——房主是星型单点，等 10 秒会让用户先经历一段
+    「还在房里但谁也听不见」的空白期
+  - 判定结果从「四种情况共用 `return`」改为 sealed class，新增
+    `FailoverIdleReason` 以区分「房主还活着」与「名单里还没房主」——
+    原先两者无法区分，排障只能靠猜
 - **`home_page.dart` 1017 → 916 行**，建房/入房编排外提到
   `lib/ui/services/room_launcher.dart`。四条启动路径（WiFi 建房、蓝牙建房、
   局域网入房、Wi-Fi Direct 直连）原本各自夹在 1000 行 Widget 里按顺序装配
   2~3 个对象、失败时逆序拆解，极易漏掉一次 `dispose()` 而泄漏 socket 与端口；
   现在失败回滚收敛到一处，且不碰 `BuildContext`
+- 新增 `docs/platform-support.md` 作为**平台能力权威声明**：明确
+  Windows/macOS/Linux 因缺少桌面音频后端而**不支持**（可编译出窗口但无声音）、
+  iOS 搜房未接入 Bonjour 因而不可用、鸿蒙仅有 UDP 发现。README 平台表与之对齐
 
 ### 安全：安全层从死代码变成可达路径
 
@@ -69,6 +94,16 @@
 - 新增 `update_manifest_test.dart` 41 条 + 下载校验路径 8 条冒烟
 - 新增 `i18n_parity_test.dart` 5 条：**机械阻止**「裸中文字面量绕过 AppStrings」
   这类回归，并校验全部 getter 在中英文下都非空
+- 新增 `host_failover_test.dart` 14 条：房主活跃时不迁移、无快照时体面解散、
+  按快照迁移、继任者是自己时接管、`becomeHost`/`reconnectToHost` 失败进入
+  disconnected、不支持转移的传输层保持原位、陈旧计划防重放、非房主发的交接帧
+  被忽略、手动转让的端点已知/未知两条路径、发送链路的观察者存活与改写层拦截
+- 新增 `host_succession_test.dart` 7 条：接任者占 #1 且用本地身份覆盖计划自述、
+  继任者不重复出现、其余成员保留端点与 token、计划含冲突成员号 1 时被忽略、
+  `nextJoinOrder` 接在最大值之后
+- 新增 `host_failover_tracker_test.dart` 14 条：失联阈值两侧边界（差 1ms 算存活、
+  恰好等于算失联）、房主未知/存活两条 idle 原因、无快照必解散、防重放水位、
+  joinOrder 相同视为幂等重播、迁移互斥、`reset` 清跨会话水位
 - CI 增加 `:app:testDebugUnitTest` 步骤与报告上传
 
 ### 修整

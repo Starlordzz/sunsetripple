@@ -18,6 +18,7 @@ import '../security/session_handshake.dart';
 import '../transport/room_transport.dart';
 import 'chat_message.dart';
 import 'device_code.dart';
+import 'host_failover.dart';
 import 'host_transfer.dart';
 import 'member.dart';
 import 'reconnect_controller.dart';
@@ -85,15 +86,9 @@ class RoomSession {
   /// 房主分配 joinOrder 用的单调计数器（房主自己是 0）。
   int _nextJoinOrder = 1;
 
-  /// 最近一次收到的交接快照。房主猝死时全靠它自行迁移。
-  HostTransferPlan? _cachedPlan;
-
-  /// 见过的最大 joinOrder，用来丢弃迟到或被重放的旧计划。
-  /// joinOrder 由房主单调分配，所以更新的计划一定不会更小。
-  int _highestSeenJoinOrder = 0;
-
-  /// 交接执行中，避免 2 秒一次的心跳把同一次迁移重复触发。
-  bool _transferInProgress = false;
+  /// 房主故障转移的决策状态（防重放的 joinOrder、缓存的交接快照、
+  /// 迁移互斥标记）。判定逻辑是纯函数，见 [HostFailoverTracker]。
+  final HostFailoverTracker _failover = HostFailoverTracker();
 
   final Map<int, Member> _members = {};
 
@@ -248,8 +243,7 @@ class RoomSession {
     _selfMemberId = 1;
     _members.clear();
     _nextJoinOrder = 1;
-    _cachedPlan = null;
-    _highestSeenJoinOrder = 0;
+    _failover.reset();
     _resetTelemetry();
 
     final selfMember = Member(
@@ -594,12 +588,11 @@ class RoomSession {
     if (_isHost) {
       _broadcastRoster();
     } else if (wasHost) {
-      final plan = _cachedPlan;
-      if (plan != null && !_transferInProgress) {
+      final plan = _failover.cachedPlan;
+      if (plan != null && _failover.beginTransfer()) {
         AppLog.info(
             'RoomSession', '收到房主离房通知，按快照迁移到 ${plan.successor.nickname}');
-        _transferInProgress = true;
-        _runTransfer(plan).whenComplete(() => _transferInProgress = false);
+        _runTransfer(plan).whenComplete(_failover.endTransfer);
       } else {
         AppLog.warn('RoomSession', '房主已离房，且无可用交接快照，房间解散');
         _updateState(RoomState.disconnected);
@@ -612,9 +605,9 @@ class RoomSession {
     if (_isHost || !_isHostFrame(frame)) return;
     final plan = _decodePlan(frame, '交接帧');
     if (plan == null) return;
-    if (!_isPlanFresh(plan)) return;
+    // acceptPlan 同时做防重放与缓存；返回 false 表示计划陈旧，丢弃。
+    if (!_failover.acceptPlan(plan)) return;
 
-    _cachedPlan = plan;
     await _runTransfer(plan);
   }
 
@@ -627,9 +620,8 @@ class RoomSession {
     if (_isHost || !_isHostFrame(frame)) return;
     final plan = _decodePlan(frame, '交接快照');
     if (plan == null) return;
-    if (!_isPlanFresh(plan)) return;
-
-    _cachedPlan = plan;
+    // 只缓存，不改变当前房主——否则一条迟到的快照就能把现任顶下去。
+    _failover.acceptPlan(plan);
   }
 
   bool _isHostFrame(Frame frame) => _members[frame.senderId]?.isHost == true;
@@ -643,42 +635,30 @@ class RoomSession {
     }
   }
 
-  bool _isPlanFresh(HostTransferPlan plan) {
-    final maxOrder =
-        plan.members.map((m) => m.joinOrder).reduce((a, b) => a > b ? a : b);
-    if (maxOrder < _highestSeenJoinOrder) return false;
-    _highestSeenJoinOrder = maxOrder;
-    return true;
-  }
-
   /// 房主超时后自动迁移。
   void checkHostFailover() {
-    if (_isHost || _transferInProgress || _state != RoomState.inRoom) return;
+    if (_isHost || _state != RoomState.inRoom) return;
+    if (_failover.transferInProgress) return;
 
-    final currentHost = _members.values.cast<Member?>().firstWhere(
-          (m) => m?.isHost == true,
-          orElse: () => null,
-        );
+    final verdict = _failover.evaluate(
+      members: _members.values,
+      now: DateTime.now(),
+    );
 
-    // 如果刚进房间名单里还没标出房主，先等待名单帧，不误判失联
-    if (currentHost == null) return;
-
-    final now = DateTime.now();
-    final hostAlive =
-        now.difference(currentHost.lastActiveAt).inMilliseconds < 6000;
-    if (hostAlive) return;
-
-    final plan = _cachedPlan;
-    if (plan == null) {
-      // 没有快照就无从得知谁该接任、别人在哪，只能散会。
-      AppLog.warn('RoomSession', '房主已失联，且没有可用的交接快照，房间解散');
-      _updateState(RoomState.disconnected);
-      return;
+    switch (verdict) {
+      case FailoverIdle(:final reason):
+        // 房主还活着 / 名单里还没房主：都是正常状态，不打扰用户。
+        // reason 保留给诊断面板与排障用。
+        AppLog.debug('RoomSession', '房主故障转移未触发：${reason.name}');
+      case FailoverDissolve():
+        // 没有快照就无从得知谁该接任、别人在哪，只能散会。
+        AppLog.warn('RoomSession', '房主已失联，且没有可用的交接快照，房间解散');
+        _updateState(RoomState.disconnected);
+      case FailoverProceed(:final plan):
+        if (!_failover.beginTransfer()) return;
+        AppLog.info('RoomSession', '房主已失联，按快照迁移到 ${plan.successor.nickname}');
+        _runTransfer(plan).whenComplete(_failover.endTransfer);
     }
-
-    AppLog.info('RoomSession', '房主已失联，按快照迁移到 ${plan.successor.nickname}');
-    _transferInProgress = true;
-    _runTransfer(plan).whenComplete(() => _transferInProgress = false);
   }
 
   Future<void> _runTransfer(HostTransferPlan plan) async {
@@ -818,7 +798,7 @@ class RoomSession {
       AppLog.warn('RoomSession', '交接快照超过当前帧上限，已跳过本次广播', e);
       return;
     }
-    _cachedPlan = plan;
+    _failover.acceptPlan(plan);
     await sendFrame(Frame(
       type: FrameType.hostAnnounce,
       senderId: _selfMemberId,
@@ -1146,11 +1126,11 @@ class RoomSession {
 
     // 留一点时间让交接帧真的发出去，再自己降为普通成员重连过去。
     await Future.delayed(const Duration(milliseconds: 300));
-    _transferInProgress = true;
+    if (!_failover.beginTransfer()) return;
     try {
       await _followNewHost(plan, t);
     } finally {
-      _transferInProgress = false;
+      _failover.endTransfer();
     }
   }
 
@@ -1474,9 +1454,7 @@ class RoomSession {
 
     _members.clear();
     _lastAudioAt.clear();
-    _cachedPlan = null;
-    _highestSeenJoinOrder = 0;
-    _transferInProgress = false;
+    _failover.reset();
     _nextJoinOrder = 1;
     _resetTelemetry();
 
