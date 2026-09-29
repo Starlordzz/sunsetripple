@@ -170,6 +170,11 @@
   Android 单测步骤直接跑 `./gradlew :app:testDebugUnitTest`，干净检出里只会得到
   `chmod: cannot access 'gradlew'`。三份 wrapper 现在入库（与 Flutter 3.29.0 自带的
   `bin/cache/artifacts/gradle_wrapper` 逐字节一致，`gradlew` 以可执行位入库）
+- 根因四（发 alpha.14 时才暴露）：`release.yml` 的 HarmonyOS 作业断言
+  `harmonyos/AppScope/app.json5` 的 `versionCode` 必须等于 pubspec 的构建号，而该文件
+  自 alpha.13 起就没随发布提交同步（一直停在 `14 / "0.1.0-alpha.13"`）。v0.1.0-alpha.14
+  首轮发布因此在 7 秒内失败、`publish-release` 被 needs 跳过，Release 根本没建出来；
+  现已对齐到 `16 / "0.1.0-alpha.15"`
 
 ## 0.1.0-alpha.14 - 2026-09-27
 
