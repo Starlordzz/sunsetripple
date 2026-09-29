@@ -117,20 +117,25 @@ jobs:
 
       - name: Verify APK is signed with the release key
         shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           # 兜底断言：万一有人放宽 Gradle 守卫，这里也要拦住 debug 签名的「正式包」。
-          apksigner="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
-          if [[ -z "$apksigner" ]]; then
-            echo "::warning::找不到 apksigner，跳过签名断言"
-            exit 0
-          fi
-          cert="$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -i 'Signer #1 certificate DN' || true)"
-          echo "$cert"
-          if [[ "$cert" == *"CN=Android Debug"* ]]; then
-            echo "::error::release APK 是 debug 签名，绝不允许发布。" >&2
-            exit 1
-          fi
+          #
+          # 这里曾经只是 `apksigner ... | grep 'Signer #1 certificate DN'`，而 2026-09-29 的
+          # 发布实测 apksigner 在该 runner 上**退出码 0 且不输出任何内容**，于是变量为空、
+          # 断言形同不存在（这一步照样打勾），错误被推迟到后面签名清单那一步才炸。
+          # 现在统一走 scripts/apk-certificate-sha256.sh：它自己找 apksigner、读不出就回退
+          # keystore 并打印诊断、两条路都拿不到摘要时失败——读不出摘要本身就不允许继续发布。
+          # 顺带把「APK 的签名证书 == 发布 keystore 的证书」这条更强的断言也做了（两边都能读到时必须一致）。
+          cert="$(bash scripts/apk-certificate-sha256.sh \
+            build/app/outputs/flutter-apk/app-release.apk \
+            "$RUNNER_TEMP/sunset-ripple-release.p12" \
+            "$ANDROID_KEYSTORE_PASSWORD" \
+            "$ANDROID_KEY_ALIAS")"
+          echo "APK 签名证书 SHA-256: $cert"
 
       - name: Prepare release artifacts
         shell: bash
@@ -174,6 +179,8 @@ jobs:
         env:
           UPDATE_PRIVATE_KEY_PKCS8_BASE64: ${{ secrets.UPDATE_PRIVATE_KEY_PKCS8_BASE64 }}
           UPDATE_PUBLIC_KEY_BASE64: ${{ secrets.UPDATE_PUBLIC_KEY_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
 
@@ -209,6 +216,7 @@ jobs:
           # 用纯 bash 拆 `name+code`（先剥掉 CR，兼容 CRLF 检出）。
           tag="${{ steps.metadata.outputs.tag }}"
           version_name="${{ steps.metadata.outputs.version_name }}"
+          apk_name="SunsetRipple-${tag}.apk"
           pubspec_version="$(tr -d '\r' < pubspec.yaml | sed -n 's/^version:[[:space:]]*//p' | head -1)"
           pubspec_name="${pubspec_version%%+*}"
           version_code="${pubspec_version##*+}"
@@ -227,18 +235,19 @@ jobs:
 
           # 证书摘要取自**实际要发布的 APK**（而不是本地 keystore），
           # 这样清单里承诺的就是用户真正会装上的那个包的签名。
-          apksigner="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
-          if [[ -z "$apksigner" ]]; then
-            echo "::error::找不到 apksigner，无法读出 APK 的签名证书摘要" >&2
-            exit 1
-          fi
-          certificate_sha256="$("$apksigner" verify --print-certs \
-            build/app/outputs/flutter-apk/app-release.apk \
-            | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2)}')"
+          # apksigner 在某些 runner 上会退出码 0 却不输出内容（见校验步骤的说明），
+          # 所以统一走 scripts/apk-certificate-sha256.sh：读不出就回退 keystore、打印诊断，
+          # 两条路都失败才报错——绝不接受一个空摘要。
+          certificate_sha256="$(bash scripts/apk-certificate-sha256.sh \
+            "release-artifacts/$apk_name" \
+            "$RUNNER_TEMP/sunset-ripple-release.p12" \
+            "$ANDROID_KEYSTORE_PASSWORD" \
+            "$ANDROID_KEY_ALIAS")"
           if [[ ! "$certificate_sha256" =~ ^[0-9a-f]{64}$ ]]; then
             echo "::error::无法解析签名证书 SHA-256（得到 '$certificate_sha256'）" >&2
             exit 1
           fi
+          echo "更新清单将声明证书 SHA-256: $certificate_sha256"
 
           # 清单里的 summary：本次 CHANGELOG 小节的条目正文（去掉标题与空行）。
           awk 'NR==1 && /^# / { next } /^[[:space:]]*$/ { next } { print }' \
@@ -248,7 +257,6 @@ jobs:
             exit 1
           fi
 
-          apk_name="SunsetRipple-${tag}.apk"
           java scripts/SignUpdateManifest.java \
             --version-code "$version_code" \
             --version-name "$version_name" \
