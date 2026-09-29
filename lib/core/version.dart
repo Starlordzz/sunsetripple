@@ -15,7 +15,7 @@ class AppVersion {
   const AppVersion._();
 
   /// 语义化版本名，与 `pubspec.yaml` 的 `version:` 前半段完全一致。
-  static const String name = '0.1.0-alpha.15';
+  static const String name = '0.1.0-alpha.14';
 
   /// 构建号（versionCode），与 `pubspec.yaml` 的 `version:` 后半段一致。
   static const int buildNumber = 16;
