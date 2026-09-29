@@ -31,9 +31,12 @@ die() {
 [[ -s "$apk" ]] || die "APK 是空文件：$apk"
 
 # apksigner 输出形如 `Signer #1 certificate SHA-256 digest: <hex>`；
-# 这里不依赖某个版本的空格写法，也不区分大小写，顺带吃掉 CR。
+# build-tools 37.0.0 起改为按签名方案标注：`V2 Signer: certificate SHA-256 digest: <hex>`。
+# 两种标签都要认，否则在新镜像上会「有输出但解析不出摘要」（2026-09-29 的发布就是这样翻车的：
+# 旧正则只认 `Signer #1`，37.0.0 写的是 `V2 Signer:`，于是摘要为空）。
+# 这里只认「certificate SHA-256 digest:」这一短语 + 64 位 hex，顺带吃掉 CR、统一小写。
 digest_from_apksigner_output() {
-  sed -nE 's/.*Signer #1 certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F]{64}).*/\1/p' \
+  sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F]{64}).*/\1/p' \
     | head -1 | tr 'A-F' 'a-f'
 }
 
