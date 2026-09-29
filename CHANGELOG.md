@@ -165,6 +165,11 @@
   上限；Flutter 钉到 `3.29.0`（补丁号变化会让 SDK 自带依赖的钉版漂移）；并在装依赖前加
   一步「包源 host 必须与锁一致」的门禁，把原来那句看不懂的「Would change 62
   dependencies」变成指名道姓的报错
+- 根因三（装依赖修好后才暴露）：`android/gradlew`、`gradlew.bat`、
+  `gradle-wrapper.jar` 被 Flutter 模板的 `.gitignore` 忽略、从未入库，而 alpha.15 新增的
+  Android 单测步骤直接跑 `./gradlew :app:testDebugUnitTest`，干净检出里只会得到
+  `chmod: cannot access 'gradlew'`。三份 wrapper 现在入库（与 Flutter 3.29.0 自带的
+  `bin/cache/artifacts/gradle_wrapper` 逐字节一致，`gradlew` 以可执行位入库）
 
 ## 0.1.0-alpha.14 - 2026-09-27
 

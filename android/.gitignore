@@ -1,8 +1,10 @@
-gradle-wrapper.jar
+# Gradle wrapper 的三个文件（gradlew / gradlew.bat / gradle-wrapper.jar）**故意入库**：
+# flutter-ci.yml 的 Android 单测直接跑 `./gradlew :app:testDebugUnitTest`，而 Flutter
+# 模板默认把它们忽略掉 —— 干净检出里没有 gradlew，那一步只会得到
+# `chmod: cannot access 'gradlew'`（只有 `flutter build` 才会顺手补出来）。
+# 这三份与 Flutter 3.29.0 自带的 bin/cache/artifacts/gradle_wrapper 逐字节一致。
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/
