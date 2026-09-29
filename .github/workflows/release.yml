@@ -48,7 +48,9 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.x'
+          # 与 flutter-ci.yml 同一版本：锁文件按 3.29.0 生成，补丁号一变
+          # --enforce-lockfile 就解析不过（见 flutter-ci.yml 里的说明）。
+          flutter-version: '3.29.0'
           channel: 'stable'
           cache: true
 
@@ -283,7 +285,9 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.x'
+          # 与 flutter-ci.yml 同一版本：锁文件按 3.29.0 生成，补丁号一变
+          # --enforce-lockfile 就解析不过（见 flutter-ci.yml 里的说明）。
+          flutter-version: '3.29.0'
           channel: 'stable'
           cache: true
 
