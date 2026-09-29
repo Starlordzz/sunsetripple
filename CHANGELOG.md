@@ -117,6 +117,30 @@
   iOS 搜房未接入 Bonjour 因而不可用，鸿蒙仅有 UDP 发现。
   README 平台表与此对齐
 
+### 架构：RoomSession 再拆解，启动回滚收敛到一处（YOU-7）
+
+- **`RoomSession` 1511 → 1183 行**，再外提四个协作对象，全部时钟可注入、可单独单测：
+  - `SessionChatService`：聊天族帧（chat / chatSync / chatDelete）的解码、**鉴权**与发帧。
+    `SessionChatHub` 只管本地状态与去重，「谁有资格发」这层原先在会话里占掉近 250 行
+  - `PresenceTracker`：说话指示灯 400ms 超时熄灭、心跳 10 秒超时清理、音频时间戳簿记。
+    这两条**时间规则**此前只能靠真等 400ms / 10 秒验证，现在是假时钟下的边界断言
+    （恰好 400ms 不熄、401ms 熄）
+  - `SendPipeline`：发送出口 / 观察者 / 改写层的串联与 16 位序号计数器。
+    「`attachTransport` 覆写 `onSendFrame` 就把观测钩子丢掉」这个坑从此只有一处实现，
+    观察者在换传输层后必定被重新串上
+  - `buildTransferPlanFromRoster`：交接计划的纯组装（端点未知的人不能当继任者、
+    缺有效令牌则整份计划作废），从 `_buildTransferPlan` 外提到 `host_transfer.dart`
+  - `session_token.dart` 收编令牌生成与逐字节比较（原先散在会话里的两个静态私有方法）
+- 新增 `lib/core/clock.dart`（`Clock` / `SystemClock` / `FakeClock`），并为
+  `RoomSession`、`SessionTelemetry`、`LanRoomDiscovery`、`BleL2capTransport` 接上注入时钟
+- **建房/入房的失败回滚**（`lib/ui/services/room_launcher.dart`）：四条启动路径原先只在
+  「start/connect 返回 false」时回滚，**装配中途抛异常**（`attachTransport` /
+  `createRoom` / `joinRoom` / `startAdvertising`）会把已经开好的监听端口、广播定时器
+  留在原地，只能等下一个人建房时冲突。现在资源一拿到就进回滚栈，失败时逆序释放，
+  并且传输层出口与发现器都改成可注入的工厂，测试里不再需要真 socket
+- 新增 `test/room_launcher_rollback_test.dart`：逐路径枚举「第 N 步装配失败 →
+  已占用的 socket/端口全部释放」，并有一条全流程成功的正例
+
 ## 0.1.0-alpha.14 - 2026-09-27
 
 ### 发布链路（最高优先级）

@@ -64,7 +64,7 @@ enum FailoverIdleReason {
 class HostFailoverTracker {
   /// 房主心跳失效阈值。
   ///
-  /// 比 `_memberTimeout`（10 秒）**短**是有意的：房主是星型拓扑的单点，
+  /// 比 `PresenceTracker.memberTimeout`（10 秒）**短**是有意的：房主是星型拓扑的单点，
   /// 它失联后整个房间的音频中继与控制面都停了。等 10 秒才接管，用户会先经历
   /// 一段「还在房间里但谁也听不见」的空白期。6 秒 = 3 个心跳周期，足够容忍
   /// 偶发丢包又不会让空白期过长。

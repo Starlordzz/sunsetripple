@@ -1,3 +1,4 @@
+import '../clock.dart';
 import '../protocol/frame.dart';
 
 /// 会话遥测：帧计数、丢包估算与入房往返时延。
@@ -10,6 +11,14 @@ import '../protocol/frame.dart';
 ///   - 只做**计数与估算**，不持有帧队列、不发帧、不做鉴权
 ///   - 不依赖任何平台能力，纯计算，可直接单测
 class SessionTelemetry {
+  SessionTelemetry({this.clock = const SystemClock()});
+
+  /// 用于结算入房往返时延的时钟，可注入。
+  ///
+  /// 注入而不是直接读系统时间：「JOIN→首份名单」的时延是**规则**（只有会话
+  /// 首次入房才计时），不是环境，用假时钟才能确定性断言。
+  final Clock clock;
+
   /// 各发送方最近一次收到的帧序号，用于估算丢包。
   final Map<int, int> _lastSeqBySender = <int, int>{};
 
@@ -38,14 +47,14 @@ class SessionTelemetry {
 
   /// 开始计时一次入房往返。仅在会话首次入房时调用。
   void beginJoinRoundTrip() {
-    _joinSentAt = DateTime.now();
+    _joinSentAt = clock.now();
   }
 
   /// 用「发出 JOIN 到现在」结算往返时延。没有在计时时保持原值。
   void captureRoundTrip() {
     final sentAt = _joinSentAt;
     if (sentAt == null) return;
-    _roundTripTimeMs = DateTime.now().difference(sentAt).inMilliseconds;
+    _roundTripTimeMs = clock.now().difference(sentAt).inMilliseconds;
     _joinSentAt = null;
   }
 

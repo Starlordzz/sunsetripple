@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../diagnostics/app_log.dart';
 import '../protocol/frame.dart';
 import 'member.dart';
 import 'session_token.dart';
@@ -157,6 +158,71 @@ class HostElection {
       return byOrder != 0 ? byOrder : a.memberId.compareTo(b.memberId);
     });
     return active;
+  }
+}
+
+/// 用当前成员表与传输层已知的端点组装一份交接计划。
+///
+/// 从 `RoomSession._buildTransferPlan` 外提：这是纯计算（成员表 + 端点 → 计划），
+/// 之前埋在 1500 行的会话里，于是「端点缺失的人不能当继任者」「缺令牌就整份计划
+/// 作废」这两条规则只能靠整机联调验证。
+///
+/// [knownEndpoints] 是传输层学到的「成员号 → 端点」，优先于成员表里缓存的那份；
+/// 端点未知的成员不能当继任者——别人找不到他。缺有效 sessionToken 的成员会让
+/// 整份计划作废（返回 null）：拿不到令牌就恢复不了身份，宁可不迁移，也不能交出
+/// 一份「迁过去但进不来」的计划。
+///
+/// 副作用：把查到的端点回填进成员对象，供下一次名单广播与交接快照复用。
+HostTransferPlan? buildTransferPlanFromRoster({
+  required Iterable<Member> members,
+  required int selfMemberId,
+  required Map<int, String> knownEndpoints,
+  int? preferredSuccessorId,
+}) {
+  final candidates = <TransferCandidate>[];
+
+  for (final m in members) {
+    if (m.memberId == selfMemberId) continue; // 房主自己不是继任候选
+    final endpoint = knownEndpoints[m.memberId] ?? m.endpoint;
+    if (endpoint.trim().isEmpty) continue;
+    final token = m.sessionToken;
+    if (token == null || !isValidSessionToken(token)) {
+      AppLog.warn(
+        'RoomSession',
+        '成员 #${m.memberId} 缺少有效 sessionToken，取消房主转移',
+      );
+      return null;
+    }
+    m.endpoint = endpoint;
+    candidates.add(TransferCandidate(
+      memberId: m.memberId,
+      joinOrder: m.joinOrder,
+      nickname: m.nickname,
+      endpoint: endpoint,
+      sessionToken: token,
+    ));
+  }
+
+  if (candidates.isEmpty) return null;
+  if (preferredSuccessorId == null) return HostElection.plan(candidates);
+
+  if (!candidates.any((c) => c.memberId == preferredSuccessorId)) return null;
+  try {
+    return HostTransferPlan(
+      successorId: preferredSuccessorId,
+      members: candidates
+          .map((c) => HostTransferMember(
+                memberId: c.memberId,
+                joinOrder: c.joinOrder,
+                nickname: c.nickname,
+                endpoint: c.endpoint,
+                sessionToken: c.sessionToken,
+              ))
+          .toList(),
+    );
+  } catch (e) {
+    AppLog.error('RoomSession', '交接计划校验未通过', e);
+    return null;
   }
 }
 
