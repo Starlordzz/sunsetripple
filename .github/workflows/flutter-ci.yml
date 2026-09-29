@@ -40,6 +40,11 @@ jobs:
       - name: Static analysis
         run: flutter analyze
 
+      # 时间相关规则必须注入时钟，否则「超时 N 秒」这类规则只能靠真的等时间来验证
+      # （房主失联判定就因此长期零覆盖）。见 scripts/check-clock-injection.sh。
+      - name: Enforce injectable clock in lib/core
+        run: bash scripts/check-clock-injection.sh
+
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed lib test
 

@@ -31,7 +31,7 @@
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
   <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B%20(%E5%8E%9F%E7%94%9F%E5%AE%9E%E7%8E%B0)-007AFF?labelColor=3A1030">
   <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(%E6%BA%90%E7%A0%81%E5%B7%A5%E7%A8%8B)-C00000?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-146%20passing-F4B85C?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-361%20passing-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -203,16 +203,19 @@ flowchart TD
 # 1. 获取依赖包
 flutter pub get
 
-# 2. 运行全量单元测试 (146/146 用例)
+# 2. 运行全量单元测试 (361/361 用例)
 flutter test
 
 # 3. 运行代码静态分析
 flutter analyze
 
-# 4. 在连接的真机/模拟器上调试运行
+# 4. 时间门禁：lib/core 下不许直接读系统时间（见 scripts/check-clock-injection.sh）
+bash scripts/check-clock-injection.sh
+
+# 5. 在连接的真机/模拟器上调试运行
 flutter run
 
-# 5. 打包 Release 发布版 APK
+# 6. 打包 Release 发布版 APK
 flutter build apk --release
 ```
 
@@ -248,7 +251,7 @@ SunsetRipple/
 │   │   ├── transitions/   # 连续圆形揭示路由 (RoomEntryRevealRoute)
 │   │   └── widgets/       # 核心组件 (CelestialCanvas, MemberOrbit, AudioControlsBar)
 │   └── main.dart          # 应用入口
-├── test/                  # 146 个纯 Dart 单元测试与 Widget 自动化测试
+├── test/                  # 361 个纯 Dart 单元测试与 Widget 自动化测试
 └── pubspec.yaml           # 项目配置与依赖管理
 ```
 

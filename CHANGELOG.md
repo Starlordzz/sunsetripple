@@ -141,6 +141,17 @@
 - 新增 `test/room_launcher_rollback_test.dart`：逐路径枚举「第 N 步装配失败 →
   已占用的 socket/端口全部释放」，并有一条全流程成功的正例
 
+### 工程门禁：时间相关规则必须注入时钟（YOU-8）
+
+- 新增 `scripts/check-clock-injection.sh`：`lib/core/` 下出现未豁免的
+  `DateTime.now()` 即失败（只认代码，注释里提到不算），已接入
+  `.github/workflows/flutter-ci.yml` 的 test 作业（`flutter analyze` 之后）
+- 豁免必须写在调用点**同一行**（`// clock-exempt: <理由>`），当前只有三处，且都是
+  默认值而非规则：日志缺省时间戳（`app_log.dart`）、线协议缺省时间戳
+  （`chat_message.dart`）、成员模型缺省值（`member.dart`）
+- 存量 17 处直接读系统时间全部改为注入时钟（会话 10、遥测 2、蓝牙扫描 2、局域网发现 3）；
+  系统时钟本身只允许出现在 `lib/core/clock.dart`
+
 ## 0.1.0-alpha.14 - 2026-09-27
 
 ### 发布链路（最高优先级）

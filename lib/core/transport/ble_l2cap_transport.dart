@@ -1,3 +1,4 @@
+import '../clock.dart';
 import 'dart:async';
 
 import 'package:flutter/services.dart';
@@ -45,6 +46,11 @@ class DiscoveredBleRoom {
 /// 星型拓扑的帧转发在原生侧完成（房主把一个成员的帧转给其余成员），
 /// 这里只负责收发。
 class BleL2capTransport implements RoomTransport {
+  /// 扫描缓存使用的时钟（`lastSeen` 与房间 TTL 清理），可注入。
+  BleL2capTransport({Clock clock = const SystemClock()}) : _clock = clock;
+
+  final Clock _clock;
+
   static const MethodChannel _channel =
       MethodChannel('host.msknet.sunsetripple/ble_l2cap');
   static const EventChannel _dataChannel =
@@ -449,7 +455,7 @@ class BleL2capTransport implements RoomTransport {
           psm: psm,
           memberCount: event['memberCount'] as int? ?? 1,
           rssi: event['rssi'] as int? ?? 0,
-          lastSeen: DateTime.now(),
+          lastSeen: _clock.now(),
         );
         _emitRooms();
       },
@@ -458,7 +464,7 @@ class BleL2capTransport implements RoomTransport {
   }
 
   void _pruneStaleRooms() {
-    final now = DateTime.now();
+    final now = _clock.now();
     final before = _rooms.length;
     _rooms.removeWhere((_, room) => now.difference(room.lastSeen) > _roomTtl);
     if (_rooms.length != before) _emitRooms();

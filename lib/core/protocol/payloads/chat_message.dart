@@ -97,7 +97,9 @@ class ChatMessagePayload {
     buffer[0] = 2;
     bd.setUint64(
         1,
-        timestampMs == 0 ? DateTime.now().millisecondsSinceEpoch : timestampMs,
+        timestampMs == 0
+            ? DateTime.now().millisecondsSinceEpoch // clock-exempt: 线协议缺省时间戳
+            : timestampMs,
         Endian.big);
     buffer.setRange(9, 13, codeAscii);
     bd.setUint16(13, textBytes.length, Endian.big);

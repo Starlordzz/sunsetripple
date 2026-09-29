@@ -25,7 +25,8 @@ class LogEntry {
     this.traceId,
     this.error,
     DateTime? time,
-  }) : time = time ?? DateTime.now();
+    // 缺省时间戳只是平台边界上的兜底：需要伪造时间的调用方显式传 time。
+  }) : time = time ?? DateTime.now(); // clock-exempt: 日志缺省时间戳
 
   bool get isUserVisible => level == LogLevel.warn || level == LogLevel.error;
 

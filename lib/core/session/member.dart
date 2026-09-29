@@ -22,6 +22,8 @@ class Member {
   bool isSpeaking;
   DateTime lastActiveAt;
 
+  /// 两处时间缺省值只是构造便利：生产路径上成员对象一律显式带上 `joinedAt` /
+  /// `lastActiveAt`（会话层用注入时钟算），测试里同样显式传入才有确定性。
   Member({
     required this.memberId,
     required this.nickname,
@@ -33,8 +35,8 @@ class Member {
     this.isMuted = false,
     this.isSpeaking = false,
     DateTime? lastActiveAt,
-  })  : joinedAt = joinedAt ?? DateTime.now(),
-        lastActiveAt = lastActiveAt ?? DateTime.now();
+  })  : joinedAt = joinedAt ?? DateTime.now(), // clock-exempt: 模型缺省值
+        lastActiveAt = lastActiveAt ?? DateTime.now(); // clock-exempt: 模型缺省值
 
   Member copyWith({
     int? memberId,

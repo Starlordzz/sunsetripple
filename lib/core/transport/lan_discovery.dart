@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../clock.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -33,6 +34,12 @@ class DiscoveredRoom {
 
 /// 局域网/热点下的零配置房间发现（UDP 8990 广播）。
 class LanRoomDiscovery {
+  /// 发现与过期清理共用的时钟。`lastSeen`、广播时间戳、TTL 判定都按它计算，
+  /// 注入后「3.5 秒没再出现就从列表消失」这条规则可以用假时钟确定性断言。
+  LanRoomDiscovery({Clock clock = const SystemClock()}) : _clock = clock;
+
+  final Clock _clock;
+
   static const int discoveryPort = 8990;
   static const String magicHeader = "SUNSET_RIPPLE_DISCOVERY_V1";
 
@@ -216,7 +223,7 @@ class LanRoomDiscovery {
       "port": tcpPort,
       "members": memberCount,
       if (action != null) "action": action,
-      "timestamp": DateTime.now().millisecondsSinceEpoch,
+      "timestamp": _clock.now().millisecondsSinceEpoch,
     });
 
     final bytes = utf8.encode(jsonPayload);
@@ -273,7 +280,7 @@ class LanRoomDiscovery {
         hostAddress: datagram.address,
         port: port,
         memberCount: ((json["members"] as int?) ?? 0).clamp(0, 99),
-        lastSeen: DateTime.now(),
+        lastSeen: _clock.now(),
       );
 
       // roomId 是明文广播字段，局域网内任意设备都能伪造它。已有 roomId
@@ -321,7 +328,7 @@ class LanRoomDiscovery {
   }
 
   void _pruneStaleRooms() {
-    final now = DateTime.now();
+    final now = _clock.now();
     final countBefore = _discoveredRooms.length;
     _discoveredRooms.removeWhere(
       (_, room) => now.difference(room.lastSeen).inMilliseconds > 3500,

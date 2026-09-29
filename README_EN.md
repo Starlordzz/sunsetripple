@@ -31,7 +31,7 @@
   <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
   <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B%20(Flutter%20host)-007AFF?labelColor=3A1030">
   <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(source%20project)-C00000?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-146%20passing-F4B85C?labelColor=3A1030">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-361%20passing-F4B85C?labelColor=3A1030">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
 
@@ -200,16 +200,20 @@ flowchart TD
 # 1. Fetch packages
 flutter pub get
 
-# 2. Run the full unit test suite (146/146 cases)
+# 2. Run the full unit test suite (361/361 cases)
 flutter test
 
 # 3. Run static analysis
 flutter analyze
 
-# 4. Debug on a connected device/emulator
+# 4. Clock gate: no direct system-time reads under lib/core
+#    (see scripts/check-clock-injection.sh)
+bash scripts/check-clock-injection.sh
+
+# 5. Debug on a connected device/emulator
 flutter run
 
-# 5. Build a release APK
+# 6. Build a release APK
 flutter build apk --release
 ```
 
@@ -244,7 +248,7 @@ SunsetRipple/
 │   │   ├── transitions/   # Continuous reveal routing (RoomEntryRevealRoute)
 │   │   └── widgets/       # Core widgets (CelestialCanvas, MemberOrbit, AudioControlsBar)
 │   └── main.dart          # App entry point
-├── test/                  # 146 pure-Dart unit & widget test cases
+├── test/                  # 361 pure-Dart unit & widget test cases
 └── pubspec.yaml           # Project configuration & dependencies
 ```
 
