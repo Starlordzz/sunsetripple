@@ -1,296 +1,77 @@
-<p align="center">
-  <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
-</p>
+# 落日后残波（SunsetRipple）
 
-<br>
+[简体中文](README.md) | [English](README_EN.md)
 
-<p align="center">
-  <br>
-  <img src="docs/assets/mark.svg" width="96" alt="落日后残波">
-  <br>
-  <br>
-</p>
+一款近场语音对讲应用，支持最多 6 台设备通过局域网、Wi-Fi Direct 或蓝牙通话，无需注册账号或部署服务器。当前主要支持 Android。
 
-<h1 align="center">落日后残波</h1>
+![应用界面预览](docs/screenshots/showcase-zh.png)
 
-<p align="center"><sub>S U N S E T &nbsp;&nbsp; R I P P L E</sub></p>
+## 主要功能
 
-<br>
+- **Wi-Fi 房**：支持同一局域网、手机热点和 Wi-Fi Direct，可同时自由交谈。
+- **蓝牙房**：通过 BLE L2CAP CoC 连接，按住说话、松开收听。
+- **房内消息**：支持文字聊天和撤回，消息仅保存在内存中，退房后清除。
+- **通话控制**：支持静音、扬声器/听筒切换，以及手机/耳机麦克风切换。
+- **连接恢复**：支持断线重连；Wi-Fi 房支持手动转让房主和房主失联后的自动选举。
 
-<p align="center">
-  夕阳已远，涟漪未散，犹诉未尽之言。
-  <br>
-  <sub><em>The sun has gone; the ripple hasn't.</em></sub>
-</p>
+## 平台支持
 
-<br>
-
-<p align="center">
-  <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&color=FF7138&labelColor=3A1030"></a>
-  <img alt="Dart" src="https://img.shields.io/badge/Dart-3.5%2B-0175C2?labelColor=3A1030">
-  <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
-  <img alt="iOS" src="https://img.shields.io/badge/iOS-15.0%2B%20(%E5%8E%9F%E7%94%9F%E5%AE%9E%E7%8E%B0)-007AFF?labelColor=3A1030">
-  <img alt="HarmonyOS" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(%E6%BA%90%E7%A0%81%E5%B7%A5%E7%A8%8B)-C00000?labelColor=3A1030">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-361%20passing-F4B85C?labelColor=3A1030">
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
-</p>
-
-<br>
-
-<p align="center">
-  琵琶弦上说相思。<br>
-  当时明月在，曾照彩云归。
-</p>
-
-<br>
-
----
-
-<br>
-
-**落日后残波（SunsetRipple）是一款去中心化近场局域语音对讲应用。无须账号与云端服务，语音数据仅在局域物理范围内设备间点对点直连传输；支持最多 6 端即时建链与无痕会话销毁。**
-
-<br>
-
-<p align="center">
-  <img src="docs/screenshots/showcase-zh.png" width="880" alt="落日后残波 · 界面预览">
-  <br>
-  <sub>首页 · Wi-Fi 畅聊房 · 蓝牙对讲（月夜）· 房内消息 —— 界面随系统语言与昼夜主题自动切换</sub>
-</p>
-
-<br>
-
-> **各平台完成度**——Flutter 主线（统一 Dart 会话核心）已覆盖 Android 与 iOS。
-> iOS 平台已全面收敛至 Flutter 统一宿主（`ios/Runner/`），共享 Dart 状态机与帧协议，原生音频与 BLE 插件已就绪。
-> HarmonyOS NEXT 为独立原生 ArkTS 工程（`harmonyos/`），需自行用 DevEco Studio 构建，见 [docs/harmonyos-build.md](docs/harmonyos-build.md)。
-
-| 平台 | 技术栈 | 发布产物 | 状态 |
-| --- | --- | --- | --- |
-| Android 8.0+ | Flutter + Kotlin 原生插件 | `.apk`，直接安装 | ✅ 功能完整 |
-| iOS 15+ | Flutter + Swift 原生插件 | `.ipa`，**未签名**，需侧载重签 | 🚧 音频与 BLE 就绪，**搜房未接入 Bonjour，实际不可用** |
-| HarmonyOS NEXT | 独立原生 ArkTS | 源码工程 zip | 🚧 仅有 UDP 发现，数据面未接通 |
-| Windows / macOS / Linux | Flutter 脚手架模板 | 无 | ❌ **不支持**（无桌面音频后端） |
-
-> 平台能力的**权威声明**见 [docs/platform-support.md](docs/platform-support.md)；
-> 与上表冲突时以该文件为准。桌面目录只是未来占位：可编译出窗口，
-> 但没有 `MethodChannel` 实现，**没有声音、无法对讲**。
-
-<br>
-
-## 功能特性
-
-<br>
-
-- **Flutter 统一会话核心**——基于 Flutter 构建统一 Dart 会话核心、二进制帧协议与高质感天体界面，通过平台通道桥接原生音频 HAL（硬件 AEC/NS/AGC）、BLE L2CAP 信道与 Wi-Fi Direct 原生近场直连。**目前 Android 侧平台通道完整实现**（`PlatformAudioPlugin.kt` / `BleL2capPlugin.kt` / `WifiDirectPlugin.kt`）。
-- **动态麦克风路由切换**——房内支持一键切换使用「手机自带麦克风」或「外接/蓝牙耳机麦克风」；使用手机麦拾音时自动释放通话 SCO 占用，切回 A2DP 高清媒体声道。
-- **免路由近场直连与局域网对讲**——支持同一 Wi-Fi、随身热点以及**完全脱网的 Wi-Fi Direct 近场免路由直连**。零配置自动搜房建连，周期性自动修剪僵尸房间（房主关闭 4 秒内自动移除）。音频本身为单播。<br>注意：iOS 14+ 起发送广播需 `com.apple.developer.networking.multicast` 授权（付费账号 + Apple 逐案审批），因此 iOS 侧搜房必须改走 Bonjour，详见 [docs/ios-flutter-port.md](docs/ios-flutter-port.md)。
-- **两种可用房型**——WiFi 房（支持同一局域网、随身热点及 Wi-Fi Direct 离线近场直连全双工）与 BLE L2CAP CoC 按住说话（PTT）房，均支持最多 6 台设备。
-- **房内文字消息**——房型旁一键打开消息面板，收发不超过 368 字节的即时文本；纯内存存储、退房即毁，不落盘、零服务端。WiFi 房文字走可靠 TCP 控制面由房主中继，蓝牙房沿用 BLE 链路；支持长按撤回与未读红点提示。
-- **零语音基础设施**——无路由器、无账号、无服务器；语音只在设备之间点对点传输，版本检查在用户操作时访问 GitHub Releases。
-- **WiFi 房无缝房主转移**——支持房内手动转让房主或房主失联自动按快照选举继任者并重构组网，新房主 UDP 端口即刻同步登记，保障音频不掉线。
-- **全网静音与说话状态联动**——静音操作全房即时同步标志位，关闭麦克风实时熄灭音频声波动画。
-- **断线自动重连**——多轮指数退避重试，重连后凭令牌恢复原成员身份与入房顺序。
-- **连续建房转场**——从实际点击位置展开真实房间界面，首页与房间共享同一套落日页头和配色，不经过独立遮罩或二次弹页。
-- **昼夜双配色**——白天是落日暖金，夜里换成月与海面（冷月白 + 玫瑰粉离开按钮，对比度 > 7.5:1）。
-- **通话级音频**——`VOICE_COMMUNICATION` 采集、硬件回声消除（AEC/NS/AGC）、音频焦点协商、50 周期 HAL 容错缓冲与 Opus 丢包补偿。
-- **安全信封（可用，默认关闭）**——内置 ECDH P-256 密钥协商、HKDF-SHA256 密钥派生、12 字节 Nonce + 16 字节 Tag 的 AES-256-GCM 密封帧体系与 65536 深度防重放窗口。装配 `SecureSessionNegotiator` 后入房即自动握手并派生密钥，成功后业务帧自动密封；**握手失败保持明文并在诊断面板留痕，绝不假装加密**。启用后入站明文业务帧一律拒绝（fail-closed）。双方派生的 **6 位安全短码**可带外口头比对——在比对之前，它只提供防被动窃听与防事后篡改，不声称抵御主动中间人。
-- **脱敏诊断报告**——内置网络与音质诊断面板，一键生成脱敏日志便于提交 GitHub Issue。
-
-<br>
-
-## 房型对比
-
-<br>
-
-| | WiFi 房（局域网/热点/近场直连） | 蓝牙 BLE L2CAP 房 |
+| 平台 | 当前状态 | 分发方式 |
 | --- | --- | --- |
-| 状态 | ✅ 可用（推荐） | ✅ 可用 |
-| 通话方式 | 全双工（同时自由交谈） | 按住说话（PTT 对讲） |
-| 拓扑架构 | 星型/网状混合——控制 TCP + 音频 UDP 直发 | 星型拓扑——动态分配 PSM，原子帧转发 |
-| 信令 / 音频 | TCP 8988 / UDP 8989 | BLE L2CAP 面向连接通道 (CoC) |
-| 协议发现 | UDP 8990 广播 + Wi-Fi Direct P2P 探针 | BLE 广播厂商自定义数据 (Company ID 0xFFFF) |
-| 音频码率 | 24 kbps Opus | 16 kbps Opus |
-| 最大人数 | 6 台设备 | 6 台设备 |
-| 依赖要求 | 同一 Wi-Fi 路由、随身热点或 Wi-Fi Direct 免网直连 | 蓝牙 5.0+ (Android 10+ / iOS 15+ / 鸿蒙 NEXT) |
-| 房主转移 | ✅ 支持手动转让与故障自愈 | ❌ 暂不支持（主机退出即散会） |
+| Android 8.0+ | 可用；蓝牙房需 Android 10+ | APK，直接安装 |
+| iOS 15+ | 音频与 BLE 已实现，尚未接入 Bonjour 搜房，暂不可完整使用 | 未签名 IPA，需自行重签 |
+| HarmonyOS NEXT | 仅实现 UDP 发现，语音与消息传输尚未接通 | 源码工程，需自行构建和签名 |
+| Windows / macOS / Linux | 不支持，缺少原生音频后端 | 无 |
 
-<br>
+详细能力与限制见 [平台支持说明](docs/platform-support.md)。
 
-> **为什么选 BLE L2CAP CoC 而非经典蓝牙 RFCOMM？**
-> 
-> L2CAP CoC 在 iOS 侧有 `CBL2CAPChannel` 对应物、不需要苹果 MFi 认证硬件支持，在 HarmonyOS NEXT 与 Android 10+ 亦有原生支持，是跨端共用同一套底层蓝牙音频协议的最佳方案。
+## 安装与使用
 
-<br>
+从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载 Android APK 并安装。
 
-## 快速开始
+1. Wi-Fi 房使用同一局域网、手机热点或 Wi-Fi Direct；蓝牙房需开启蓝牙。
+2. 在一台设备上创建房间，选择房型，并按提示授予麦克风、附近设备等权限。
+3. 其他设备搜索附近房间并加入。
+4. Wi-Fi 房可直接交谈；蓝牙房按住中央圆盘说话，松开后收听。
 
-<br>
+## 隐私与安全
 
-从 [Releases](https://github.com/Starlordzz/sunsetripple/releases) 下载最新版本：
+语音和房内消息不经云端中转；手动检查更新时会访问 GitHub Releases。**加密模块默认未启用，默认会话不提供端到端加密保障。**
 
-- **Android**（需 8.0 / API 26 以上）：下载 `SunsetRipple-*.apk` 直接安装。体积约 45 MB，包含 Flutter 引擎与原生 Opus HAL。
-- **iOS**（需 15.0 以上）：下载 `SunsetRipple-flutter-*-unsigned.ipa`。这是基于 Flutter 统一宿主的**未签名**包，需用 [AltStore](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 以你自己的 Apple ID 在电脑上重签后安装（免费 Apple ID 签名有效期 7 天，到期需重签）。
-- **HarmonyOS NEXT**：下载 `SunsetRipple-HarmonyOS-source-*.zip`，用 DevEco Studio 打开自行构建并签名，步骤见 [docs/harmonyos-build.md](docs/harmonyos-build.md)。
+## 从源码构建
 
-> **为什么 iOS 和鸿蒙没有「下载即装」的包？**
-> Apple 要求安装包必须签名，签名需 Apple Developer Program（99 美元/年）证书，
-> ad-hoc 分发还需预先登记设备 UDID；本项目没有付费账号，因此只能提供未签名包。
-> 鸿蒙 NEXT 零售机只接受 AGC 调试证书（绑定设备 UDID、上限 100 台）或应用市场
-> 发布签名的 HAP，不存在未签名侧载路径，且 DevEco 命令行工具需华为开发者账号
-> 登录才能获取，无法在公共 CI 上构建。
+主工程使用 Flutter / Dart，Android 与 iOS 通过原生插件接入平台能力。HarmonyOS 为独立 ArkTS 工程。
 
-<br>
+开发环境：Flutter **3.29.0**（与 [CI](.github/workflows/flutter-ci.yml) 一致）、JDK 17 和 Android SDK。
 
-### 使用流程
-
-1. 一台设备点击 **创建房间**（选择 WiFi 房或蓝牙房），授予麦克风与附近设备权限；
-2. 其他设备点击 **加入房间**，在雷达列表中点击目标房间直接加入；
-3. WiFi 房即刻开说（支持全双工多人同时说话）；蓝牙房按住中央圆盘说话，松手收听；
-4. 点击底部操作栏可切换静音、扬声器/听筒、手机麦/耳机麦，房主可通过右上角按钮一键转让房主。
-
-<br>
-
-## 技术架构
-
-<br>
-
-```mermaid
-flowchart TD
-    UI["ui — Flutter 界面层<br/>CelestialCanvas · MemberOrbit · AudioControls"]
-    SESSION["session — 房间状态机<br/>RoomSession (全双工 / PTT / 房主选举与转移)"]
-    CRYPTO["security — 端到端加密<br/>ECDH P-256 · HKDF · AES-GCM 密封帧"]
-    TRANS["transport — 传输抽象<br/>RoomTransport 接口"]
-    LAN["LanTransport<br/>TCP 8988 信令 + UDP 8989 音频"]
-    BLE["BleL2capTransport<br/>BLE L2CAP CoC 原生通道"]
-    AUDIO["audio — 平台音频通道<br/>PlatformAudioPlugin (Kotlin/Swift)"]
-    DSP["native — C++ DSP & 环形缓冲<br/>RingBuffer · Opus Codec · 硬件 AEC"]
-
-    UI --> SESSION
-    SESSION --> CRYPTO
-    SESSION --> TRANS
-    SESSION --> AUDIO
-    TRANS --> LAN
-    TRANS --> BLE
-    AUDIO --> DSP
+```sh
+# Bash / Git Bash：使用与锁文件一致的依赖源
+export PUB_HOSTED_URL=https://pub.flutter-io.cn
+flutter pub get --enforce-lockfile
+flutter run
 ```
 
-<br>
+检查与打包（Release 打包前需配置 `android/key.properties` 签名文件）：
 
-### 核心设计原则
-
-- **帧协议统一 6 字节二进制头**——`[类型 1B][发送者 1B][序号 2B][长度 2B]`，载荷上限 512 字节，标准化定义音频、入房、花名册、PTT 状态、心跳、离开与房主转移帧。
-- **网络与音频解耦**——会话层与音频采集播放完全独立运行；重连或房主转移期间音频管线平滑过渡，避免出现爆音或硬件重建延迟。
-- **硬件级音频优化**——采用 `VOICE_COMMUNICATION` 采集模式，接入底层硬件回声消除（AEC）、噪声抑制（NS）与自动增益（AGC），具备 50 周期 HAL 容错避让机制。
-- **零外部服务器依赖**——无需搭建任何云端后端，设备间使用原生 Socket 直连，隐私数据不出局域物理圈。
-
-<br>
-
-## 从源码构建与运行
-
-<br>
-
-### 环境要求
-- **Flutter SDK**: `>= 3.24.0`
-- **Dart SDK**: `>= 3.5.0`
-- **Java**: `JDK 17`
-- **Android SDK**: `API 34+`（支持 Android 8.0 ~ Android 15）
-
-<br>
-
-### 常用命令
-
-```powershell
-# 1. 获取依赖包
-flutter pub get
-
-# 2. 运行全量单元测试 (361/361 用例)
-flutter test
-
-# 3. 运行代码静态分析
+```sh
 flutter analyze
-
-# 4. 时间门禁：lib/core 下不许直接读系统时间（见 scripts/check-clock-injection.sh）
+flutter test
 bash scripts/check-clock-injection.sh
-
-# 5. 在连接的真机/模拟器上调试运行
-flutter run
-
-# 6. 打包 Release 发布版 APK
 flutter build apk --release
 ```
 
-Release APK 生成路径位于 `build/app/outputs/flutter-apk/app-release.apk`。
+时间检查脚本需要 Bash 环境。APK 输出路径为 `build/app/outputs/flutter-apk/app-release.apk`。
 
-<br>
+iOS 与 HarmonyOS 的构建和签名步骤分别见 [iOS 指南](docs/ios-flutter-port.md) 和 [HarmonyOS 指南](docs/harmonyos-build.md)。
 
-## 项目结构导览
+## 文档
 
-<br>
-
-```text
-SunsetRipple/
-├── android/               # Android 原生宿主、PlatformAudioPlugin、BleL2capPlugin 与 WifiDirectPlugin
-├── ios/                   # iOS Flutter 宿主、PlatformAudioPlugin 与 BleL2capPlugin
-├── native/                # 跨平台 C++ 核心（无锁环形缓冲区 RingBuffer、DSP 混音）
-├── lib/
-│   ├── core/
-│   │   ├── audio/         # 音频抽象接口 (AudioIo)
-│   │   ├── diagnostics/   # AppLog · TraceId · SessionMetrics · DiagnosticReport
-│   │   ├── diagnostics/   # 应用日志 (AppLog) 与脱敏报告生成 (DiagnosticReport)
-│   │   ├── ffi/           # 原生 C++ 动态链接桥接 (NativeCoreFfi)
-│   │   ├── platform/      # 平台通道实现 (PlatformAudioChannel)
-│   │   ├── protocol/      # 二进制帧编解码 (Frame, Payload)
-│   │   ├── security/      # 会话加密与安全握手 (SessionCipher, SecureFrameCodec)
-│   │   ├── session/       # 房间状态机、成员模型与房主选举 (RoomSession, HostTransfer)
-│   │   ├── transport/     # 网络传输层 (LanTransport, BleL2capTransport, LanRoomDiscovery)
-│   │   └── update/        # 语义化版本解析与 GitHub Releases 检查 (UpdateService)
-│   ├── l10n/              # 纯类型双语国际化支持 (AppStrings)
-│   ├── ui/
-│   │   ├── pages/         # 页面 (HomePage, RoomPage, AboutPage, DiagnosticsSheet)
-│   │   ├── theme/         # 昼夜落日天体主题调色板 (AppTheme)
-│   │   ├── transitions/   # 连续圆形揭示路由 (RoomEntryRevealRoute)
-│   │   └── widgets/       # 核心组件 (CelestialCanvas, MemberOrbit, AudioControlsBar)
-│   └── main.dart          # 应用入口
-├── test/                  # 361 个纯 Dart 单元测试与 Widget 自动化测试
-└── pubspec.yaml           # 项目配置与依赖管理
-```
-
-<br>
-
-## 文档索引
-
-<br>
-
-完整技术文档参见 **[Wiki 目录](docs/wiki/Home.md)**（**[English](docs/wiki/en/Home.md)**，双语同步）：
-
-- [平台支持范围（权威声明）](docs/platform-support.md)
-
-- [Core-Shell 统一多端架构](docs/wiki/Core-Shell统一多端架构.md)
+- [文档首页](docs/wiki/Home.md)
 - [架构总览](docs/wiki/架构总览.md)
-- [协议规范与二进制帧格式](docs/wiki/协议规范.md)
-- [房间模式对比与拓扑](docs/wiki/房间模式对比.md)
-- [音频管线与硬件 AEC](docs/wiki/音频管线.md)
-- [房主转移与故障恢复机制](docs/wiki/房主转移机制.md)
-- [构建与发布指南](docs/wiki/构建与发布.md)
-- [常见问题与故障排查](docs/wiki/故障排查.md)
-
-详细变更历史请参阅 **[CHANGELOG.md](CHANGELOG.md)**。
-
-<br>
+- [构建与发布](docs/wiki/构建与发布.md)
+- [故障排查](docs/wiki/故障排查.md)
+- [更新日志](CHANGELOG.md)
 
 ## 许可证
 
-<br>
-
 [Apache License 2.0](LICENSE) · Copyright 2026 Starlordzz
-
-<br>
-<br>
-
----
-
-<br>
-
-<p align="center"><sub>。<br><em>For the one who watched the sunset with me.</em><br><em>Never Meant</em></sub></p>
-
-<br>
