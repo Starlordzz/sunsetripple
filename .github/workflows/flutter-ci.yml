@@ -24,11 +24,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 钉到具体补丁版本，不用 3.29.x：锁文件入库 + --enforce-lockfile 的组合下，
-      # Flutter 补丁号一变，SDK 自带的依赖钉版就跟着变（实测 3.29.3 要求
-      # yaml / mime / pool / pub_semver / glob / io 六个包上调），`flutter pub get
-      # --enforce-lockfile` 会在「装依赖」这一步直接失败，后面所有质量门禁
-      # 一步都跑不到。升级 Flutter 时必须同步重生成 pubspec.lock 再改这里。
+      # 钉到具体补丁版本，不用 3.29.x：本地开发工具链就是 3.29.0，而
+      # pubspec.lock 是按它生成的。`--enforce-lockfile` 在 CI 上是**全新解析**
+      # （空的 pub 缓存 + 干净检出），锁文件里若留着比当前可解析上限更旧的版本，
+      # 解析结果就会与锁不符，`flutter pub get --enforce-lockfile` 在「装依赖」
+      # 这一步直接失败（exit 65），后面所有质量门禁一步都跑不到。升级 Flutter
+      # 时必须同步 `flutter pub upgrade` 重生成 pubspec.lock 再改这里的版本号。
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
