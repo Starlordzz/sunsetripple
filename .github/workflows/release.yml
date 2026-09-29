@@ -18,6 +18,11 @@ concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
+# 与 flutter-ci.yml 相同的包源：锁文件是按国内镜像生成的，host 不一致会让
+# `flutter pub get --enforce-lockfile` 直接失败（详见 flutter-ci.yml 顶部说明）。
+env:
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+
 jobs:
   # ==========================================
   # 1. Android 构建链 (Flutter Release APK)

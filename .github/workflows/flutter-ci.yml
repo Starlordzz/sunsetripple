@@ -9,6 +9,17 @@ on:
     branches:
       - master
 
+# 锁文件（pubspec.lock）里每个包都记着生成时的包源 host：本仓库是按国内镜像
+# `PUB_HOSTED_URL=https://pub.flutter-io.cn` 生成的。CI 不设这个变量就会按
+# `https://pub.dev` 解析，于是「62 个包全部对不上」→ `flutter pub get
+# --enforce-lockfile` 在装依赖这一步 exit 65，且报错只有一句
+# 「Would change 62 dependencies」，看不出是 host 不一致。
+# 想换回官方源：先在同一个 host 下重生成锁
+# （`PUB_HOSTED_URL=https://pub.dev flutter pub upgrade`），再改这里和
+# Set up Flutter 上方注释里的版本说明。
+env:
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+
 jobs:
   test:
     name: Flutter Tests & Code Quality
@@ -24,18 +35,32 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 钉到具体补丁版本，不用 3.29.x：本地开发工具链就是 3.29.0，而
-      # pubspec.lock 是按它生成的。`--enforce-lockfile` 在 CI 上是**全新解析**
-      # （空的 pub 缓存 + 干净检出），锁文件里若留着比当前可解析上限更旧的版本，
-      # 解析结果就会与锁不符，`flutter pub get --enforce-lockfile` 在「装依赖」
-      # 这一步直接失败（exit 65），后面所有质量门禁一步都跑不到。升级 Flutter
-      # 时必须同步 `flutter pub upgrade` 重生成 pubspec.lock 再改这里的版本号。
+      # 钉到具体补丁版本，不用 3.29.x：锁文件是用 3.29.0 生成的，而
+      # `--enforce-lockfile` 在 CI 上是全新解析（空 pub 缓存 + 干净检出）；
+      # SDK 补丁号一变，SDK 自带依赖的钉版就跟着变（实测 3.29.3 会让 glob /
+      # io / mime / pool / pub_semver / yaml 六个包上调），解析结果与锁不符 →
+      # 装依赖这一步 exit 65，后面所有质量门禁一步都跑不到。
+      # 升级 Flutter 的顺序：改这里的版本号 → 用同一个 PUB_HOSTED_URL
+      # `flutter pub upgrade` 重生成 pubspec.lock → 一起提交。
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.29.0'
           channel: 'stable'
           cache: true
+
+      # 包源不一致时 pub 只会吐一句「Would change 62 dependencies」，
+      # 看不出根因，所以先自己把 host 对齐情况说清楚（顶部 env 有说明）。
+      - name: Verify pub host matches lockfile
+        run: |
+          set -euo pipefail
+          lock_hosts=$(grep -o 'url: "[^"]*"' pubspec.lock | sed 's/url: "//; s/"$//' | sort -u)
+          expected="${PUB_HOSTED_URL:-https://pub.dev}"
+          if [[ "$lock_hosts" != "$expected" ]]; then
+            echo "::error::pubspec.lock 的包源是 [$lock_hosts]，当前 PUB_HOSTED_URL 是 [$expected]，两者必须一致（见本文件顶部 env 说明）"
+            exit 1
+          fi
+          echo "包源一致：$lock_hosts"
 
       # 锁文件已入库，必须按锁文件解析：否则上游发新版会被静默采用，
       # 本地与 CI 解析出不同的依赖树就再也复现不了线上问题。

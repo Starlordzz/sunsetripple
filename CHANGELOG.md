@@ -152,6 +152,20 @@
 - 存量 17 处直接读系统时间全部改为注入时钟（会话 10、遥测 2、蓝牙扫描 2、局域网发现 3）；
   系统时钟本身只允许出现在 `lib/core/clock.dart`
 
+### CI：修掉长期红的 flutter 作业（卡在「装依赖」）
+
+- 症状：9/17 起 `flutter-ci` 的 test 作业每次都在 **Install dependencies** 失败
+  （exit 65），`analyze` / `format` / 测试 / 覆盖率 / 时钟门禁一步都跑不到
+- 根因一：`pubspec.lock` 里 62 个包的来源都记着生成时的镜像
+  `https://pub.flutter-io.cn`（本机 `PUB_HOSTED_URL`），CI 没有这个变量，按
+  `https://pub.dev` 解析 → **62 个包全部对不上** → `--enforce-lockfile` 拒绝
+- 根因二：锁里 `glob` / `io` / `mime` / `pool` / `pub_semver` / `yaml` 六个包比当前
+  可解析上限旧，CI 的**全新解析**（空 pub 缓存 + 干净检出）会升级它们，同样对不上锁
+- 改法：两个 workflow 都显式声明 `PUB_HOSTED_URL` 与生成锁的环境一致；锁升到这六个包的
+  上限；Flutter 钉到 `3.29.0`（补丁号变化会让 SDK 自带依赖的钉版漂移）；并在装依赖前加
+  一步「包源 host 必须与锁一致」的门禁，把原来那句看不懂的「Would change 62
+  dependencies」变成指名道姓的报错
+
 ## 0.1.0-alpha.14 - 2026-09-27
 
 ### 发布链路（最高优先级）
