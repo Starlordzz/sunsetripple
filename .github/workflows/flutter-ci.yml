@@ -17,6 +17,14 @@ on:
 # 想换回官方源：先在同一个 host 下重生成锁
 # （`PUB_HOSTED_URL=https://pub.dev flutter pub upgrade`），再改这里和
 # Set up Flutter 上方注释里的版本说明。
+#
+# 显式声明最小权限：不写就是继承仓库默认（历史上默认可能是可写），CodeQL 的
+# `actions/missing-workflow-permissions` 也正是报这个。两个 job 都只做
+# checkout（读仓库）+ 上传产物 / 维护 Flutter 缓存（写 Actions），不需要别的。
+permissions:
+  contents: read
+  actions: write
+
 env:
   PUB_HOSTED_URL: https://pub.flutter-io.cn
 
