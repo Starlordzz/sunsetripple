@@ -146,46 +146,114 @@ class SemVer implements Comparable<SemVer> {
 class UpdateService {
   /// 与 `pubspec.yaml` 同源，见 [AppVersion]。
   static const String currentVersion = AppVersion.name;
-  static const String latestReleaseUrl =
-      'https://api.github.com/repos/Starlordzz/sunsetripple/releases/latest';
+
+  /// GitHub Releases **列表**接口，而不是 `/releases/latest`。
+  ///
+  /// 为什么不用 `/releases/latest`：GitHub 该端点只返回**非 prerelease** 的 Release，
+  /// 而本项目所有版本都是 alpha/beta（一律标 `--prerelease`），实测该端点直接 404，
+  /// 于是「检查更新」永远拿不到任何东西。改用列表接口后由客户端自己挑版本。
+  static const String releasesUrl =
+      'https://api.github.com/repos/Starlordzz/sunsetripple/releases?per_page=30';
+
+  /// 当前构建是不是预发布渠道：版本名里带 `-`（如 `0.1.0-alpha.14`）。
+  ///
+  /// 预发布渠道能看到 prerelease 版本；正式版只看正式版，避免正式用户被推到 alpha 上。
+  static bool get includePrerelease => currentVersion.contains('-');
 
   Future<UpdateState> checkUpdate() async {
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = await client.getUrl(Uri.parse(latestReleaseUrl));
+      final request = await client.getUrl(Uri.parse(releasesUrl));
       request.headers.set('Accept', 'application/vnd.github.v3+json');
       request.headers.set('User-Agent', 'SunsetRipple-App');
 
       final response = await request.close();
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        final tagName = data['tag_name'] as String? ?? '';
-        final releaseNotes = data['body'] as String? ?? '';
-        final htmlUrl = data['html_url'] as String? ?? '';
-
-        if (tagName.isNotEmpty && isNewer(tagName, currentVersion)) {
-          return UpdateAvailable(
-            versionName: tagName.replaceFirst('v', ''),
-            releaseNotes: releaseNotes,
-            downloadUrl: htmlUrl,
-            manifestUrl: findManifestAssetUrl(data['assets']),
-          );
-        } else {
-          return const UpdateUpToDate();
-        }
-      } else {
+      if (response.statusCode != 200) {
         AppLog.warn(
             'UpdateService', 'Check update HTTP ${response.statusCode}');
         return UpdateFailed('HTTP ${response.statusCode}');
       }
+
+      final body = await response.transform(utf8.decoder).join();
+      final decoded = jsonDecode(body);
+      final releases = decoded is List ? decoded : const <dynamic>[];
+      if (releases.isEmpty) {
+        // 还没有任何 Release：不是错误，只是没什么可更新的。
+        return const UpdateUpToDate();
+      }
+
+      final data =
+          selectRelease(releases, includePrerelease: includePrerelease);
+      if (data == null) {
+        AppLog.warn('UpdateService', 'Release 列表里没有可用的版本标签');
+        return const UpdateFailed('Release 列表里没有可用的版本标签');
+      }
+
+      final tagName = data['tag_name'] as String? ?? '';
+      final releaseNotes = data['body'] as String? ?? '';
+      final htmlUrl = data['html_url'] as String? ?? '';
+
+      if (tagName.isNotEmpty && isNewer(tagName, currentVersion)) {
+        return UpdateAvailable(
+          versionName: tagName.replaceFirst('v', ''),
+          releaseNotes: releaseNotes,
+          downloadUrl: htmlUrl,
+          manifestUrl: findManifestAssetUrl(data['assets']),
+        );
+      }
+      return const UpdateUpToDate();
     } catch (e) {
       AppLog.warn('UpdateService', 'Check update failed', e);
       return UpdateFailed(e.toString());
     } finally {
       client.close();
     }
+  }
+
+  /// 从 `GET /releases` 的响应里挑出用于检查更新的那一条；没有合适的返回 null。
+  ///
+  /// 规则（按顺序）：
+  /// - 丢掉 `draft`；
+  /// - [includePrerelease] 为 false 时丢掉 `prerelease`；
+  /// - `tag_name` 必须能解析成 SemVer —— 滚动通道那种固定 tag（`updates-prerelease`）
+  ///   因此天然不会被误当成新版本；
+  /// - 取 SemVer 最大者；版本相同时后发布（`created_at` 更晚）的优先。
+  ///
+  /// 纯函数，不碰网络：选择规则可以脱离 HTTP 单测。
+  static Map<String, dynamic>? selectRelease(
+    Iterable<dynamic> releases, {
+    required bool includePrerelease,
+  }) {
+    Map<String, dynamic>? best;
+    SemVer? bestVersion;
+    String bestCreatedAt = '';
+
+    for (final entry in releases) {
+      if (entry is! Map) continue;
+      final release = entry.cast<String, dynamic>();
+      if (release['draft'] == true) continue;
+      if (!includePrerelease && release['prerelease'] == true) continue;
+
+      final tag = release['tag_name'];
+      if (tag is! String) continue;
+      final version = SemVer.parse(tag);
+      if (version == null) continue;
+
+      final createdAt = release['created_at'] is String
+          ? release['created_at'] as String
+          : '';
+      final comparison =
+          bestVersion == null ? 1 : version.compareTo(bestVersion);
+      if (comparison > 0 ||
+          (comparison == 0 && createdAt.compareTo(bestCreatedAt) > 0)) {
+        best = release;
+        bestVersion = version;
+        bestCreatedAt = createdAt;
+      }
+    }
+
+    return best;
   }
 
   /// 从 GitHub Release 的 `assets` 数组里找签名清单资产（`update.json`）的直链。

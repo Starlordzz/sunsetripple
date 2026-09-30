@@ -2,6 +2,21 @@
 
 ## 0.1.0-alpha.14 - 2026-09-29
 
+### 更新链路：修掉「看看有没有更新」根本拿不到清单
+
+- `UpdateService` 不再用 `/releases/latest`：GitHub 该端点**只返回非 prerelease 的 Release**，
+  而本项目所有版本都是 alpha（一律 `--prerelease`），实测该端点直接 404 —— 用户点「看看有没有
+  更新」永远失败。改为拉 `/releases?per_page=30` 后由客户端自己挑最高版本
+- 选择规则收进纯函数 `UpdateService.selectRelease`（可直接单测）：丢掉 `draft`、丢掉与渠道不符的
+  prerelease（正式版用户不会被推到 alpha 上）、丢掉解析不出 SemVer 的 tag（滚动通道的
+  `updates-prerelease` 因此不会被误当成新版本），取 SemVer 最大者
+- `release.yml` 补上「滚动通道清单同步」步骤：把本次 `update.json` 覆盖到 `updates-prerelease` /
+  `updates-stable`。文档（`docs/wiki/构建与发布.md`）早就承诺这一步，workflow 里却一直缺失，
+  通道里挂的还是 2026-08-22 那份旧清单
+- 顺带修掉发布链路的签名摘要解析：build-tools 37.0.0 的标签是
+  `V2 Signer: certificate SHA-256 digest:`，旧正则只认 `Signer #1 …`，于是摘要为空；
+  现在新旧标签都认（`scripts/apk-certificate-sha256.sh`），且优先从 APK 读并与 keystore 交叉校验
+
 ### 发布链路（最高优先级）
 
 - 修复 release 签名链路：`release.yml` 现在从 `ANDROID_KEYSTORE_BASE64` 等 secrets
