@@ -441,3 +441,34 @@ jobs:
               --notes-file final-artifacts/release-notes.md \
               "${prerelease_args[@]}"
           fi
+
+      - name: Update rolling channel manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 滚动通道：一个固定 tag 的 Release，只挂最新一份签名清单 update.json。
+          # docs/wiki/构建与发布.md 说「Actions 会自动更新 updates-prerelease / updates-stable」，
+          # 但 workflow 里一直没有这一步，通道里的清单停在 2026-08-22——这里把缺口补上。
+          # 固定 tag 不是 SemVer，App 侧的版本选择逻辑会忽略它，不会被误当成新版本。
+          channel="${{ needs.build-android.outputs.channel }}"
+          channel_tag="${{ needs.build-android.outputs.channel_tag }}"
+          manifest="final-artifacts/update.json"
+          if [[ ! -f "$manifest" ]]; then
+            echo "::error::final-artifacts/update.json 不存在，滚动通道无法更新。" >&2
+            exit 1
+          fi
+
+          channel_flags=()
+          if [[ "$channel" == "prerelease" ]]; then
+            channel_flags+=(--prerelease)
+          fi
+
+          if gh release view "$channel_tag" >/dev/null 2>&1; then
+            gh release upload "$channel_tag" "$manifest" --clobber
+          else
+            gh release create "$channel_tag" "$manifest" \
+              --title "SunsetRipple ${channel} update channel" \
+              --notes "滚动更新通道：始终挂最新一份签名清单（update.json），具体版本以清单内容为准。" \
+              "${channel_flags[@]}"
+          fi
+          echo "已更新滚动通道 $channel_tag 的 update.json"
