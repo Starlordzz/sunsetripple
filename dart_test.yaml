@@ -1,0 +1,4 @@
+# LAN discovery and widget tests share UDP port 8990. Running those files in
+# parallel lets SO_REUSEPORT deliver packets to the wrong test. The release
+# signing subprocesses make this timing conflict repeatable on a clean runner.
+concurrency: 1
