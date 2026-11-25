@@ -87,6 +87,9 @@ jobs:
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed lib test
 
+      - name: Test APK certificate verification gate
+        run: python3 scripts/test-apk-certificate.py
+
       - name: Run unit tests with coverage
         run: flutter test --coverage
 
@@ -177,3 +180,26 @@ jobs:
           name: flutter-android-apk
           path: build/app/outputs/flutter-apk/
           if-no-files-found: ignore
+
+
+  test-ios:
+    name: iOS Simulator Build & Opus Tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.0'
+          channel: stable
+          cache: true
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Compile iOS simulator app
+        run: flutter build ios --simulator --debug
+      - name: Test iOS codec
+        shell: bash
+        run: |
+          set -euo pipefail
+          simulator_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for xs in d["devices"].values() for x in xs if x["name"].startswith("iPhone")))')
+          xcodebuild test -workspace ios/Runner.xcworkspace -scheme Runner \
+            -destination "platform=iOS Simulator,id=$simulator_id" -only-testing:RunnerTests

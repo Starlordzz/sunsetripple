@@ -3,6 +3,81 @@ import UIKit
 import AVFoundation
 import AudioToolbox
 
+enum IosPollResult: Equatable {
+    case notReady
+    case lost
+    case packet([UInt8])
+}
+
+/// 16 位序号展开与乱序重排抖动缓冲，语义与 Android 端 `JitterBuffer` 对齐。
+final class IosJitterBuffer {
+    private let prebufferFrames: Int
+    private let maxBuffer: Int
+    private var buf: [Int64: [UInt8]] = [:]
+    private var highestSeen: Int64 = -1
+    private var nextSeq: Int64 = -1
+    private var started: Bool = false
+
+    init(prebufferFrames: Int = 3, maxBuffer: Int = 10) {
+        self.prebufferFrames = prebufferFrames
+        self.maxBuffer = maxBuffer
+    }
+
+    func put(seq16: Int, payload: [UInt8]) {
+        let seq = unwrap(seq16)
+        if started && seq < nextSeq { return }
+        buf[seq] = payload
+        while buf.count > maxBuffer, let oldest = buf.keys.min() {
+            buf.removeValue(forKey: oldest)
+        }
+    }
+
+    func poll() -> IosPollResult {
+        if !started {
+            guard buf.count >= prebufferFrames, let first = buf.keys.min() else {
+                return .notReady
+            }
+            started = true
+            nextSeq = first
+        }
+        guard !buf.isEmpty else { return .notReady }
+
+        if let first = buf.keys.min(), first - nextSeq > Int64(maxBuffer) {
+            nextSeq = first
+        }
+
+        let head = buf.removeValue(forKey: nextSeq)
+        nextSeq += 1
+        if let data = head {
+            return .packet(data)
+        }
+        return .lost
+    }
+
+    func reset() {
+        buf.removeAll()
+        highestSeen = -1
+        nextSeq = -1
+        started = false
+    }
+
+    var hasStarted: Bool { started }
+    var pendingCount: Int { buf.count }
+
+    private func unwrap(_ seq16: Int) -> Int64 {
+        let masked = seq16 & 0xFFFF
+        if highestSeen < 0 {
+            highestSeen = Int64(masked)
+            return highestSeen
+        }
+        let low = Int(highestSeen & 0xFFFF)
+        let delta = ((masked - low + 0x8000) & 0xFFFF) - 0x8000
+        let v = highestSeen + Int64(delta)
+        if v > highestSeen { highestSeen = v }
+        return v
+    }
+}
+
 public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
     private static let methodChannelName = "host.msknet.sunsetripple/audio"
@@ -12,20 +87,53 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     public static let frameSamples: Int = 320 // 20ms @ 16kHz
     public static let bytesPerFrame: Int = frameSamples * 2 // 640 bytes
 
+    private final class RemoteAudioStream {
+        let decoder: OpaquePointer
+        let jitter = IosJitterBuffer()
+        var pcm: [Int16] = [Int16](repeating: 0, count: PlatformAudioPlugin.frameSamples)
+        var pcmCount: Int = 0
+        var pcmOffset: Int = 0
+
+        init(decoder: OpaquePointer) {
+            self.decoder = decoder
+        }
+    }
+
     private var methodChannel: FlutterMethodChannel?
     private var eventChannel: FlutterEventChannel?
     private var eventSink: FlutterEventSink?
 
-    private var audioUnit: AudioComponentInstance?
+    fileprivate var audioUnit: AudioComponentInstance?
     private var isCapturing: Bool = false
     private var isMuted: Bool = false
+    private var isSessionActive: Bool = false
     private var userWantsSpeaker: Bool = true
     private var preferBuiltinMic: Bool = false
     private var currentBitrate: Int = 24000
+    private let captureLock = NSLock()
+    private var encoder: OpaquePointer?
 
-    // 远端音频流混音队列（按发送方 ID 分流）
+    // CoreAudio 实时回调零分配暂存与异步编码环形缓冲
+    private var inputScratchPtr: UnsafeMutablePointer<Int16>?
+    private var inputScratchCapacity: Int = 0
+    private let captureRingCapacity: Int = 16000
+    private var captureRing: [Int16] = [Int16](repeating: 0, count: 16000)
+    private var captureRingHead: Int = 0
+    private var captureRingTail: Int = 0
+    private var captureRingCount: Int = 0
+    private var captureFrameScratch: [Int16] = [Int16](repeating: 0, count: frameSamples)
+    private var encodePacketScratch: [UInt8] = [UInt8](repeating: 0, count: 512)
+    private var captureGeneration: Int = 0
+    private var activeCaptureSemaphore: DispatchSemaphore?
+
+    // 远端音频流混音队列（按发送方 ID 分流，含 JitterBuffer + PLC）
     private let playbackLock = NSLock()
-    private var remoteQueues: [Int: [[Int16]]] = [:]
+    private var remoteStreams: [Int: RemoteAudioStream] = [:]
+    private var mixScratch: [Int32] = [Int32](repeating: 0, count: 4096)
+
+    deinit {
+        stopAudioEngine()
+    }
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = PlatformAudioPlugin()
@@ -79,6 +187,7 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     try self.startAudioEngine()
                     result(nil)
                 } catch {
+                    self.stopAudioEngine()
                     result(FlutterError(code: "AUDIO_INIT_FAILED", message: "音频引擎初始化失败: \(error.localizedDescription)", details: nil))
                 }
             }
@@ -109,7 +218,10 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
         case "setBitrate":
             if let args = call.arguments as? [String: Any], let bitrate = args["bitrate"] as? Int {
+                captureLock.lock()
                 currentBitrate = bitrate
+                if let encoder = encoder { _ = sunset_opus_set_bitrate(encoder, Int32(bitrate)) }
+                captureLock.unlock()
             }
             result(nil)
 
@@ -124,14 +236,16 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         case "removeRemoteMember":
             if let args = call.arguments as? [String: Any], let memberId = args["memberId"] as? Int {
                 playbackLock.lock()
-                remoteQueues.removeValue(forKey: memberId)
+                if let stream = remoteStreams.removeValue(forKey: memberId) {
+                    opus_decoder_destroy(stream.decoder)
+                }
                 playbackLock.unlock()
             }
             result(nil)
 
         case "clearRemoteMembers":
             playbackLock.lock()
-            remoteQueues.removeAll()
+            clearRemoteAudioLocked()
             playbackLock.unlock()
             result(nil)
 
@@ -167,6 +281,16 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     // MARK: - VoiceProcessingIO 音频引擎
 
+    private func checkStatus(_ status: OSStatus, _ action: String) throws {
+        guard status == noErr else {
+            throw NSError(
+                domain: "PlatformAudioPlugin",
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "\(action) 失败: \(status)"]
+            )
+        }
+    }
+
     private func startAudioEngine() throws {
         guard !isCapturing else { return }
 
@@ -175,6 +299,23 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         try session.setPreferredSampleRate(PlatformAudioPlugin.sampleRate)
         try session.setPreferredIOBufferDuration(0.02)
         try session.setActive(true, options: .notifyOthersOnDeactivation)
+        isSessionActive = true
+
+        var codecError: Int32 = 0
+        guard let codec = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &codecError), codecError == OPUS_OK else {
+            throw NSError(domain: "Opus", code: Int(codecError), userInfo: nil)
+        }
+
+        captureLock.lock()
+        encoder = codec
+        captureRingHead = 0
+        captureRingTail = 0
+        captureRingCount = 0
+        let bitrateStatus = sunset_opus_set_bitrate(codec, Int32(currentBitrate))
+        captureLock.unlock()
+        guard bitrateStatus == OPUS_OK else {
+            throw NSError(domain: "Opus", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid Opus bitrate"])
+        }
 
         var desc = AudioComponentDescription(
             componentType: kAudioUnitType_Output,
@@ -197,8 +338,14 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
         // 启用 Input (录音: Element 1) 与 Output (播放: Element 0)
         var one: UInt32 = 1
-        AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &one, UInt32(MemoryLayout<UInt32>.size))
-        AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &one, UInt32(MemoryLayout<UInt32>.size))
+        try checkStatus(
+            AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &one, UInt32(MemoryLayout<UInt32>.size)),
+            "启用 AudioUnit Input"
+        )
+        try checkStatus(
+            AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &one, UInt32(MemoryLayout<UInt32>.size)),
+            "启用 AudioUnit Output"
+        )
 
         // 音频流格式定义：16kHz, 单声道, 16-bit 线性 PCM
         var streamDesc = AudioStreamBasicDescription(
@@ -213,62 +360,138 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
             mReserved: 0
         )
 
-        AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &streamDesc, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
-        AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &streamDesc, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+        try checkStatus(
+            AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &streamDesc, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)),
+            "设置录音流格式"
+        )
+        try checkStatus(
+            AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &streamDesc, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)),
+            "设置播放流格式"
+        )
 
         // 录音输入回调
         var inputCallback = AURenderCallbackStruct(
             inputProc: audioInputCallback,
             inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
         )
-        AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &inputCallback, UInt32(MemoryLayout<AURenderCallbackStruct>.size))
+        try checkStatus(
+            AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &inputCallback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)),
+            "设置录音回调"
+        )
 
         // 播放渲染回调
         var renderCallback = AURenderCallbackStruct(
             inputProc: audioRenderCallback,
             inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
         )
-        AudioUnitSetProperty(audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &renderCallback, UInt32(MemoryLayout<AURenderCallbackStruct>.size))
+        try checkStatus(
+            AudioUnitSetProperty(audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &renderCallback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)),
+            "设置播放回调"
+        )
 
-        AudioUnitInitialize(audioUnit)
-        AudioOutputUnitStart(audioUnit)
+        try checkStatus(AudioUnitInitialize(audioUnit), "初始化 AudioUnit")
+
+        let preallocSamples = 4096
+        inputScratchPtr = UnsafeMutablePointer<Int16>.allocate(capacity: preallocSamples)
+        inputScratchCapacity = preallocSamples
+
+        captureLock.lock()
+        captureGeneration += 1
+        let generation = captureGeneration
+        let semaphore = DispatchSemaphore(value: 0)
+        activeCaptureSemaphore = semaphore
         isCapturing = true
+        captureLock.unlock()
+
+        let worker = Thread { [weak self] in
+            self?.runCaptureWorker(generation: generation, semaphore: semaphore)
+        }
+        worker.name = "sunset-ios-opus-capture"
+        worker.qualityOfService = .userInteractive
+        worker.start()
+
+        do {
+            try checkStatus(AudioOutputUnitStart(audioUnit), "启动 AudioUnit")
+        } catch {
+            stopAudioEngine()
+            throw error
+        }
 
         updateAudioRouting()
     }
 
     private func stopAudioEngine() {
-        guard let unit = audioUnit else { return }
+        if let unit = audioUnit {
+            AudioOutputUnitStop(unit)
+            AudioUnitUninitialize(unit)
+            AudioComponentInstanceDispose(unit)
+            audioUnit = nil
+        }
+
+        if let scratch = inputScratchPtr {
+            scratch.deallocate()
+            inputScratchPtr = nil
+            inputScratchCapacity = 0
+        }
+
+        captureLock.lock()
         isCapturing = false
-        AudioOutputUnitStop(unit)
-        AudioUnitUninitialize(unit)
-        AudioComponentInstanceDispose(unit)
-        self.audioUnit = nil
+        captureGeneration += 1
+        if let encoder = encoder { opus_encoder_destroy(encoder) }
+        encoder = nil
+        captureRingHead = 0
+        captureRingTail = 0
+        captureRingCount = 0
+        let pendingSemaphore = activeCaptureSemaphore
+        activeCaptureSemaphore = nil
+        captureLock.unlock()
+        pendingSemaphore?.signal()
 
         playbackLock.lock()
-        remoteQueues.removeAll()
+        clearRemoteAudioLocked()
         playbackLock.unlock()
+
+        if isSessionActive {
+            isSessionActive = false
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+
+    private func clearRemoteAudioLocked() {
+        for stream in remoteStreams.values { opus_decoder_destroy(stream.decoder) }
+        remoteStreams.removeAll()
     }
 
     private func updateAudioRouting() {
         let session = AVAudioSession.sharedInstance()
         do {
-            if userWantsSpeaker {
-                try session.overrideOutputAudioPort(.speaker)
-            } else {
-                try session.overrideOutputAudioPort(.none)
-            }
+            let externalInput = session.availableInputs?.first(where: {
+                $0.portType == .headsetMic || $0.portType == .bluetoothHFP || $0.portType == .usbAudio
+            })
+            let usingExternalInput = !preferBuiltinMic && externalInput != nil
 
             if preferBuiltinMic {
                 if let builtin = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
                     try session.setPreferredInput(builtin)
                 }
+            } else if let headset = externalInput {
+                try session.setPreferredInput(headset)
+            }
+
+            let hasExternalOutput = session.currentRoute.outputs.contains(where: {
+                $0.portType == .headphones ||
+                $0.portType == .bluetoothHFP ||
+                $0.portType == .bluetoothA2DP ||
+                $0.portType == .bluetoothLE ||
+                $0.portType == .usbAudio
+            })
+
+            if usingExternalInput || (preferBuiltinMic && hasExternalOutput) {
+                try session.overrideOutputAudioPort(.none)
+            } else if userWantsSpeaker {
+                try session.overrideOutputAudioPort(.speaker)
             } else {
-                if let headset = session.availableInputs?.first(where: {
-                    $0.portType == .headsetMic || $0.portType == .bluetoothHFP || $0.portType == .bluetoothA2DP
-                }) {
-                    try session.setPreferredInput(headset)
-                }
+                try session.overrideOutputAudioPort(.none)
             }
         } catch {
             print("[SunsetAudio] 音频路由切换失败: \(error)")
@@ -280,92 +503,193 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     private func handleRemoteFrameData(_ data: Data) {
         guard data.count >= 6 else { return }
         // 二进制帧协议：[0]=Type, [1]=SenderId, [2..3]=Seq(BigEndian), [4..5]=Len(BigEndian)
-        let senderId = Int(data[1])
-        let seq = (Int(data[2]) << 8) | Int(data[3])
-        let payloadLength = (Int(data[4]) << 8) | Int(data[5])
+        let base = data.startIndex
+        let frameType = data[base]
+        let senderId = Int(data[base + 1])
+        let seq = (Int(data[base + 2]) << 8) | Int(data[base + 3])
+        let payloadLength = (Int(data[base + 4]) << 8) | Int(data[base + 5])
+        guard frameType == 0x01, senderId > 0, payloadLength > 0,
+              payloadLength <= 512, data.count == 6 + payloadLength else { return }
 
-        guard payloadLength > 0, data.count >= 6 + payloadLength else { return }
-        let payload = data.subdata(in: 6..<(6 + payloadLength))
-
-        // 解码或缓冲（注：若集成 Opus，此处应送入 Opus 解码器；在过渡期至少需做好内存安全边界）
-        var pcmSamples = [Int16](repeating: 0, count: PlatformAudioPlugin.frameSamples)
-        let sampleBytes = min(payload.count, PlatformAudioPlugin.bytesPerFrame)
-        payload.withUnsafeBytes { rawPtr in
-            guard let baseAddress = rawPtr.baseAddress else { return }
-            let count = sampleBytes / 2
-            let src = baseAddress.bindMemory(to: Int16.self, capacity: count)
-            for i in 0..<min(count, PlatformAudioPlugin.frameSamples) {
-                pcmSamples[i] = src[i]
-            }
-        }
+        let payloadStart = base + 6
+        let payloadEnd = payloadStart + payloadLength
+        let payloadBytes = Array(data[payloadStart..<payloadEnd])
 
         playbackLock.lock()
-        if remoteQueues[senderId] == nil {
-            remoteQueues[senderId] = []
+        defer { playbackLock.unlock() }
+        if remoteStreams[senderId] == nil {
+            var error: Int32 = 0
+            guard let decoder = opus_decoder_create(16000, 1, &error), error == OPUS_OK else { return }
+            remoteStreams[senderId] = RemoteAudioStream(decoder: decoder)
         }
-        remoteQueues[senderId]?.append(pcmSamples)
-        if let count = remoteQueues[senderId]?.count, count > 10 {
-            remoteQueues[senderId]?.removeFirst(count - 10)
-        }
-        playbackLock.unlock()
+        remoteStreams[senderId]?.jitter.put(seq16: seq, payload: payloadBytes)
     }
 
     // MARK: - 音频回调处理 (C 函数)
 
-    fileprivate func processCapturedPcm(samples: [Int16]) {
-        guard isCapturing, !isMuted else { return }
-
-        // 计算 RMS 能量与峰值音量 (0.0 ~ 1.0)
-        var sumSquares: Double = 0
-        for s in samples {
-            let val = Double(s)
-            sumSquares += val * val
+    fileprivate func renderScratchPointer(capacity: Int) -> UnsafeMutablePointer<Int16>? {
+        guard capacity > 0 else { return nil }
+        if capacity <= inputScratchCapacity, let ptr = inputScratchPtr {
+            return ptr
         }
-        // 归一化与 C / Kotlin / Dart 保持一致：满量程分母固定 32768，不再额外放大。
-        let rms = sqrt(sumSquares / Double(samples.count))
-        let level = min(1.0, max(0.0, rms / 32768.0))
+        inputScratchPtr?.deallocate()
+        let allocated = UnsafeMutablePointer<Int16>.allocate(capacity: capacity)
+        inputScratchPtr = allocated
+        inputScratchCapacity = capacity
+        return allocated
+    }
 
-        // 构造数据字节并上送给 Flutter
-        var data = Data(count: samples.count * 2)
-        data.withUnsafeMutableBytes { ptr in
-            guard let baseAddress = ptr.baseAddress else { return }
-            let dest = baseAddress.bindMemory(to: Int16.self, capacity: samples.count)
-            for i in 0..<samples.count {
-                dest[i] = samples[i]
+    fileprivate func enqueueCapturedSamples(_ ptr: UnsafePointer<Int16>, count: Int) {
+        guard count > 0 else { return }
+        captureLock.lock()
+        let active = isCapturing && !isMuted && encoder != nil
+        var shouldSignal = false
+        if active {
+            let toWrite = min(count, captureRingCapacity)
+            let startOffset = count - toWrite
+            if captureRingCount + toWrite > captureRingCapacity {
+                let overflow = captureRingCount + toWrite - captureRingCapacity
+                captureRingTail = (captureRingTail + overflow) % captureRingCapacity
+                captureRingCount -= overflow
             }
+            for i in 0..<toWrite {
+                captureRing[captureRingHead] = ptr[startOffset + i]
+                captureRingHead = (captureRingHead + 1) % captureRingCapacity
+            }
+            captureRingCount += toWrite
+            shouldSignal = captureRingCount >= PlatformAudioPlugin.frameSamples
         }
+        let semaphore = activeCaptureSemaphore
+        captureLock.unlock()
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, let sink = self.eventSink else { return }
-            sink([
-                "data": FlutterStandardTypedData(bytes: data),
-                "level": level
-            ])
+        if shouldSignal {
+            semaphore?.signal()
+        }
+    }
+
+    private func runCaptureWorker(generation: Int, semaphore: DispatchSemaphore) {
+        while true {
+            semaphore.wait()
+            while true {
+                var packetData: Data?
+                var level = 0.0
+                var hasMore = false
+
+                captureLock.lock()
+                if !isCapturing || captureGeneration != generation {
+                    captureLock.unlock()
+                    return
+                }
+                if isMuted {
+                    captureRingHead = 0
+                    captureRingTail = 0
+                    captureRingCount = 0
+                    captureLock.unlock()
+                    break
+                }
+                guard captureRingCount >= PlatformAudioPlugin.frameSamples, let enc = encoder else {
+                    captureLock.unlock()
+                    break
+                }
+
+                for i in 0..<PlatformAudioPlugin.frameSamples {
+                    captureFrameScratch[i] = captureRing[captureRingTail]
+                    captureRingTail = (captureRingTail + 1) % captureRingCapacity
+                }
+                captureRingCount -= PlatformAudioPlugin.frameSamples
+                hasMore = captureRingCount >= PlatformAudioPlugin.frameSamples
+
+                let count = captureFrameScratch.withUnsafeBufferPointer { pcm in
+                    encodePacketScratch.withUnsafeMutableBufferPointer { output in
+                        opus_encode(enc, pcm.baseAddress, Int32(PlatformAudioPlugin.frameSamples),
+                                    output.baseAddress, Int32(output.count))
+                    }
+                }
+                if count > 0 {
+                    var sum = 0.0
+                    for s in captureFrameScratch {
+                        let v = Double(s)
+                        sum += v * v
+                    }
+                    let rms = sqrt(sum / Double(PlatformAudioPlugin.frameSamples))
+                    level = min(1.0, rms / 32768.0)
+                    packetData = Data(encodePacketScratch.prefix(Int(count)))
+                }
+                captureLock.unlock()
+
+                if let data = packetData {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self,
+                              self.isCapturing,
+                              self.captureGeneration == generation,
+                              let sink = self.eventSink else { return }
+                        sink(["data": FlutterStandardTypedData(bytes: data), "level": level])
+                    }
+                }
+                if !hasMore { break }
+            }
         }
     }
 
     fileprivate func providePlaybackPcm(into buffer: UnsafeMutablePointer<Int16>, sampleCount: Int) {
+        guard sampleCount > 0 else { return }
+
         playbackLock.lock()
         defer { playbackLock.unlock() }
 
-        if remoteQueues.isEmpty {
+        if remoteStreams.isEmpty {
             buffer.initialize(repeating: 0, count: sampleCount)
             return
         }
 
-        var mixed = [Int32](repeating: 0, count: sampleCount)
+        if mixScratch.count < sampleCount {
+            mixScratch = [Int32](repeating: 0, count: sampleCount)
+        } else {
+            for i in 0..<sampleCount { mixScratch[i] = 0 }
+        }
         var activeStreams = 0
 
-        for (senderId, queue) in remoteQueues {
-            guard !queue.isEmpty else { continue }
-            let frame = queue.first!
-            remoteQueues[senderId]?.removeFirst()
-            activeStreams += 1
+        for stream in remoteStreams.values {
+            var written = 0
+            while written < sampleCount {
+                if stream.pcmOffset >= stream.pcmCount {
+                    let polled = stream.jitter.poll()
+                    let decoded: Int32
+                    switch polled {
+                    case .notReady:
+                        decoded = -1
+                    case .packet(let bytes):
+                        decoded = bytes.withUnsafeBufferPointer { input in
+                            stream.pcm.withUnsafeMutableBufferPointer { output in
+                                opus_decode(stream.decoder, input.baseAddress, Int32(bytes.count),
+                                            output.baseAddress, Int32(PlatformAudioPlugin.frameSamples), 0)
+                            }
+                        }
+                    case .lost:
+                        decoded = stream.pcm.withUnsafeMutableBufferPointer { output in
+                            opus_decode(stream.decoder, nil, 0,
+                                        output.baseAddress, Int32(PlatformAudioPlugin.frameSamples), 0)
+                        }
+                    }
+                    if case .notReady = polled { break }
+                    if decoded <= 0 {
+                        stream.pcmCount = 0
+                        stream.pcmOffset = 0
+                        continue
+                    }
+                    stream.pcmCount = Int(decoded)
+                    stream.pcmOffset = 0
+                }
 
-            let count = min(sampleCount, frame.count)
-            for i in 0..<count {
-                mixed[i] += Int32(frame[i])
+                let available = stream.pcmCount - stream.pcmOffset
+                let count = min(sampleCount - written, available)
+                for i in 0..<count {
+                    mixScratch[written + i] += Int32(stream.pcm[stream.pcmOffset + i])
+                }
+                written += count
+                stream.pcmOffset += count
             }
+            if written > 0 { activeStreams += 1 }
         }
 
         if activeStreams == 0 {
@@ -375,7 +699,7 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
         // 混音饱和截断（Saturation Clipping）
         for i in 0..<sampleCount {
-            let val = mixed[i]
+            let val = mixScratch[i]
             if val > 32767 {
                 buffer[i] = 32767
             } else if val < -32768 {
@@ -398,24 +722,20 @@ private func audioInputCallback(
     ioData: UnsafeMutablePointer<AudioBufferList>?
 ) -> OSStatus {
     let plugin = Unmanaged<PlatformAudioPlugin>.fromOpaque(inRefCon).takeUnretainedValue()
+    let sampleCount = Int(inNumberFrames)
+    guard let unit = plugin.audioUnit,
+          let scratch = plugin.renderScratchPointer(capacity: sampleCount) else {
+        return noErr
+    }
 
     var bufferList = AudioBufferList(
         mNumberBuffers: 1,
         mBuffers: AudioBuffer(
             mNumberChannels: 1,
             mDataByteSize: inNumberFrames * 2,
-            mData: nil
+            mData: UnsafeMutableRawPointer(scratch)
         )
     )
-
-    let bufferSize = Int(inNumberFrames) * 2
-    let dataPtr = malloc(bufferSize)
-    defer { free(dataPtr) }
-    bufferList.mBuffers.mData = dataPtr
-
-    guard let unit = plugin.value(forKey: "audioUnit") as? AudioComponentInstance else {
-        return noErr
-    }
 
     let status = AudioUnitRender(
         unit,
@@ -427,13 +747,8 @@ private func audioInputCallback(
     )
 
     if status == noErr, let rawData = bufferList.mBuffers.mData {
-        let sampleCount = Int(inNumberFrames)
         let ptr = rawData.bindMemory(to: Int16.self, capacity: sampleCount)
-        var samples = [Int16](repeating: 0, count: sampleCount)
-        for i in 0..<sampleCount {
-            samples[i] = ptr[i]
-        }
-        plugin.processCapturedPcm(samples: samples)
+        plugin.enqueueCapturedSamples(ptr, count: sampleCount)
     }
 
     return noErr

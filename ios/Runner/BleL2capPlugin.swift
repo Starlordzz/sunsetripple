@@ -36,6 +36,9 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
     /// `bindMember` 写入。转发前据此重写帧头 senderId。
     private var boundMemberByStream: [ObjectIdentifier: Int] = [:]
 
+    private static let maxPeers = 5
+    private static let maxLocalNameBytes = 28
+
     /// `FrameType.joinReq`：房主靠它建立绑定，不参与 senderId 重写。
     private let frameTypeJoinReq: UInt8 = 0x02
 
@@ -84,7 +87,8 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "isSupported":
-            let supported = (centralManager?.state == .poweredOn || centralManager == nil)
+            let state = centralManager?.state
+            let supported = state == nil || (state != .poweredOff && state != .unauthorized && state != .unsupported)
             result(supported)
 
         case "startAdvertising", "startHost":
@@ -93,7 +97,8 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
                 result(FlutterError(code: "INVALID_ARGS", message: "缺少房间名称参数", details: nil))
                 return
             }
-            startHost(roomName: roomName) { success in
+            let memberCount = args["memberCount"] as? Int ?? 1
+            startHost(roomName: roomName, memberCount: memberCount) { success in
                 result(success)
             }
 
@@ -177,21 +182,36 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
 
     private var hostCompletion: ((Bool) -> Void)?
 
-    private func startHost(roomName: String, completion: @escaping (Bool) -> Void) {
+    private func startHost(roomName: String, memberCount: Int = 1, completion: @escaping (Bool) -> Void) {
+        stopHost()
         self.hostRoomName = roomName
-        self.advertisedMemberCount = 1
+        self.advertisedMemberCount = max(1, min(6, memberCount))
         self.hostCompletion = completion
         self.isHosting = true
 
         if peripheralManager == nil {
             peripheralManager = CBPeripheralManager(delegate: self, queue: nil)
-        } else if peripheralManager?.state == .poweredOn {
-            peripheralManager?.publishL2CAPChannel(withEncryption: false)
+        } else if let pm = peripheralManager {
+            switch pm.state {
+            case .poweredOn:
+                pm.publishL2CAPChannel(withEncryption: false)
+            case .poweredOff, .unauthorized, .unsupported:
+                isHosting = false
+                let pending = hostCompletion
+                hostCompletion = nil
+                pending?(false)
+            default:
+                break
+            }
         }
     }
 
     private func stopHost() {
         isHosting = false
+        if let pending = hostCompletion {
+            hostCompletion = nil
+            pending(false)
+        }
         if let psm = publishedPsm {
             peripheralManager?.unpublishL2CAPChannel(psm)
             publishedPsm = nil
@@ -199,13 +219,19 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
         peripheralManager?.stopAdvertising()
         boundMemberByStream.removeAll()
         for channel in hostChannels {
-            channel.inputStream.close()
-            channel.outputStream.close()
+            closeStream(channel.inputStream)
+            closeStream(channel.outputStream)
             inputBuffers.removeValue(forKey: ObjectIdentifier(channel.inputStream))
             pendingWrites.removeValue(forKey: ObjectIdentifier(channel.outputStream))
             streamPeerAddresses.removeValue(forKey: ObjectIdentifier(channel.inputStream))
         }
         hostChannels.removeAll()
+    }
+
+    private func closeStream(_ stream: Stream) {
+        stream.delegate = nil
+        stream.remove(from: .main, forMode: .common)
+        stream.close()
     }
 
     // MARK: - 成员 (Central Client) 逻辑
@@ -235,6 +261,12 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             return
         }
 
+        if let pending = connectCompletion {
+            connectCompletion = nil
+            pending(false)
+        }
+        disconnect()
+
         self.targetPsm = CBL2CAPPSM(psm)
         self.connectCompletion = completion
 
@@ -244,14 +276,21 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             peripheral.delegate = self
             central.connect(peripheral, options: nil)
         } else {
+            self.targetPsm = nil
+            self.connectCompletion = nil
             completion(false)
         }
     }
 
     private func disconnect() {
+        if let pending = connectCompletion {
+            connectCompletion = nil
+            pending(false)
+        }
+        targetPsm = nil
         if let client = clientChannel {
-            client.inputStream.close()
-            client.outputStream.close()
+            closeStream(client.inputStream)
+            closeStream(client.outputStream)
             inputBuffers.removeValue(forKey: ObjectIdentifier(client.inputStream))
             pendingWrites.removeValue(forKey: ObjectIdentifier(client.outputStream))
             streamPeerAddresses.removeValue(forKey: ObjectIdentifier(client.inputStream))
@@ -303,7 +342,7 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
             if written <= 0 {
                 return
             }
-            pending.removeFirst(written)
+            pending = Data(pending.dropFirst(written))
             if pending.isEmpty {
                 pendingWrites.removeValue(forKey: key)
             } else {
@@ -315,15 +354,22 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
     // MARK: - 数据接收转发
 
     fileprivate func handleReceivedData(_ data: Data, from inputStream: InputStream) {
+        var delivered = data
         if isHosting {
-            // 转发前把帧头 [1] 的 senderId 改写成这条链路在房主侧绑定的成员号。
-            // L2CAP 是链路寻址，接收端没有房主那份 endpoint 白名单，没法自行
-            // 校验来源；不改写的话任何成员都能冒用他人身份发言、撤回或伪造
-            // PTT 状态。与 Android 的 BleL2capPlugin.rewriteSender 语义一致。
-            let memberId = boundMemberByStream[ObjectIdentifier(inputStream)] ?? 0
-            if let rewritten = rewriteSender(data: data, memberId: memberId) {
+            let isJoin = data.first == frameTypeJoinReq
+            if isJoin {
+                guard data.count >= frameHeaderSize,
+                      data[data.index(data.startIndex, offsetBy: 1)] == 0 else { return }
+            } else {
+                let memberId = boundMemberByStream[ObjectIdentifier(inputStream)] ?? 0
+                guard let normalized = rewriteSender(data: data, memberId: memberId) else { return }
+                delivered = normalized
+                // 转发前把帧头 [1] 的 senderId 改写成这条链路在房主侧绑定的成员号。
+                // L2CAP 是链路寻址，接收端没有房主那份 endpoint 白名单，没法自行
+                // 校验来源；不改写的话任何成员都能冒用他人身份发言、撤回或伪造
+                // PTT 状态。与 Android 的 BleL2capPlugin.rewriteSender 语义一致。
                 for channel in hostChannels where channel.inputStream !== inputStream {
-                    _ = writeToStream(channel.outputStream, data: rewritten)
+                    _ = writeToStream(channel.outputStream, data: normalized)
                 }
             }
         }
@@ -331,7 +377,7 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let sink = self.dataEventSink else { return }
             sink([
-                "data": FlutterStandardTypedData(bytes: data),
+                "data": FlutterStandardTypedData(bytes: delivered),
                 "peerAddress": peerAddress,
             ])
         }
@@ -377,8 +423,17 @@ public final class BleL2capPlugin: NSObject, FlutterPlugin {
 
 extension BleL2capPlugin: CBPeripheralManagerDelegate {
     public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-        if peripheral.state == .poweredOn && isHosting {
+        guard isHosting else { return }
+        switch peripheral.state {
+        case .poweredOn:
             peripheral.publishL2CAPChannel(withEncryption: false)
+        case .poweredOff, .unauthorized, .unsupported:
+            isHosting = false
+            let pending = hostCompletion
+            hostCompletion = nil
+            pending?(false)
+        default:
+            break
         }
     }
 
@@ -400,16 +455,39 @@ extension BleL2capPlugin: CBPeripheralManagerDelegate {
 
     private func advertiseHost() {
         guard let psm = publishedPsm, isHosting else { return }
+        let prefix = "SR_\(psm)_\(advertisedMemberCount)_"
+        let budget = max(0, BleL2capPlugin.maxLocalNameBytes - prefix.utf8.count)
+        let truncatedName = truncateUtf8(hostRoomName, maxBytes: budget)
+        let safeName = (truncatedName.isEmpty && budget >= 4) ? "Room" : truncatedName
         // 构造广播数据（Service UUID + LocalName 包含房间名、PSM 和人数）
         let advData: [String: Any] = [
             CBAdvertisementDataServiceUUIDsKey: [BleL2capPlugin.serviceUuid],
-            CBAdvertisementDataLocalNameKey: "SR_\(psm)_\(advertisedMemberCount)_\(hostRoomName)"
+            CBAdvertisementDataLocalNameKey: prefix + safeName
         ]
         peripheralManager?.startAdvertising(advData)
     }
 
+    private func truncateUtf8(_ text: String, maxBytes: Int) -> String {
+        guard maxBytes > 0 else { return "" }
+        var result = ""
+        var byteCount = 0
+        for ch in text {
+            let chBytes = String(ch).utf8.count
+            if byteCount + chBytes > maxBytes { break }
+            result.append(ch)
+            byteCount += chBytes
+        }
+        return result
+    }
+
     public func peripheralManager(_ peripheral: CBPeripheralManager, didOpen channel: CBL2CAPChannel?, error: Error?) {
         guard let channel = channel, error == nil else { return }
+        if hostChannels.count >= BleL2capPlugin.maxPeers {
+            print("[SunsetBLE] 蓝牙房已满，拒绝新接入 L2CAP 通道")
+            channel.inputStream.close()
+            channel.outputStream.close()
+            return
+        }
         print("[SunsetBLE] 收到成员接入 L2CAP 通道")
         channel.inputStream.delegate = self
         channel.outputStream.delegate = self
@@ -441,7 +519,7 @@ extension BleL2capPlugin: CBCentralManagerDelegate, CBPeripheralDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let sink = self.scanEventSink else { return }
             sink([
-                "name": roomName,
+                "roomName": roomName,
                 "address": peripheral.identifier.uuidString,
                 "rssi": RSSI.intValue,
                 "psm": psm,
@@ -453,10 +531,11 @@ extension BleL2capPlugin: CBCentralManagerDelegate, CBPeripheralDelegate {
     private func parseAdvertisement(_ advertisementData: [String: Any]) -> (psm: Int, memberCount: Int, roomName: String)? {
         if let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
            localName.hasPrefix("SR_") {
-            let parts = localName.split(separator: "_", maxSplits: 3, omittingEmptySubsequences: true)
+            let parts = localName.split(separator: "_", maxSplits: 3, omittingEmptySubsequences: false)
             guard parts.count >= 3, let psm = Int(parts[1]), psm > 0 else { return nil }
             if parts.count >= 4, let count = Int(parts[2]) {
-                return (psm, max(1, min(6, count)), String(parts[3]))
+                let parsedName = String(parts[3])
+                return (psm, max(1, min(6, count)), parsedName.isEmpty ? "蓝牙房" : parsedName)
             }
             return (psm, 1, String(parts[2]))
         }
@@ -548,17 +627,19 @@ extension BleL2capPlugin: StreamDelegate {
         var pending = inputBuffers[key] ?? Data()
         pending.append(data)
 
-        while pending.count >= 6 {
-            let payloadLength = (Int(pending[4]) << 8) | Int(pending[5])
+        while pending.count >= frameHeaderSize {
+            let b4 = pending[pending.index(pending.startIndex, offsetBy: 4)]
+            let b5 = pending[pending.index(pending.startIndex, offsetBy: 5)]
+            let payloadLength = (Int(b4) << 8) | Int(b5)
             if payloadLength > 512 {
                 print("[SunsetBLE] 收到超长帧，丢弃当前输入缓冲")
                 pending.removeAll(keepingCapacity: false)
                 break
             }
-            let totalLength = 6 + payloadLength
+            let totalLength = frameHeaderSize + payloadLength
             if pending.count < totalLength { break }
             let frame = Data(pending.prefix(totalLength))
-            pending.removeFirst(totalLength)
+            pending = Data(pending.dropFirst(totalLength))
             handleReceivedData(frame, from: inputStream)
         }
 
@@ -566,14 +647,31 @@ extension BleL2capPlugin: StreamDelegate {
     }
 
     private func cleanupStream(_ stream: Stream) {
+        var matchingChannel: CBL2CAPChannel?
+        if let idx = hostChannels.firstIndex(where: { $0.inputStream === stream || $0.outputStream === stream }) {
+            matchingChannel = hostChannels.remove(at: idx)
+        } else if let client = clientChannel, client.inputStream === stream || client.outputStream === stream {
+            matchingChannel = client
+            clientChannel = nil
+        }
+
+        if let channel = matchingChannel {
+            closeStream(channel.inputStream)
+            closeStream(channel.outputStream)
+            let inKey = ObjectIdentifier(channel.inputStream)
+            let outKey = ObjectIdentifier(channel.outputStream)
+            inputBuffers.removeValue(forKey: inKey)
+            streamPeerAddresses.removeValue(forKey: inKey)
+            boundMemberByStream.removeValue(forKey: inKey)
+            pendingWrites.removeValue(forKey: outKey)
+            return
+        }
+
         if let inputStream = stream as? InputStream {
             let key = ObjectIdentifier(inputStream)
             inputBuffers.removeValue(forKey: key)
             streamPeerAddresses.removeValue(forKey: key)
-            hostChannels.removeAll { $0.inputStream === inputStream }
-            if clientChannel?.inputStream === inputStream {
-                clientChannel = nil
-            }
+            boundMemberByStream.removeValue(forKey: key)
         }
         pendingWrites.removeValue(forKey: ObjectIdentifier(stream))
     }
