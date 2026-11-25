@@ -21,7 +21,7 @@ This page covers the complete pipeline from source code to a signed APK. All com
 | `applicationId` / `namespace` | `host.msknet.sunsetripple` |
 | `minSdk` | 26 (Android 8.0) |
 | `targetSdk` / `compileSdk` | 35 |
-| `versionCode` / `versionName` | 14 / `0.1.0-alpha.13` |
+| `versionCode` / `versionName` | 16 / `0.1.0-alpha.14` |
 | Java / JVM target | 17 |
 
 > The legacy test package name `com.wt.intercom` differs from the current one and **cannot be upgraded over**; the old version must be uninstalled first.
@@ -29,19 +29,19 @@ This page covers the complete pipeline from source code to a signed APK. All com
 ## Common Commands
 
 ```powershell
-# 1. 获取依赖包
-flutter pub get
+# 1. Get locked dependencies
+flutter pub get --enforce-lockfile
 
-# 2. 运行自动化单元测试 (144 个用例)
+# 2. Run automated unit tests
 flutter test
 
-# 3. 运行代码静态分析
+# 3. Run static code analysis
 flutter analyze
 
-# 4. 在真机上调试运行
+# 4. Run on a real device in debug mode
 flutter run
 
-# 5. 打包 Release 发布版 APK
+# 5. Build a Release APK
 flutter build apk --release
 ```
 
@@ -51,7 +51,7 @@ flutter build apk --release
 
 The signing configuration and keys **exist only locally** and never enter version control. `.gitignore` already excludes `keystore.properties`, `*.jks`, `*.keystore`, and `*.p12`.
 
-See `keystore.properties.example` for the `keystore.properties` format:
+`android/key.properties` format example:
 
 ```properties
 storeFile=C:/Users/<用户名>/.android/sunset-ripple-release.p12
@@ -107,12 +107,7 @@ Before the first run, configure the four secrets `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
 (`scripts/setup-release-signing.sh` can write them). Back the keystore up offline.
 
-> **Not implemented**: the `update.json` manifest signing, APK SHA-256 verification and
-> in-app auto-install chain this document used to describe **do not exist in the current
-> code**. `UpdateService` only compares SemVer and stores `html_url` for display; nothing
-> downloads, installs or verifies. The helpers (`scripts/SignUpdateManifest.java`,
-> `GenerateUpdateSigningKey.java`) produce a key and a manifest that have no consumer.
-> Do not claim update integrity verification until that path is wired.
+> **Update manifest & verification**: On Android, ECDSA P-256 manifest verification, streamed APK SHA-256 verification, and system-installer handoff are implemented across `UpdateService`, `UpdateManifest`, `UpdateInstaller`, and `UpdateInstallerPlugin.kt`. iOS and HarmonyOS builds are obtained manually from GitHub Releases.
 
 Release steps:
 
@@ -125,7 +120,7 @@ alpha / beta tags are automatically marked as prerelease; when running the workf
 
 ## Release Build Notes
 
-The current release build is `0.1.0-alpha.13`. The update protocol verifies the manifest signature, APK SHA-256, package name, and Android signing certificate before handing over to the system for installation confirmation. The voice pipeline does not depend on the internet; GitHub is only accessed when the user manually checks for updates.
+The current release build is `0.1.0-alpha.14`. The update protocol verifies the manifest signature, APK SHA-256, package name, and Android signing certificate before handing over to the system for installation confirmation. The voice pipeline does not depend on the internet; GitHub is only accessed when the user manually checks for updates.
 
 ## Related Pages
 

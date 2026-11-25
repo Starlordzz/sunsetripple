@@ -1,7 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sunset_ripple/core/audio/audio_io.dart';
+import 'package:sunset_ripple/core/clock.dart';
+import 'package:sunset_ripple/core/protocol/frame.dart';
+import 'package:sunset_ripple/core/protocol/frame_type.dart';
+import 'package:sunset_ripple/core/protocol/payloads/join_request.dart';
 import 'package:sunset_ripple/core/session/room_session.dart';
+import 'package:sunset_ripple/l10n/app_strings.dart';
+import 'package:sunset_ripple/ui/pages/diagnostics_sheet.dart';
 import 'package:sunset_ripple/ui/pages/room_page.dart';
 import 'package:sunset_ripple/ui/pages/session_stage.dart';
 import 'package:sunset_ripple/ui/widgets/room_chat_sheet.dart';
@@ -148,4 +156,110 @@ void main() {
       await session.dispose();
     });
   }
+
+  testWidgets('DiagnosticsSheet 展示 SessionMetrics 并可切换麦克风源且不溢出',
+      (tester) async {
+    useSurface(tester, const Size(360, 640));
+    final clock = FakeClock(DateTime(2026, 9, 29, 12, 0, 0));
+    final session = RoomSession(
+      audioIo: MockAudioIo(),
+      selfNickname: '房主',
+      clock: clock,
+    );
+    await session.createRoom(startAudio: false);
+    clock.advance(const Duration(seconds: 45));
+    expect(session.metrics.uptimeSeconds, 45);
+
+    bool? switchedTo;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DiagnosticsSheet(
+            isNight: false,
+            memberCount: session.members.length,
+            packetLossRate: session.packetLossPercent,
+            roundTripTimeMs: session.roundTripTimeMs,
+            metrics: session.metrics,
+            useBuiltinMic: session.useBuiltinMic,
+            onToggleBuiltinMic: (v) {
+              switchedTo = v;
+              session.setUseBuiltinMic(v);
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(Switch), findsOneWidget);
+
+    await tester.ensureVisible(find.byType(Switch));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(switchedTo, isTrue);
+    expect(session.useBuiltinMic, isTrue);
+
+    await session.dispose();
+  });
+
+  testWidgets('房主点击成员轨道可弹出更换房主确认弹窗', (tester) async {
+    useSurface(tester, const Size(411, 892));
+    final session = RoomSession(
+      audioIo: MockAudioIo(),
+      selfNickname: '房主',
+    );
+    await session.createRoom(startAudio: false);
+    await session.handleIncomingFrame(
+      Frame(
+        type: FrameType.joinReq,
+        senderId: 0,
+        seq: 1,
+        payload: JoinRequestPayload(
+          nickname: '阿远#321',
+          sessionToken: Uint8List.fromList(List.filled(16, 7)),
+        ).encode(),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RoomContent(
+            session: session,
+            isNight: false,
+            stage: const AlwaysStoppedAnimation(1.0),
+            onLeave: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('阿远'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data == AppStrings.zh.transferHost ||
+                w.data == AppStrings.en.transferHost),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data == AppStrings.zh.cancel || w.data == AppStrings.en.cancel),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+
+    await session.dispose();
+  });
 }

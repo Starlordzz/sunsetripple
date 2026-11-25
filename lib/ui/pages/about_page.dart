@@ -121,11 +121,6 @@ class _AboutPageState extends State<AboutPage> {
     return error.toString();
   }
 
-  /// 本地中英切换。
-  ///
-  /// 更新安装相关的几个新文案还没有进 `AppStrings`（那份文件由发布链路统一维护），
-  /// 先在页面内按 [AppStrings.isEn] 取词；等 `AppStrings` 补了对应 getter，
-  /// 这里应当直接删掉换成 getter。
   void _showDiagnostics() {
     final s = AppStrings.of(context);
     final report = DiagnosticReport.create(

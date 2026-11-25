@@ -18,6 +18,12 @@ class DiagnosticsSheet extends StatelessWidget {
   /// 收/丢帧数、隐藏帧、网络质量与会话时长。
   final SessionMetrics? metrics;
 
+  /// 是否强制使用手机自带麦克风。为 null 时不展示切换开关。
+  final bool? useBuiltinMic;
+
+  /// 切换内置麦克风 / 耳机麦克风回调。
+  final ValueChanged<bool>? onToggleBuiltinMic;
+
   const DiagnosticsSheet({
     super.key,
     required this.isNight,
@@ -25,6 +31,8 @@ class DiagnosticsSheet extends StatelessWidget {
     required this.packetLossRate,
     required this.roundTripTimeMs,
     this.metrics,
+    this.useBuiltinMic,
+    this.onToggleBuiltinMic,
   });
 
   @override
@@ -101,6 +109,19 @@ class DiagnosticsSheet extends StatelessWidget {
         textPrimary: textPrimary,
       ),
     ];
+
+    if (useBuiltinMic != null && onToggleBuiltinMic != null) {
+      rows.add(
+        _MicSourceSwitchRow(
+          initialUseBuiltin: useBuiltinMic!,
+          isNight: isNight,
+          cardBg: cardBg,
+          textPrimary: textPrimary,
+          textSecondary: textSecondary,
+          onChanged: onToggleBuiltinMic!,
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -196,6 +217,74 @@ class _MetricRow extends StatelessWidget {
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MicSourceSwitchRow extends StatefulWidget {
+  final bool initialUseBuiltin;
+  final bool isNight;
+  final Color cardBg;
+  final Color textPrimary;
+  final Color textSecondary;
+  final ValueChanged<bool> onChanged;
+
+  const _MicSourceSwitchRow({
+    required this.initialUseBuiltin,
+    required this.isNight,
+    required this.cardBg,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.onChanged,
+  });
+
+  @override
+  State<_MicSourceSwitchRow> createState() => _MicSourceSwitchRowState();
+}
+
+class _MicSourceSwitchRowState extends State<_MicSourceSwitchRow> {
+  late bool _useBuiltin = widget.initialUseBuiltin;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final accent =
+        widget.isNight ? AppTheme.nightSkyBlue : AppTheme.sunsetCoral;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: widget.cardBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.microphone,
+                  style: TextStyle(color: widget.textPrimary, fontSize: 14),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _useBuiltin ? s.phoneMic : s.headsetMic,
+                  style: TextStyle(color: widget.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: _useBuiltin,
+            activeTrackColor: accent,
+            onChanged: (next) {
+              setState(() => _useBuiltin = next);
+              widget.onChanged(next);
+            },
           ),
         ],
       ),
