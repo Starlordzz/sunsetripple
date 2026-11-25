@@ -1,5 +1,6 @@
 import '../clock.dart';
 import '../protocol/frame.dart';
+import '../protocol/frame_type.dart';
 
 /// 会话遥测：帧计数、丢包估算与入房往返时延。
 ///
@@ -20,7 +21,7 @@ class SessionTelemetry {
   final Clock clock;
 
   /// 各发送方最近一次收到的帧序号，用于估算丢包。
-  final Map<int, int> _lastSeqBySender = <int, int>{};
+  final Map<(int, bool), int> _lastSeqBySender = {};
 
   int _receivedFrameCount = 0;
   int _lostFrameCount = 0;
@@ -60,8 +61,8 @@ class SessionTelemetry {
 
   /// 用各发送方的序号缺口估算丢包。
   ///
-  /// 序号按发送方单调递增、溢出回绕；可靠（TCP）与不可靠（UDP 语音）通道共用
-  /// 同一计数器，因此缺口主要来自丢掉的语音帧。迟到或重排的旧帧不计入丢失，
+  /// 序号按发送方单调递增、溢出回绕；音频与控制通道使用独立
+  /// 计数器，分别跟踪，避免聊天和心跳造成虚假的音频丢包。迟到或重排的旧帧不计入丢失，
   /// 避免把抖动当成丢包。
   ///
   /// `selfMemberId` 的帧不计入——那是本机回送/中继，不代表网络质量。
@@ -69,9 +70,10 @@ class SessionTelemetry {
     if (frame.senderId == selfMemberId) return;
     _receivedFrameCount++;
 
-    final last = _lastSeqBySender[frame.senderId];
+    final stream = (frame.senderId, frame.type == FrameType.audio);
+    final last = _lastSeqBySender[stream];
     if (last == null) {
-      _lastSeqBySender[frame.senderId] = frame.seq;
+      _lastSeqBySender[stream] = frame.seq;
       return;
     }
 
@@ -80,7 +82,7 @@ class SessionTelemetry {
     if (diff < 0x8000) {
       // 前向推进：中间缺的即丢失
       _lostFrameCount += diff - 1;
-      _lastSeqBySender[frame.senderId] = frame.seq;
+      _lastSeqBySender[stream] = frame.seq;
     }
     // diff >= 0x8000 视为迟到/重排的旧帧，不推进游标也不计丢包
   }

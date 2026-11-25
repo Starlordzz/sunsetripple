@@ -455,7 +455,7 @@ class _FakeSession extends RoomSession {
   bool? lastStartAudio;
 
   @override
-  void attachTransport(RoomTransport value) {
+  void attachTransport(RoomTransport value, {bool ownsTransport = true}) {
     attachCount++;
     _failIf(_Step.attachTransport);
   }

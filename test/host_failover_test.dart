@@ -115,6 +115,23 @@ void main() {
       );
 
   group('房主失联自愈：checkHostFailover', () {
+    test('TCP disconnect still follows cached successor after host timeout',
+        () async {
+      await enterAsClientWithHost();
+      await session.handleIncomingFrame(Frame(
+          type: FrameType.hostAnnounce,
+          senderId: 1,
+          seq: 2,
+          payload: HostTransferCodec.encode(planHandingOverToTwo())));
+      session.members.firstWhere((m) => m.isHost).lastActiveAt =
+          DateTime.now().subtract(const Duration(seconds: 10));
+      session.triggerDisconnect();
+      session.checkHostFailover();
+      await Future<void>.delayed(Duration.zero);
+      expect(transport.reconnectCalls, ['192.168.1.2']);
+      expect(transport.becomeHostCalls, 0);
+    });
+
     test('房主仍活跃时不触发任何迁移', () async {
       await enterAsClientWithHost();
 

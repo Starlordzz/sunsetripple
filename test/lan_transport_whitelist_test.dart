@@ -37,6 +37,32 @@ void main() {
 
       // 名单由 RoomSession 的名单广播驱动，这里直接注入测试成员。
       host.updateKnownMemberIds({2, 3});
+      final bound = <int>{};
+      final subscription = host.incoming.listen((frame) {
+        if (frame.type != FrameType.joinReq) return;
+        final join = JoinRequestPayload.decode(frame.payload)!;
+        final id = join.sessionToken[0];
+        host.bindMemberForSessionToken(join.sessionToken, id);
+        bound.add(id);
+      });
+      addTearDown(subscription.cancel);
+      for (final id in [2, 3]) {
+        final client = await Socket.connect(
+            InternetAddress.loopbackIPv4, host.boundControlPort);
+        client.listen((_) {});
+        addTearDown(client.destroy);
+        client.add(Frame(
+                type: FrameType.joinReq,
+                senderId: 0,
+                seq: 0,
+                payload: JoinRequestPayload(
+                        nickname: 'm$id',
+                        sessionToken: Uint8List.fromList(List.filled(16, id)))
+                    .encode())
+            .encode());
+        await client.flush();
+      }
+      await pumpUntil(() => bound.length == 2);
 
       final speaker =
           await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);

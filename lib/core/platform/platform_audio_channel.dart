@@ -181,6 +181,8 @@ class PlatformAudioChannel implements AudioIo {
         return '麦克风被其他应用占用，$what 失败';
       case 'PLAYBACK_FAILED':
         return '扬声器初始化失败，$what 失败';
+      case 'AUDIO_INIT_FAILED':
+        return '音频引擎初始化失败，$what 失败';
       default:
         return '$what 失败：${e.message ?? e.code}';
     }

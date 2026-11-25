@@ -33,8 +33,11 @@ class DiagnosticSanitizer {
 
   static String sanitize(String input) {
     var out = input.replaceAll(_macAddress, '[redacted-address]');
-    out = out.replaceAll(_ipv6Address, '[redacted-address]');
+    // IPv4 必须先于 IPv6：内嵌 IPv4 的 IPv6 地址（如 `::ffff:192.168.1.10`）
+    // 中 `192` 也是合法的十六进制段，若先跑 IPv6 规则会只吃掉 `::ffff:192`，
+    // 剩下的 `.168.1.10` 又凑不够四段 IPv4，最终把后三段地址留在报告里。
     out = out.replaceAll(_ipv4Address, '[redacted-address]');
+    out = out.replaceAll(_ipv6Address, '[redacted-address]');
     out = out.replaceAll(_longToken, '[redacted-token]');
     return out;
   }

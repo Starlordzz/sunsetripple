@@ -194,25 +194,57 @@ class WifiDirectManager {
     String deviceAddress, {
     Duration timeout = const Duration(seconds: 15),
   }) async {
-    final initiated = await connect(deviceAddress);
-    if (!initiated) {
-      AppLog.error(_tag, '发起 Wi-Fi Direct 直连请求失败');
-      return null;
-    }
+    if (!await isSupported()) return null;
+    await startListeningEvents();
+
+    // 先监听再发起 connect，防止系统广播在 connect 返回期间到达造成丢事件。
+    final completer = Completer<WifiP2pConnectionInfo?>();
+    late final StreamSubscription<WifiP2pConnectionInfo> sub;
+    Timer? timer;
+
+    sub = connectionStream.listen(
+      (info) {
+        if (info.isConnected &&
+            info.groupOwnerAddress.isNotEmpty &&
+            !completer.isCompleted) {
+          completer.complete(info);
+        }
+      },
+      onError: (Object e) {
+        if (!completer.isCompleted) {
+          AppLog.error(_tag, 'Wi-Fi Direct 握手连接异常: $e');
+          completer.complete(null);
+        }
+      },
+    );
 
     try {
-      final info = await connectionStream
-          .firstWhere(
-              (info) => info.isConnected && info.groupOwnerAddress.isNotEmpty)
-          .timeout(timeout);
-      AppLog.info(_tag, 'Wi-Fi Direct 直连链路已就绪 (GO=${info.groupOwnerAddress})');
+      final initiated = await connect(deviceAddress);
+      if (!initiated) {
+        AppLog.error(_tag, '发起 Wi-Fi Direct 直连请求失败');
+        return null;
+      }
+
+      timer = Timer(timeout, () {
+        if (!completer.isCompleted) {
+          AppLog.warn(_tag, '等待 Wi-Fi Direct 直连连接超时');
+          completer.complete(null);
+        }
+      });
+
+      final info = await completer.future;
+      if (info != null) {
+        AppLog.info(
+            _tag, 'Wi-Fi Direct 直连链路已就绪 (GO=${info.groupOwnerAddress})');
+      }
       return info;
-    } on TimeoutException {
-      AppLog.warn(_tag, '等待 Wi-Fi Direct 直连连接超时');
-      return null;
     } catch (e) {
       AppLog.error(_tag, 'Wi-Fi Direct 握手连接异常: $e');
       return null;
+    } finally {
+      timer?.cancel();
+      await sub.cancel();
+      if (!completer.isCompleted) completer.complete(null);
     }
   }
 
@@ -239,8 +271,16 @@ class WifiDirectManager {
     }
   }
 
+  /// 停止监听底层事件流，允许后续通过 [startListeningEvents] 重新绑定。
+  Future<void> stopListeningEvents() async {
+    await _eventSubscription?.cancel();
+    _eventSubscription = null;
+    _isListening = false;
+    _lastPeersSignature = null;
+  }
+
   void dispose() {
-    _eventSubscription?.cancel();
+    unawaited(_eventSubscription?.cancel());
     _eventSubscription = null;
     _isListening = false;
     _peersController.close();

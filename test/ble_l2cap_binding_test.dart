@@ -71,6 +71,38 @@ void main() {
   }
 
   group('BleL2capTransport 链路身份绑定', () {
+    test(
+        'host local delivery rejects unbound frames and normalizes bound sender',
+        () async {
+      final transport = BleL2capTransport();
+      addTearDown(transport.dispose);
+      await transport.startHost(roomName: 'test');
+      final received = <Frame>[];
+      final sub = transport.incoming.listen(received.add);
+      addTearDown(sub.cancel);
+      final forged = Frame(
+          type: FrameType.leave,
+          senderId: 3,
+          seq: 1,
+          payload: Uint8List.fromList([0]));
+      await emitFromPeer('AA:01', forged);
+      expect(received, isEmpty);
+      await emitFromPeer(
+          'AA:01',
+          Frame(
+              type: FrameType.joinReq,
+              senderId: 0,
+              seq: 0,
+              payload:
+                  JoinRequestPayload(nickname: 'member', sessionToken: token(2))
+                      .encode()));
+      transport.bindMemberForSessionToken(token(2), 2);
+      received.clear();
+      await emitFromPeer('AA:01', forged);
+      expect(received.single.senderId, 2);
+      expect(received.single.type, FrameType.leave);
+    });
+
     test('JOIN 到达后按会话令牌把成员号绑到正确链路', () async {
       final transport = BleL2capTransport();
       await transport.startHost(roomName: '蓝牙房');

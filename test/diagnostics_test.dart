@@ -29,6 +29,17 @@ void main() {
       expect(sanitized.contains('[redacted-address]'), isTrue);
     });
 
+    test('DiagnosticSanitizer strips IPv4-mapped IPv6 without residue', () {
+      // `::ffff:192.168.1.10` 里 `192` 是合法 hex 段：先跑 IPv6 规则只会
+      // 吃掉前缀，留下 `.168.1.10`，所以 IPv4 必须先替换。
+      const input = 'mapped ::ffff:192.168.1.10 and [::ffff:10.0.0.7]:9000';
+      final sanitized = DiagnosticSanitizer.sanitize(input);
+
+      expect(sanitized.contains('168.1.10'), isFalse);
+      expect(sanitized.contains('10.0.0.7'), isFalse);
+      expect(sanitized, contains('[redacted-address]'));
+    });
+
     test('DiagnosticReport redacts environment notes and osVersion', () {
       final report = DiagnosticReport.create(
         appVersion: '0.1.0-alpha.13',

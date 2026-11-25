@@ -272,7 +272,7 @@ class LanTransport implements RoomTransport {
 
   @override
   Future<bool> reconnect() async {
-    if (_role != TransportRole.client || _hostAddress == null) {
+    if (_role == TransportRole.host || _hostAddress == null) {
       AppLog.debug(_tag, '断线重连被跳过：当前不是客户端或没有房主地址');
       return false;
     }
@@ -338,7 +338,7 @@ class LanTransport implements RoomTransport {
     // remoteAddress 在 socket 关闭后会抛异常，先把地址记下来。
     final label = '${socket.remoteAddress.address}:${socket.remotePort}';
 
-    if (_clientLabels.length >= maxClients) {
+    if (_clientLabels.length >= maxClients + 1) {
       AppLog.warn(_tag, '房间已满（${maxClients + 1} 台），拒绝了 $label');
       socket.destroy();
       return;
@@ -377,6 +377,21 @@ class LanTransport implements RoomTransport {
               AppLog.warn(_tag, '成员 $label 的 JOIN 无法解析，关闭连接');
               _removeClient(socket, label);
               return;
+            }
+            final replacing = _clientSessionTokens.values
+                .any((value) => _sameBytes(value, join.sessionToken));
+            if (!replacing && _clientSessionTokens.length >= maxClients) {
+              _removeClient(socket, label);
+              return;
+            }
+            for (final entry in _clientSessionTokens.entries.toList()) {
+              if (_sameBytes(entry.value, join.sessionToken)) {
+                // Replacement is not a departure: retain the member in RoomSession.
+                _clientMemberIds.remove(entry.key);
+                _memberSockets
+                    .removeWhere((_, value) => identical(value, entry.key));
+                _removeClient(entry.key, _clientLabels[entry.key]!);
+              }
             }
             _clientSessionTokens[socket] = join.sessionToken;
             _deliver(frame);
@@ -450,6 +465,7 @@ class LanTransport implements RoomTransport {
         if (oldId != null && identical(_memberSockets[oldId], entry.key)) {
           _memberSockets.remove(oldId);
         }
+        _audioEndpoints.remove(memberId);
         _clientMemberIds[entry.key] = memberId;
         _memberSockets[memberId] = entry.key;
         return;
@@ -619,15 +635,13 @@ class LanTransport implements RoomTransport {
       }
 
       final memberSocket = _memberSockets[frame.senderId];
-      if (_memberSockets.isNotEmpty) {
-        if (memberSocket == null ||
-            memberSocket.remoteAddress.address != datagram.address.address) {
-          AppLog.debug(
-            _tag,
-            '丢弃来源与会话链路不符的语音包（成员 #${frame.senderId} ← ${datagram.address.address}）',
-          );
-          return;
-        }
+      if (memberSocket == null ||
+          memberSocket.remoteAddress.address != datagram.address.address) {
+        AppLog.debug(
+          _tag,
+          '丢弃来源与会话链路不符的语音包（成员 #${frame.senderId} ← ${datagram.address.address}）',
+        );
+        return;
       }
 
       // 防劫持校验：如果该成员已登记过语音端点，且新来源 IP 与既有登记 IP 不一致，拒绝覆盖
