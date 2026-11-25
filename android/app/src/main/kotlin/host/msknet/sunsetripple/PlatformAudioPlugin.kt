@@ -79,10 +79,14 @@ class PlatformAudioPlugin(
     private var eventSink: EventChannel.EventSink? = null
 
     // 采集
+    @Volatile
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
     private val capturing = AtomicBoolean(false)
     private val muted = AtomicBoolean(false)
+    private val captureLifecycleLock = Any()
+    private val playbackLifecycleLock = Any()
+    private val uplinkCodecLock = Any()
     private var echoCanceler: AcousticEchoCanceler? = null
     private var noiseSuppressor: NoiseSuppressor? = null
     private var gainControl: AutomaticGainControl? = null
@@ -90,12 +94,15 @@ class PlatformAudioPlugin(
     private var currentBitrate = OpusCodec.DEFAULT_BITRATE
 
     // 播放
+    @Volatile
     private var audioTrack: AudioTrack? = null
     private var playbackThread: Thread? = null
     private val playing = AtomicBoolean(false)
     private val remotes = ConcurrentHashMap<Int, RemoteStream>()
-    private var previousAudioMode: Int = AudioManager.MODE_NORMAL
+    private var previousAudioMode: Int? = null
+    @Volatile
     private var userWantsSpeaker: Boolean = true
+    @Volatile
     private var preferBuiltinMic: Boolean = false
     private var isDeviceCallbackRegistered = false
 
@@ -117,10 +124,13 @@ class PlatformAudioPlugin(
     }
 
     fun dispose() {
-        stopCapture()
-        stopPlayback()
+        eventSink = null
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        Thread({
+            stopCapture()
+            stopPlayback()
+        }, "sunset-audio-dispose").start()
     }
 
     // ------------------------------------------------------------ EventChannel
@@ -156,7 +166,7 @@ class PlatformAudioPlugin(
                     val playbackOk = startPlayback()
                     val captureOk = playbackOk && startCapture()
                     // 收尾也在后台做：stopPlayback 会 join 播放线程。
-                    if (playbackOk && !captureOk) stopPlayback()
+                    if (playbackOk && !captureOk) { stopCapture(); stopPlayback() }
 
                     mainHandler.post {
                         when {
@@ -206,7 +216,9 @@ class PlatformAudioPlugin(
                 val bitrate = call.argument<Int>("bitrate") ?: OpusCodec.DEFAULT_BITRATE
                 currentBitrate = bitrate
                 try {
-                    uplinkCodec?.setBitrate(bitrate)
+                    synchronized(uplinkCodecLock) {
+                        uplinkCodec?.setBitrate(bitrate)
+                    }
                 } catch (e: IllegalArgumentException) {
                     result.error("BAD_ARGS", "码率非法：$bitrate", null)
                     return
@@ -215,8 +227,10 @@ class PlatformAudioPlugin(
             }
 
             "stopPlayback" -> {
-                stopPlayback()
-                result.success(true)
+                Thread({
+                    stopPlayback()
+                    mainHandler.post { result.success(true) }
+                }, "sunset-playback-stop").start()
             }
 
             "setMuted" -> {
@@ -261,7 +275,7 @@ class PlatformAudioPlugin(
 
     // ------------------------------------------------------------------ 采集
 
-    private fun startCapture(): Boolean {
+    private fun startCapture(): Boolean = synchronized(captureLifecycleLock) {
         if (capturing.get()) return true
 
         val minBuffer = AudioRecord.getMinBufferSize(
@@ -296,14 +310,15 @@ class PlatformAudioPlugin(
 
         attachEffects(record.audioSessionId)
 
-        previousAudioMode = audioManager.mode
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isDeviceCallbackRegistered) {
             audioDeviceCallback?.let { audioManager.registerAudioDeviceCallback(it, mainHandler) }
             isDeviceCallbackRegistered = true
         }
 
-        uplinkCodec = OpusCodec(currentBitrate)
+        synchronized(uplinkCodecLock) {
+            uplinkCodec = OpusCodec(currentBitrate)
+        }
         audioRecord = record
         capturing.set(true)
 
@@ -314,7 +329,7 @@ class PlatformAudioPlugin(
         } catch (e: IllegalStateException) {
             Log.e(TAG, "startRecording 失败", e)
             capturing.set(false)
-            releaseCapture()
+            stopCapture()
             return false
         }
 
@@ -347,7 +362,12 @@ class PlatformAudioPlugin(
                 if (consecutiveErrors > 50) {
                     Log.e(TAG, "AudioRecord 连续错误超过阈值，采集中止")
                     capturing.set(false)
-                    mainHandler.post { stopCapture() }
+                    Thread({
+                        stopCapture()
+                        mainHandler.post {
+                            eventSink?.error("CAPTURE_STOPPED", "AudioRecord stopped after repeated read failures", null)
+                        }
+                    }, "sunset-capture-error-stop").start()
                     break
                 }
                 try { Thread.sleep(20) } catch (_: InterruptedException) {}
@@ -374,7 +394,9 @@ class PlatformAudioPlugin(
 
             val level = rms(pcm)
             val packet = try {
-                uplinkCodec?.encode(pcm) ?: continue
+                synchronized(uplinkCodecLock) {
+                    uplinkCodec?.encode(pcm)
+                } ?: continue
             } catch (e: Exception) {
                 Log.e(TAG, "Opus 编码失败", e)
                 continue
@@ -410,34 +432,41 @@ class PlatformAudioPlugin(
     }
 
     private fun stopCapture() {
-        val wasCapturing = capturing.getAndSet(false)
-        val hasResources = audioRecord != null ||
-            captureThread != null ||
-            uplinkCodec != null ||
-            isDeviceCallbackRegistered
-        if (!wasCapturing && !hasResources) return
+        synchronized(captureLifecycleLock) {
+            val wasCapturing = capturing.getAndSet(false)
+            val hasResources = audioRecord != null ||
+                captureThread != null ||
+                uplinkCodec != null ||
+                isDeviceCallbackRegistered || hasSavedAudioMode()
+            if (!wasCapturing && !hasResources) return
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isDeviceCallbackRegistered) {
-            audioDeviceCallback?.let { audioManager.unregisterAudioDeviceCallback(it) }
-            isDeviceCallbackRegistered = false
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.clearCommunicationDevice()
-        }
-        @Suppress("DEPRECATION")
-        if (audioManager.isBluetoothScoOn) {
-            audioManager.stopBluetoothSco()
-            audioManager.isBluetoothScoOn = false
-        }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isDeviceCallbackRegistered) {
+                audioDeviceCallback?.let { audioManager.unregisterAudioDeviceCallback(it) }
+                isDeviceCallbackRegistered = false
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.clearCommunicationDevice()
+            }
+            @Suppress("DEPRECATION")
+            if (audioManager.isBluetoothScoOn) {
+                audioManager.stopBluetoothSco()
+                audioManager.isBluetoothScoOn = false
+            }
 
-        captureThread?.join(500)
-        captureThread = null
-        releaseCapture()
-        uplinkCodec = null
+            val thread = captureThread
+            captureThread = null
+            if (thread != null && thread !== Thread.currentThread()) {
+                thread.join(500)
+            }
+            releaseCapture()
+            synchronized(uplinkCodecLock) {
+                uplinkCodec = null
+            }
 
-        audioManager.mode = previousAudioMode
-        IntercomForegroundService.stop(context)
-        Log.i(TAG, "麦克风已关闭")
+            restoreAudioMode()
+            IntercomForegroundService.stop(context)
+            Log.i(TAG, "麦克风已关闭")
+        }
     }
 
     private fun releaseCapture() {
@@ -460,7 +489,7 @@ class PlatformAudioPlugin(
 
     // ------------------------------------------------------------------ 播放
 
-    private fun startPlayback(): Boolean {
+    private fun startPlayback(): Boolean = synchronized(playbackLifecycleLock) {
         if (playing.get()) return true
 
         val minBuffer = AudioTrack.getMinBufferSize(
@@ -565,7 +594,7 @@ class PlatformAudioPlugin(
                     if (consecutiveErrors > 50) {
                         Log.e(TAG, "AudioTrack 连续写入错误超过阈值，播放中止")
                         playing.set(false)
-                        mainHandler.post { stopPlayback() }
+                        Thread({ stopPlayback() }, "sunset-playback-error-stop").start()
                         break
                     }
                     try { Thread.sleep(20) } catch (_: InterruptedException) {}
@@ -590,32 +619,48 @@ class PlatformAudioPlugin(
         }
 
     private fun stopPlayback() {
-        val wasPlaying = playing.getAndSet(false)
-        val hasResources = audioTrack != null || playbackThread != null || remotes.isNotEmpty()
-        if (!wasPlaying && !hasResources) return
+        synchronized(playbackLifecycleLock) {
+            val wasPlaying = playing.getAndSet(false)
+            val hasResources = audioTrack != null || playbackThread != null || remotes.isNotEmpty()
+            if (!wasPlaying && !hasResources) return
 
-        playbackThread?.join(500)
-        playbackThread = null
-        remotes.clear()
-
-        audioTrack?.let { track ->
-            try {
-                if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                    track.stop()
-                }
-            } catch (e: IllegalStateException) {
-                Log.w(TAG, "停止 AudioTrack 时出错", e)
+            val thread = playbackThread
+            playbackThread = null
+            if (thread != null && thread !== Thread.currentThread()) {
+                thread.join(500)
             }
-            track.release()
+            remotes.clear()
+
+            audioTrack?.let { track ->
+                try {
+                    if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                        track.stop()
+                    }
+                } catch (e: IllegalStateException) {
+                    Log.w(TAG, "停止 AudioTrack 时出错", e)
+                }
+                track.release()
+            }
+            audioTrack = null
+            Log.i(TAG, "扬声器已关闭")
         }
-        audioTrack = null
-        Log.i(TAG, "扬声器已关闭")
     }
 
     // ------------------------------------------------------------ 统一路由与设备选择
 
     @Synchronized
+    private fun hasSavedAudioMode(): Boolean = previousAudioMode != null
+
+    @Synchronized
+    private fun restoreAudioMode() {
+        previousAudioMode?.let { audioManager.mode = it }
+        previousAudioMode = null
+    }
+
+    @Synchronized
     private fun updateAudioRouting() {
+        if (!playing.get() && !capturing.get()) return
+        if (previousAudioMode == null) previousAudioMode = audioManager.mode
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val commDevices = audioManager.availableCommunicationDevices
             val inputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
@@ -704,29 +749,38 @@ class PlatformAudioPlugin(
             val record = audioRecord
             val track = audioTrack
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val inputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-                val outputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                val builtinMic = inputDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
-                val externalMic = inputDevices.firstOrNull { dev ->
-                    dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                    dev.type == AudioDeviceInfo.TYPE_USB_HEADSET
-                }
-                if (preferBuiltinMic || externalMic == null) {
-                    builtinMic?.let { record?.setPreferredDevice(it) }
-                } else {
-                    record?.setPreferredDevice(externalMic)
-                }
+            val inputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            val outputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            val builtinMic = inputDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+            val externalMic = inputDevices.firstOrNull { dev ->
+                dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                dev.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            }
+            if (preferBuiltinMic || externalMic == null) {
+                builtinMic?.let { record?.setPreferredDevice(it) }
+            } else {
+                record?.setPreferredDevice(externalMic)
+            }
 
-                if (preferBuiltinMic) {
-                    val btOutput = outputDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
-                    btOutput?.let { track?.setPreferredDevice(it) }
-                }
+            if (preferBuiltinMic) {
+                val btOutput = outputDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+                btOutput?.let { track?.setPreferredDevice(it) }
+            } else {
+                track?.setPreferredDevice(null)
+            }
+
+            val hasBtSco = inputDevices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO } ||
+                outputDevices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+            val hasWired = outputDevices.any { dev ->
+                dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                dev.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                dev.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                dev.type == AudioDeviceInfo.TYPE_USB_DEVICE
             }
 
             @Suppress("DEPRECATION")
-            if (!preferBuiltinMic) {
+            if (!preferBuiltinMic && hasBtSco) {
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 try {
                     audioManager.startBluetoothSco()
@@ -735,20 +789,13 @@ class PlatformAudioPlugin(
                     Log.w(TAG, "startBluetoothSco 异常", e)
                 }
                 audioManager.isSpeakerphoneOn = false
-            } else if (userWantsSpeaker) {
-                if (audioManager.isBluetoothScoOn) {
-                    audioManager.stopBluetoothSco()
-                    audioManager.isBluetoothScoOn = false
-                }
-                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-                audioManager.isSpeakerphoneOn = true
             } else {
                 if (audioManager.isBluetoothScoOn) {
                     audioManager.stopBluetoothSco()
                     audioManager.isBluetoothScoOn = false
                 }
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-                audioManager.isSpeakerphoneOn = false
+                audioManager.isSpeakerphoneOn = !hasWired && userWantsSpeaker
             }
         }
     }

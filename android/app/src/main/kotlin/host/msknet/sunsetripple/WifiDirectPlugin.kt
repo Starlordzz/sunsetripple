@@ -1,21 +1,25 @@
 package host.msknet.sunsetripple
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pDeviceList
 import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
+import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Android Wi-Fi Direct (Wi-Fi P2P) 原生插件。
@@ -92,24 +96,37 @@ class WifiDirectPlugin(
                     }
 
                     WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> {
+                        if (!hasWifiDirectPermissions()) {
+                            Log.w(TAG, "收到对端变更广播但缺少 Wi-Fi Direct 权限")
+                            return
+                        }
                         Log.i(TAG, "收到系统 WIFI_P2P_PEERS_CHANGED_ACTION 广播，开始请求对端列表")
-                        manager?.requestPeers(channel) { peerList: WifiP2pDeviceList? ->
-                            peers.clear()
-                            peerList?.deviceList?.let { peers.addAll(it) }
-                            Log.i(TAG, "已发现 ${peers.size} 个 Wi-Fi Direct 对端设备")
-                            for (p in peers) {
-                                Log.i(TAG, "  -> 对端: ${p.deviceName} (${p.deviceAddress}), status=${p.status}, isGO=${p.isGroupOwner}")
+                        try {
+                            @Suppress("MissingPermission")
+                            manager?.requestPeers(channel) { peerList: WifiP2pDeviceList? ->
+                                peers.clear()
+                                peerList?.deviceList?.let { peers.addAll(it) }
+                                Log.i(TAG, "已发现 ${peers.size} 个 Wi-Fi Direct 对端设备")
+                                for (p in peers) {
+                                    Log.i(TAG, "  -> 对端: ${p.deviceName} (${p.deviceAddress}), status=${p.status}, isGO=${p.isGroupOwner}")
+                                }
+                                sendPeersEvent()
                             }
-                            sendPeersEvent()
+                        } catch (se: SecurityException) {
+                            Log.w(TAG, "requestPeers 缺少运行时权限", se)
                         }
                     }
 
                     WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
-                        manager?.requestConnectionInfo(channel) { info ->
-                            currentConnectionInfo = info
-                            val isConnected = info != null && info.groupFormed
-                            Log.i(TAG, "Wi-Fi Direct 连接状态变更: groupFormed=${info?.groupFormed}, isGO=${info?.isGroupOwner}, hostIp=${info?.groupOwnerAddress?.hostAddress}")
-                            sendConnectionEvent(isConnected = isConnected, info = info)
+                        try {
+                            manager?.requestConnectionInfo(channel) { info ->
+                                currentConnectionInfo = info
+                                val isConnected = info != null && info.groupFormed
+                                Log.i(TAG, "Wi-Fi Direct 连接状态变更: groupFormed=${info?.groupFormed}, isGO=${info?.isGroupOwner}, hostIp=${info?.groupOwnerAddress?.hostAddress}")
+                                sendConnectionEvent(isConnected = isConnected, info = info)
+                            }
+                        } catch (se: SecurityException) {
+                            Log.w(TAG, "requestConnectionInfo 缺少运行时权限", se)
                         }
                     }
 
@@ -170,32 +187,78 @@ class WifiDirectPlugin(
         eventSink?.success(data)
     }
 
-    private fun createGroupInternal(result: MethodChannel.Result) {
-        manager?.createGroup(channel, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                Log.i(TAG, "创建 Wi-Fi Direct 群组成功 (Group Owner)")
-                manager?.discoverPeers(channel, null)
-                result.success(true)
-            }
+    private fun hasWifiDirectPermissions(): Boolean {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.NEARBY_WIFI_DEVICES
+        } else {
+            Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    }
 
-            override fun onFailure(reason: Int) {
-                Log.w(TAG, "创建 Wi-Fi Direct 群组失败: $reason")
-                if (reason == WifiP2pManager.BUSY) {
-                    android.os.Handler(Looper.getMainLooper()).postDelayed({
-                        manager?.createGroup(channel, object : WifiP2pManager.ActionListener {
-                            override fun onSuccess() {
-                                Log.i(TAG, "重试创建 Wi-Fi Direct 群组成功")
-                                manager?.discoverPeers(channel, null)
-                            }
-                            override fun onFailure(r: Int) {
-                                Log.w(TAG, "重试创建群组失败: $r")
-                            }
-                        })
-                    }, 300)
-                }
-                result.success(false)
+    private fun createGroupInternal(result: MethodChannel.Result) {
+        val currentManager = manager
+        val currentChannel = channel
+        if (currentManager == null || currentChannel == null) {
+            result.success(false)
+            return
+        }
+        val replied = AtomicBoolean(false)
+        fun replyOnce(success: Boolean) {
+            if (replied.compareAndSet(false, true)) {
+                result.success(success)
             }
-        }) ?: result.success(false)
+        }
+
+        try {
+            @Suppress("MissingPermission")
+            currentManager.createGroup(currentChannel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.i(TAG, "创建 Wi-Fi Direct 群组成功 (Group Owner)")
+                    try {
+                        @Suppress("MissingPermission")
+                        currentManager.discoverPeers(currentChannel, null)
+                    } catch (se: SecurityException) {
+                        Log.w(TAG, "discoverPeers 缺少运行时权限", se)
+                    }
+                    replyOnce(true)
+                }
+
+                override fun onFailure(reason: Int) {
+                    Log.w(TAG, "创建 Wi-Fi Direct 群组失败: $reason")
+                    if (reason == WifiP2pManager.BUSY) {
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            try {
+                                @Suppress("MissingPermission")
+                                currentManager.createGroup(currentChannel, object : WifiP2pManager.ActionListener {
+                                    override fun onSuccess() {
+                                        Log.i(TAG, "重试创建 Wi-Fi Direct 群组成功")
+                                        try {
+                                            @Suppress("MissingPermission")
+                                            currentManager.discoverPeers(currentChannel, null)
+                                        } catch (_: SecurityException) {}
+                                        replyOnce(true)
+                                    }
+
+                                    override fun onFailure(r: Int) {
+                                        Log.w(TAG, "重试创建群组失败: $r")
+                                        replyOnce(false)
+                                    }
+                                })
+                            } catch (se: SecurityException) {
+                                Log.w(TAG, "重试创建群组缺少权限", se)
+                                replyOnce(false)
+                            }
+                        }, 300)
+                        return
+                    }
+                    replyOnce(false)
+                }
+            })
+        } catch (se: SecurityException) {
+            Log.w(TAG, "createGroup 缺少运行时权限", se)
+            replyOnce(false)
+        }
     }
 
     // MARK: - MethodChannel
@@ -211,60 +274,112 @@ class WifiDirectPlugin(
             }
 
             "createGroup" -> {
+                if (!hasWifiDirectPermissions()) {
+                    result.error("PERMISSION_DENIED", "缺少 Wi-Fi Direct 权限", null)
+                    return
+                }
                 Log.i(TAG, "收到 Flutter createGroup 请求, manager=$manager, channel=$channel")
-                manager?.removeGroup(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        createGroupInternal(result)
-                    }
+                try {
+                    manager?.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() {
+                            createGroupInternal(result)
+                        }
 
-                    override fun onFailure(reason: Int) {
-                        createGroupInternal(result)
-                    }
-                }) ?: createGroupInternal(result)
+                        override fun onFailure(reason: Int) {
+                            createGroupInternal(result)
+                        }
+                    }) ?: createGroupInternal(result)
+                } catch (se: SecurityException) {
+                    Log.w(TAG, "createGroup 缺少运行时权限", se)
+                    result.error("PERMISSION_DENIED", "缺少 Wi-Fi Direct 权限", null)
+                }
             }
 
             "removeGroup" -> {
                 Log.i(TAG, "收到 Flutter removeGroup 请求")
-                manager?.removeGroup(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        Log.i(TAG, "解散 Wi-Fi Direct 群组成功")
-                        result.success(true)
-                    }
-
-                    override fun onFailure(reason: Int) {
-                        Log.w(TAG, "解散 Wi-Fi Direct 群组失败: $reason")
-                        result.success(false)
-                    }
-                }) ?: result.success(false)
-            }
-
-            "discoverPeers" -> {
-                Log.i(TAG, "收到 Flutter discoverPeers 请求, manager=$manager, channel=$channel")
-                manager?.discoverPeers(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        Log.i(TAG, "开始搜索 Wi-Fi Direct 对端成功")
-                        result.success(true)
-                    }
-
-                    override fun onFailure(reason: Int) {
-                        Log.w(TAG, "搜索 Wi-Fi Direct 对端失败: $reason")
-                        if (reason == WifiP2pManager.BUSY) {
-                            manager?.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
-                                override fun onSuccess() {
-                                    manager?.discoverPeers(channel, null)
-                                }
-                                override fun onFailure(r: Int) {}
-                            })
+                try {
+                    manager?.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() {
+                            Log.i(TAG, "解散 Wi-Fi Direct 群组成功")
+                            result.success(true)
                         }
-                        result.success(false)
-                    }
-                }) ?: run {
-                    Log.e(TAG, "discoverPeers 失败：manager 或 channel 为空")
+
+                        override fun onFailure(reason: Int) {
+                            Log.w(TAG, "解散 Wi-Fi Direct 群组失败: $reason")
+                            result.success(false)
+                        }
+                    }) ?: result.success(false)
+                } catch (se: SecurityException) {
+                    Log.w(TAG, "removeGroup 缺少运行时权限", se)
                     result.success(false)
                 }
             }
 
+            "discoverPeers" -> {
+                if (!hasWifiDirectPermissions()) {
+                    result.error("PERMISSION_DENIED", "缺少 Wi-Fi Direct 权限", null)
+                    return
+                }
+                val currentManager = manager
+                val currentChannel = channel
+                if (currentManager == null || currentChannel == null) {
+                    Log.e(TAG, "discoverPeers 失败：manager 或 channel 为空")
+                    result.success(false)
+                    return
+                }
+                val replied = AtomicBoolean(false)
+                fun replyOnce(success: Boolean) {
+                    if (replied.compareAndSet(false, true)) {
+                        result.success(success)
+                    }
+                }
+                Log.i(TAG, "收到 Flutter discoverPeers 请求, manager=$currentManager, channel=$currentChannel")
+                try {
+                    @Suppress("MissingPermission")
+                    currentManager.discoverPeers(currentChannel, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() {
+                            Log.i(TAG, "开始搜索 Wi-Fi Direct 对端成功")
+                            replyOnce(true)
+                        }
+
+                        override fun onFailure(reason: Int) {
+                            Log.w(TAG, "搜索 Wi-Fi Direct 对端失败: $reason")
+                            if (reason == WifiP2pManager.BUSY) {
+                                try {
+                                    currentManager.stopPeerDiscovery(currentChannel, object : WifiP2pManager.ActionListener {
+                                        override fun onSuccess() {
+                                            try {
+                                                @Suppress("MissingPermission")
+                                                currentManager.discoverPeers(currentChannel, object : WifiP2pManager.ActionListener {
+                                                    override fun onSuccess() = replyOnce(true)
+                                                    override fun onFailure(r: Int) = replyOnce(false)
+                                                })
+                                            } catch (_: SecurityException) {
+                                                replyOnce(false)
+                                            }
+                                        }
+
+                                        override fun onFailure(r: Int) = replyOnce(false)
+                                    })
+                                } catch (_: SecurityException) {
+                                    replyOnce(false)
+                                }
+                                return
+                            }
+                            replyOnce(false)
+                        }
+                    })
+                } catch (se: SecurityException) {
+                    Log.w(TAG, "discoverPeers 缺少运行时权限", se)
+                    replyOnce(false)
+                }
+            }
+
             "connect" -> {
+                if (!hasWifiDirectPermissions()) {
+                    result.error("PERMISSION_DENIED", "缺少 Wi-Fi Direct 权限", null)
+                    return
+                }
                 val address = call.argument<String>("deviceAddress")
                 if (address == null) {
                     result.error("INVALID_ARGS", "缺少 deviceAddress 参数", null)
@@ -276,29 +391,40 @@ class WifiDirectPlugin(
                     groupOwnerIntent = 0
                 }
 
-                manager?.connect(channel, config, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        Log.i(TAG, "发起到 $address 的 Wi-Fi Direct 连接请求")
-                        result.success(true)
-                    }
+                try {
+                    @Suppress("MissingPermission")
+                    manager?.connect(channel, config, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() {
+                            Log.i(TAG, "发起到 $address 的 Wi-Fi Direct 连接请求")
+                            result.success(true)
+                        }
 
-                    override fun onFailure(reason: Int) {
-                        Log.w(TAG, "发起到 $address 的 Wi-Fi Direct 连接失败: $reason")
-                        result.success(false)
-                    }
-                }) ?: result.success(false)
+                        override fun onFailure(reason: Int) {
+                            Log.w(TAG, "发起到 $address 的 Wi-Fi Direct 连接失败: $reason")
+                            result.success(false)
+                        }
+                    }) ?: result.success(false)
+                } catch (se: SecurityException) {
+                    Log.w(TAG, "connect 缺少运行时权限", se)
+                    result.error("PERMISSION_DENIED", "缺少 Wi-Fi Direct 权限", null)
+                }
             }
 
             "disconnect" -> {
-                manager?.cancelConnect(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        result.success(true)
-                    }
+                try {
+                    manager?.cancelConnect(channel, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() {
+                            result.success(true)
+                        }
 
-                    override fun onFailure(reason: Int) {
-                        result.success(false)
-                    }
-                }) ?: result.success(false)
+                        override fun onFailure(reason: Int) {
+                            result.success(false)
+                        }
+                    }) ?: result.success(false)
+                } catch (se: SecurityException) {
+                    Log.w(TAG, "disconnect 缺少运行时权限", se)
+                    result.success(false)
+                }
             }
 
             "getConnectionInfo" -> {
