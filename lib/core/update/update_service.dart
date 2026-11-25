@@ -144,6 +144,14 @@ class SemVer implements Comparable<SemVer> {
 }
 
 class UpdateService {
+  UpdateService(
+      {HttpClient Function()? clientFactory,
+      this.requestTimeout = const Duration(seconds: 30)})
+      : _clientFactory = clientFactory ?? HttpClient.new;
+
+  final HttpClient Function() _clientFactory;
+  final Duration requestTimeout;
+
   /// 与 `pubspec.yaml` 同源，见 [AppVersion]。
   static const String currentVersion = AppVersion.name;
 
@@ -161,54 +169,56 @@ class UpdateService {
   static bool get includePrerelease => currentVersion.contains('-');
 
   Future<UpdateState> checkUpdate() async {
-    final client = HttpClient();
+    final client = _clientFactory();
     client.connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = await client.getUrl(Uri.parse(releasesUrl));
-      request.headers.set('Accept', 'application/vnd.github.v3+json');
-      request.headers.set('User-Agent', 'SunsetRipple-App');
-
-      final response = await request.close();
-      if (response.statusCode != 200) {
-        AppLog.warn(
-            'UpdateService', 'Check update HTTP ${response.statusCode}');
-        return UpdateFailed('HTTP ${response.statusCode}');
-      }
-
-      final body = await response.transform(utf8.decoder).join();
-      final decoded = jsonDecode(body);
-      final releases = decoded is List ? decoded : const <dynamic>[];
-      if (releases.isEmpty) {
-        // 还没有任何 Release：不是错误，只是没什么可更新的。
-        return const UpdateUpToDate();
-      }
-
-      final data =
-          selectRelease(releases, includePrerelease: includePrerelease);
-      if (data == null) {
-        AppLog.warn('UpdateService', 'Release 列表里没有可用的版本标签');
-        return const UpdateFailed('Release 列表里没有可用的版本标签');
-      }
-
-      final tagName = data['tag_name'] as String? ?? '';
-      final releaseNotes = data['body'] as String? ?? '';
-      final htmlUrl = data['html_url'] as String? ?? '';
-
-      if (tagName.isNotEmpty && isNewer(tagName, currentVersion)) {
-        return UpdateAvailable(
-          versionName: tagName.replaceFirst('v', ''),
-          releaseNotes: releaseNotes,
-          downloadUrl: htmlUrl,
-          manifestUrl: findManifestAssetUrl(data['assets']),
-        );
-      }
-      return const UpdateUpToDate();
+      return await _checkUpdate(client).timeout(requestTimeout);
     } catch (e) {
       AppLog.warn('UpdateService', 'Check update failed', e);
       return UpdateFailed(e.toString());
     } finally {
-      client.close();
+      client.close(force: true);
     }
+  }
+
+  Future<UpdateState> _checkUpdate(HttpClient client) async {
+    final request = await client.getUrl(Uri.parse(releasesUrl));
+    request.headers.set('Accept', 'application/vnd.github.v3+json');
+    request.headers.set('User-Agent', 'SunsetRipple-App');
+
+    final response = await request.close();
+    if (response.statusCode != 200) {
+      AppLog.warn('UpdateService', 'Check update HTTP ${response.statusCode}');
+      return UpdateFailed('HTTP ${response.statusCode}');
+    }
+
+    final body = await response.transform(utf8.decoder).join();
+    final decoded = jsonDecode(body);
+    final releases = decoded is List ? decoded : const <dynamic>[];
+    if (releases.isEmpty) {
+      // 还没有任何 Release：不是错误，只是没什么可更新的。
+      return const UpdateUpToDate();
+    }
+
+    final data = selectRelease(releases, includePrerelease: includePrerelease);
+    if (data == null) {
+      AppLog.info('UpdateService', 'Release 列表里没有匹配当前渠道的可更新版本');
+      return const UpdateUpToDate();
+    }
+
+    final tagName = data['tag_name'] as String? ?? '';
+    final releaseNotes = data['body'] as String? ?? '';
+    final htmlUrl = data['html_url'] as String? ?? '';
+
+    if (tagName.isNotEmpty && isNewer(tagName, currentVersion)) {
+      return UpdateAvailable(
+        versionName: tagName.replaceFirst('v', ''),
+        releaseNotes: releaseNotes,
+        downloadUrl: htmlUrl,
+        manifestUrl: findManifestAssetUrl(data['assets']),
+      );
+    }
+    return const UpdateUpToDate();
   }
 
   /// 从 `GET /releases` 的响应里挑出用于检查更新的那一条；没有合适的返回 null。

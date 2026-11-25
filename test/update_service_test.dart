@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sunset_ripple/core/update/update_service.dart';
 import 'package:sunset_ripple/core/version.dart';
@@ -141,5 +145,70 @@ void main() {
       );
       expect(selected?['created_at'], '2026-09-30T00:00:00Z');
     });
+
+    test('Release 列表非空但无匹配 SemVer 版本时返回 UpdateUpToDate 而非失败', () async {
+      final payload = jsonEncode([
+        release('updates-prerelease'),
+        release('v9.9.9', draft: true),
+      ]);
+      final service = UpdateService(
+        clientFactory: () => _MockReleasesClient(payload),
+      );
+      final state = await service.checkUpdate();
+      expect(state, isA<UpdateUpToDate>());
+    });
   });
+}
+
+class _MockHeaders implements HttpHeaders {
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _MockReleasesClient implements HttpClient {
+  _MockReleasesClient(this.body);
+  final String body;
+  @override
+  Duration? connectionTimeout;
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async => _MockRequest(body);
+  @override
+  void close({bool force = false}) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _MockRequest implements HttpClientRequest {
+  _MockRequest(this.body);
+  final String body;
+  @override
+  HttpHeaders get headers => _MockHeaders();
+  @override
+  Future<HttpClientResponse> close() async => _MockResponse(body);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _MockResponse extends Stream<List<int>> implements HttpClientResponse {
+  _MockResponse(this.body);
+  final String body;
+  @override
+  int get statusCode => 200;
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) =>
+      Stream<List<int>>.value(utf8.encode(body)).listen(
+        onData,
+        onError: onError,
+        onDone: onDone,
+        cancelOnError: cancelOnError,
+      );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

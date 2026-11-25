@@ -6,12 +6,12 @@
 # **退出码 0 且不输出任何内容**（2026-09-29 的发布实测：校验那一步拿到空 DN 却照样通过，
 # 到了签名清单那一步才炸成「无法解析签名证书 SHA-256」）。因此这里做三件事：
 #   1. 首选 apksigner（摘要取自实际要发布的 APK 字节），并容忍输出格式差异、捕获退出码与输出；
-#   2. apksigner 拿不到就回退到 keystore 里那把钥匙的证书摘要（发布包正是用它签的）；
+#   2. apksigner 必须验证成功并提供实际 APK 摘要；缺失或验证失败直接退出；
 #   3. 两边都能读到摘要时必须一致——不一致说明这份 APK 根本不是这把密钥签的，直接失败。
 #
 # 用法：scripts/apk-certificate-sha256.sh <apk> [keystore] [storepass] [alias]
 #   <apk>       必填，实际要发布的 APK
-#   [keystore]  PKCS12 keystore；给了它才启用 keystore 回退与一致性交叉校验
+#   [keystore]  PKCS12 keystore；给了它才启用 keystore 一致性交叉校验
 # 输出：stdout 只有 64 位小写 hex；诊断信息一律走 stderr。
 set -uo pipefail
 
@@ -60,16 +60,20 @@ apksigner_path="$(find_apksigner)"
 if [[ -n "$apksigner_path" ]]; then
   apksigner_output="$("$apksigner_path" verify --print-certs "$apk" 2>&1)"
   apksigner_status=$?
+  if [[ "$apksigner_status" -ne 0 ]]; then
+    printf '%s\n' "$apksigner_output" | head -5 >&2
+    die "apksigner 验证失败（退出码=$apksigner_status），拒绝发布"
+  fi
   apk_digest="$(printf '%s\n' "$apksigner_output" | digest_from_apksigner_output)"
   if [[ "$apk_digest" =~ ^[0-9a-f]{64}$ ]]; then
     log "apksigner 读出摘要（$apksigner_path）"
   else
     log "apksigner 没给出可用摘要（路径=$apksigner_path 退出码=$apksigner_status），输出前 5 行："
     printf '%s\n' "$apksigner_output" | head -5 >&2
-    apk_digest=""
+    die "无法解析已验证 APK 的证书摘要，拒绝发布"
   fi
 else
-  log "未找到 apksigner（ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}）"
+  die "未找到 apksigner，无法验证 APK，拒绝发布"
 fi
 
 keystore_digest=""
@@ -79,16 +83,17 @@ if [[ -n "$keystore" ]]; then
     keytool_output="$("$keytool_bin" -list -v -keystore "$keystore" -storetype PKCS12 \
       -storepass "$storepass" -alias "$alias_name" 2>&1)"
     keytool_status=$?
+    [[ "$keytool_status" -eq 0 ]] || die "无法验证发布 keystore（keytool 退出码=$keytool_status）"
     keystore_digest="$(printf '%s\n' "$keytool_output" | digest_from_keytool_output)"
     if [[ "$keystore_digest" =~ ^[0-9a-f]{64}$ ]]; then
       log "keytool 读出 keystore 证书摘要（keystore=$keystore alias=$alias_name）"
     else
       log "keytool 没给出可用摘要（退出码=$keytool_status），输出前 5 行："
       printf '%s\n' "$keytool_output" | head -5 >&2
-      keystore_digest=""
+      die "无法解析发布 keystore 的证书摘要"
     fi
   else
-    log "keystore 参数不完整，跳过交叉校验（keystore=${keystore:-<empty>} storepass=${storepass:+已提供} alias=${alias_name:-<empty>}）"
+    die "keystore 参数不完整，拒绝跳过发布密钥交叉校验"
   fi
 fi
 
@@ -102,12 +107,5 @@ if [[ -n "$apk_digest" ]]; then
   exit 0
 fi
 
-if [[ -n "$keystore_digest" ]]; then
-  # 回退路径：本 runner 的 apksigner 读不出内容时只能信 keystore。
-  # 这不是静默降级——上面已经把「apksigner 为什么没用上」打出来了，这里再点一次名。
-  log "警告：改用 keystore 证书摘要（apksigner 在此 runner 上不可用），APK 侧交叉校验已跳过"
-  printf '%s\n' "$keystore_digest"
-  exit 0
-fi
 
-die "无法读出 $apk 的签名证书 SHA-256：apksigner 与 keystore 两条路都失败了"
+die "无法读出 $apk 的签名证书 SHA-256：APK 验证或证书摘要读取失败"
