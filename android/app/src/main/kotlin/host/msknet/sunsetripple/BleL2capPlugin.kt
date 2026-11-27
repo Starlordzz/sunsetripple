@@ -648,13 +648,16 @@ class BleL2capPlugin(
             // 自行校验来源。不改写的话任何成员都能把 senderId 填成别人的号，
             // 冒用他人身份发言、撤回甚至伪造 PTT 状态——与 LAN 房
             // `_relayControl` 里的重写逻辑保持同一语义。
-            val forwarded = if (isHost) rewriteSender(full, link.memberId) else full
+            val isJoin = (full[0].toInt() and 0xFF) == FRAME_TYPE_JOIN_REQ
+            val delivered = if (!isHost || (isJoin && full[1].toInt() == 0)) full
+                else rewriteSender(full, link.memberId) ?: continue
+            val forwarded = if (isHost && !isJoin) delivered else null
             if (isHost && forwarded != null) {
                 sendData(forwarded, excludeAddress = link.address)
             }
 
             val event = mapOf<String, Any>(
-                "data" to full,
+                "data" to delivered,
                 "peerAddress" to link.address,
             )
             mainHandler.post { dataSink?.success(event) }
@@ -697,7 +700,7 @@ class BleL2capPlugin(
     }
 
     private fun removePeer(link: PeerLink) {
-        peers.remove(link.address)
+        peers.remove(link.address, link)
         link.close()
         if (hostLink === link) hostLink = null
     }

@@ -94,7 +94,9 @@ class _SessionStageState extends State<SessionStage>
     _sessionStateSub?.cancel();
     _sessionStateSub = session.stateStream.listen((state) {
       if (!mounted) return;
-      if (state == RoomState.disconnected) {
+      if (state == RoomState.inRoom) {
+        setState(() {});
+      } else if (state == RoomState.disconnected) {
         final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -152,6 +154,9 @@ class _SessionStageState extends State<SessionStage>
         memberCount: session.members.length,
         packetLossRate: session.packetLossPercent,
         roundTripTimeMs: session.roundTripTimeMs,
+        metrics: session.metrics,
+        useBuiltinMic: session.useBuiltinMic,
+        onToggleBuiltinMic: session.setUseBuiltinMic,
       ),
     );
   }

@@ -61,3 +61,28 @@
 若日后取得付费账号，在 `release.yml` 中接入证书 `.p12` 与描述文件
 secrets 即可产出 ad-hoc 签名 IPA，配合 `itms-services` 清单实现
 「点链接直装」——但仍需预先登记设备 UDID。
+
+
+## Opus 编解码依赖与验证
+
+音频插件通过 `ios/Podfile` 接入本地规格 `ios/SunsetOpus.podspec`，从 Xiph 下载
+固定版本 libopus 1.5.2，并校验归档 SHA-256。`pod install` 会编译其便携浮点实现，
+无需额外的预编译 framework。首次构建需要网络与 CocoaPods。
+
+采集按 16kHz 单声道、320 个采样（20ms）分帧，Opus 载荷最多 512 字节；
+每个远端成员使用独立解码器。AudioUnit 回调长度不同于 320 时，会保留剩余采样。
+API 依据 [Opus 1.5 编解码说明](https://opus-codec.org/docs/opus_api-1.5/)。
+
+在 macOS / Xcode 上运行（由于 `pubspec.yaml` 不含 Flutter 插件，`flutter build ios` 不会自动运行 `pod install`，需在 `flutter precache --ios` 后手动安装 CocoaPods 依赖）：
+
+```sh
+flutter pub get
+flutter precache --ios
+(cd ios && pod install)
+flutter build ios --simulator --debug
+xcodebuild test -workspace ios/Runner.xcworkspace -scheme Runner \
+  -destination 'platform=iOS Simulator,id=<可用模拟器 UDID>' -only-testing:RunnerTests
+```
+
+`RunnerTests` 验证 Opus 往返帧长与协议载荷上限；Android 单测包含同版本 libopus
+生成的数据包，用于验证 Concentus 解码兼容性。硬件录音、路由与 BLE 仍需真机验收。

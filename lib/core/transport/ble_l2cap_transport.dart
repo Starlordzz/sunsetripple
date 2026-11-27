@@ -412,13 +412,24 @@ class BleL2capTransport implements RoomTransport {
         if (data == null) return;
 
         // 原生侧已经按帧头补齐成整帧了，这里直接解码即可。
-        final frame = Frame.decode(data);
+        var frame = Frame.decode(data);
         if (frame == null) {
           AppLog.warn(_tag, '收到无法解析的蓝牙帧（${data.length} 字节），来自 $peerAddress');
           return;
         }
 
         _knownPeers.add(peerAddress);
+        if (isHost && frame.type != FrameType.joinReq) {
+          final memberId = _boundMemberByPeer[peerAddress];
+          if (memberId == null) return;
+          frame = Frame(
+              type: frame.type,
+              senderId: memberId,
+              seq: frame.seq,
+              payload: frame.payload);
+        } else if (isHost && frame.senderId != 0) {
+          return;
+        }
 
         // 房主侧的 JOIN：登记「这条链路用哪个会话令牌入房」，
         // 等 RoomSession 分配完成员号回调 bindMemberForSessionToken 时消费。

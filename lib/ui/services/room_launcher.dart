@@ -223,7 +223,7 @@ class RoomLauncher {
         await _unwind(releases);
         return const RoomLaunchFailure('ble_join_failed');
       }
-      session.attachTransport(bleTransport);
+      session.attachTransport(bleTransport, ownsTransport: false);
       await session.joinRoom(startAudio: false);
     } catch (e) {
       AppLog.error(_tag, '加入蓝牙房失败', e);
@@ -252,7 +252,7 @@ class RoomLauncher {
         await _unwind(releases);
         return const RoomLaunchFailure('ble_host_start_failed');
       }
-      session.attachTransport(bleTransport);
+      session.attachTransport(bleTransport, ownsTransport: false);
       await session.createRoom(startAudio: false);
     } catch (e) {
       AppLog.error(_tag, '开蓝牙房失败', e);

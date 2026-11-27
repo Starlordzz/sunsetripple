@@ -30,7 +30,7 @@ class AppChangelog {
 
   static const List<String> zh = <String>[
     'RoomSession 与首页双上帝对象拆解：聊天/遥测外提，建房入房编排独立成服务',
-    '安全层从死代码变为可达路径：新增握手协商器与带外短码，握手失败保持明文',
+    '安全层握手协商器与带外短码已补齐（默认仍明文传输，待 UI 与多人密钥分发接入）',
     '更新链路真正落地：清单验签 + 流式下载校验 SHA-256 + Android 侧二次核对后安装',
     '新增 traceId 贯穿与会话指标导出，传输层补齐 9 处关键路径日志',
     '新增 21 条 JUnit 原生单测、8 条重连测试、10 条安全协商测试',
@@ -39,7 +39,7 @@ class AppChangelog {
 
   static const List<String> en = <String>[
     'Split the two god objects: chat/telemetry extracted, room setup moved into a launcher service',
-    'Security layer is now reachable: handshake negotiator plus out-of-band safety code',
+    'Security handshake negotiator and out-of-band safety code added (plaintext by default; UI & group key exchange pending)',
     'Update chain implemented end to end: manifest signature, streamed SHA-256, Android re-verification',
     'Added traceId threading and session metrics export; 9 missing transport log points filled',
     'Added 21 JUnit native tests, 8 reconnect tests and 10 secure-negotiation tests',

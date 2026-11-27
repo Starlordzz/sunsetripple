@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:pointycastle/export.dart' show SHA256Digest;
 
 import '../diagnostics/app_log.dart';
+import '../version.dart';
 import 'update_manifest.dart';
 
 /// 更新安装链路的错误基类。
@@ -58,13 +59,16 @@ class UpdateDownload {
 /// Android 侧下载完之后**不会**直接安装：先交给 `UpdateInstallerPlugin`，
 /// 由原生侧再核对包名、versionCode 与签名证书 SHA-256 一致，才拉起系统安装确认框。
 class UpdateInstaller {
-  UpdateInstaller({UpdateHttpClientFactory? clientFactory})
+  UpdateInstaller(
+      {UpdateHttpClientFactory? clientFactory,
+      this.manifestFetchTimeout = kUpdateManifestFetchTimeout})
       : _clientFactory = clientFactory ?? HttpClient.new;
 
   static const MethodChannel _channel =
       MethodChannel('host.msknet.sunsetripple/update_installer');
 
   final UpdateHttpClientFactory _clientFactory;
+  final Duration manifestFetchTimeout;
 
   /// 只有 Android 允许应用内下载安装。iOS 的沙箱不允许 App 自装，桌面端没有安装器。
   static bool get supportsInAppInstall => Platform.isAndroid;
@@ -83,35 +87,8 @@ class UpdateInstaller {
     final client = _clientFactory()
       ..connectionTimeout = const Duration(seconds: 15);
     try {
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.userAgentHeader, 'SunsetRipple-App');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      final response = await request.close();
-
-      if (response.statusCode != HttpStatus.ok) {
-        throw UpdateDownloadException(
-            '获取更新清单失败：HTTP ${response.statusCode}（$manifestUrl）');
-      }
-      if (response.contentLength > kUpdateManifestMaxBytes) {
-        throw const UpdateDownloadException('更新清单体积异常，已放弃');
-      }
-
-      final payload = <int>[];
-      await for (final chunk in response.timeout(kUpdateManifestFetchTimeout)) {
-        payload.addAll(chunk);
-        if (payload.length > kUpdateManifestMaxBytes) {
-          throw const UpdateDownloadException('更新清单体积超过 64 KiB，已放弃');
-        }
-      }
-
-      final String text;
-      try {
-        text = utf8.decode(payload);
-      } on FormatException {
-        throw const UpdateDownloadException('更新清单不是合法 UTF-8');
-      }
-      // 验签：任何一处不匹配都会抛异常，绝不返回「可能没问题」的清单。
-      return UpdateManifest.verify(text);
+      return await _fetchVerifiedManifest(client, uri)
+          .timeout(manifestFetchTimeout);
     } on UpdateInstallerException {
       rethrow;
     } on UpdateManifestException {
@@ -127,6 +104,39 @@ class UpdateInstaller {
     }
   }
 
+  Future<UpdateManifest> _fetchVerifiedManifest(
+      HttpClient client, Uri uri) async {
+    final request = await client.getUrl(uri);
+    request.headers.set(HttpHeaders.userAgentHeader, 'SunsetRipple-App');
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    final response = await request.close();
+
+    if (response.statusCode != HttpStatus.ok) {
+      throw UpdateDownloadException(
+          '获取更新清单失败：HTTP ${response.statusCode}（$uri）');
+    }
+    if (response.contentLength > kUpdateManifestMaxBytes) {
+      throw const UpdateDownloadException('更新清单体积异常，已放弃');
+    }
+
+    final payload = <int>[];
+    await for (final chunk in response.timeout(manifestFetchTimeout)) {
+      payload.addAll(chunk);
+      if (payload.length > kUpdateManifestMaxBytes) {
+        throw const UpdateDownloadException('更新清单体积超过 64 KiB，已放弃');
+      }
+    }
+
+    final String text;
+    try {
+      text = utf8.decode(payload);
+    } on FormatException {
+      throw const UpdateDownloadException('更新清单不是合法 UTF-8');
+    }
+    // 验签：任何一处不匹配都会抛异常，绝不返回「可能没问题」的清单。
+    return UpdateManifest.verify(text);
+  }
+
   /// 下载 APK 并交给系统安装器（仅 Android）。
   ///
   /// 进度通过 [UpdateDownload.progress] 上报；校验失败/下载失败都会让
@@ -140,8 +150,15 @@ class UpdateInstaller {
           throw const UpdateUnsupportedException(
               '当前平台不支持应用内安装更新（仅 Android）；iOS 请在浏览器中手动完成安装');
         }
+        if (!await canRequestPackageInstalls()) {
+          await openInstallPermissionSettings();
+          throw const UpdateInstallException('需要先允许「安装未知应用」，授权后请再点一次「下载并安装」');
+        }
         // 地址策略在下载入口再断言一次：即使清单来得再可信，也不会从非白名单域名取包。
         manifest.assertTrustedUpdateUrl();
+        if (manifest.versionCode <= AppVersion.buildNumber) {
+          throw const UpdateInstallException('更新包构建号必须高于当前安装版本');
+        }
         _report(controller, 0);
         apk = await downloadVerifiedFile(
           manifest.apkUri,
@@ -154,6 +171,9 @@ class UpdateInstaller {
         await _installVerified(apk, manifest);
         return apk;
       } catch (error) {
+        if (apk != null && await apk.exists()) {
+          await apk.parent.delete(recursive: true);
+        }
         _reportError(controller, error);
         rethrow;
       } finally {

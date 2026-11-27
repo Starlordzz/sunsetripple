@@ -25,6 +25,15 @@ class OpusCodecTest {
     /** 采样绝对值之和，用来区分「有信号」和「静音」。 */
     private fun energy(pcm: ShortArray): Long = pcm.fold(0L) { acc, s -> acc + Math.abs(s.toInt()) }
 
+    /** Packet generated with pinned Xiph libopus 1.5.2, 16kHz mono 20ms. */
+    @Test
+    fun decodesIosReferenceOpusPacket() {
+        val packet = byteArrayOf(72, -126, -75, 3, 108, -98, -103, -84, 0, 0, 4, 95, -8, 48, 4, -118, 5, 27, 1, 95, 97, -23, 72, -103, -88, -9, -88, -105, 84, -23, -6, -109, 11, 70, 79, 9, 57, 94, -90, -22, -3, 93, -1, -33, -61, 39, 122, 73, 30, -125, 64, 38, -35, 106, -18, -30, 50, -30, 63, 46, 124, -102, 116, -90, -8, 107, 83, 114, -68)
+        val decoded = OpusCodec().decode(packet)
+        assertEquals(OpusCodec.FRAME_SAMPLES, decoded.size)
+        assertTrue("Reference packet must contain voice", energy(decoded) > 100_000)
+    }
+
     @Test
     fun encodeStaysWithinMaxPacketBytes() {
         val codec = OpusCodec()

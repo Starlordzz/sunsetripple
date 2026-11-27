@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sunset_ripple/core/transport/wifi_direct_manager.dart';
@@ -6,8 +8,21 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('host.msknet.sunsetripple/wifi_direct');
+  const eventChannel =
+      EventChannel('host.msknet.sunsetripple/wifi_direct_events');
+  StreamController<dynamic>? events;
+  void Function()? onConnectCallback;
 
   setUp(() {
+    events = StreamController<dynamic>.broadcast();
+    onConnectCallback = null;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(
+      eventChannel,
+      MockStreamHandler.inline(
+        onListen: (_, sink) => events!.stream.listen(sink.success),
+      ),
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall call) async {
       switch (call.method) {
@@ -22,6 +37,7 @@ void main() {
         case 'discoverPeers':
           return true;
         case 'connect':
+          onConnectCallback?.call();
           return true;
         case 'disconnect':
           return true;
@@ -38,9 +54,15 @@ void main() {
     });
   });
 
-  tearDown(() {
+  tearDown(() async {
+    onConnectCallback = null;
+    await WifiDirectManager.instance.stopListeningEvents();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(eventChannel, null);
+    await events?.close();
+    events = null;
   });
 
   group('WifiP2pPeer & WifiP2pConnectionInfo Model Tests', () {
@@ -121,6 +143,27 @@ void main() {
         timeout: const Duration(milliseconds: 50),
       );
       expect(result, isNull);
+    });
+
+    test('connectAndWait captures connection event emitted during connect',
+        () async {
+      onConnectCallback = () {
+        events?.add({
+          'type': 'connection',
+          'isConnected': true,
+          'isGroupOwner': false,
+          'groupFormed': true,
+          'groupOwnerAddress': '192.168.49.1',
+        });
+      };
+
+      final result = await manager.connectAndWait(
+        '46:b2:f7:ca:c4:b3',
+        timeout: const Duration(milliseconds: 200),
+      );
+      expect(result, isNotNull);
+      expect(result!.isConnected, isTrue);
+      expect(result.groupOwnerAddress, '192.168.49.1');
     });
   });
 }

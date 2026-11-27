@@ -7,11 +7,13 @@ import '../theme/app_theme.dart';
 class MemberOrbit extends StatelessWidget {
   final List<Member> members;
   final bool isNight;
+  final void Function(Member member)? onMemberTap;
 
   const MemberOrbit({
     super.key,
     required this.members,
     required this.isNight,
+    this.onMemberTap,
   });
 
   @override
@@ -34,6 +36,7 @@ class MemberOrbit extends StatelessWidget {
             member: member,
             isNight: isNight,
             hasConflict: hasConflict,
+            onTap: onMemberTap == null ? null : () => onMemberTap!(member),
           );
         },
       ),
@@ -45,11 +48,13 @@ class _MemberAvatarChip extends StatelessWidget {
   final Member member;
   final bool isNight;
   final bool hasConflict;
+  final VoidCallback? onTap;
 
   const _MemberAvatarChip({
     required this.member,
     required this.isNight,
     this.hasConflict = false,
+    this.onTap,
   });
 
   @override
@@ -62,96 +67,100 @@ class _MemberAvatarChip extends StatelessWidget {
     // 昵称里带的 3 位数字短码按需展示：只有在同名冲突时才展示，避免平时多余干扰。
     final (displayName, code) = DeviceCode.split(member.nickname);
 
-    return SizedBox(
-      // 固定宽度，昵称才有可省略的边界；否则横向列表里 Row 拿到的是无界约束。
-      width: 92,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg,
-              border: Border.all(
-                color: member.isSpeaking
-                    ? activeBorderColor
-                    : (isNight
-                        ? const Color(0xFF283A52)
-                        : const Color(0xFFDCCEC8)),
-                width: member.isSpeaking ? 3.0 : 1.4,
-              ),
-              boxShadow: member.isSpeaking
-                  ? [
-                      BoxShadow(
-                        color: speakingGlow.withValues(alpha: 0.45),
-                        blurRadius: 12,
-                        spreadRadius: 2.5,
-                      )
-                    ]
-                  : [],
-            ),
-            child: Center(
-              child: Text(
-                member.nickname.isNotEmpty
-                    ? member.nickname.characters.first
-                    : "?",
-                style: TextStyle(
-                  color: isNight
-                      ? AppTheme.darkTextPrimary
-                      : AppTheme.lightTextPrimary,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        // 固定宽度，昵称才有可省略的边界；否则横向列表里 Row 拿到的是无界约束。
+        width: 92,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isNight ? AppTheme.darkCardBg : AppTheme.lightCardBg,
+                border: Border.all(
+                  color: member.isSpeaking
+                      ? activeBorderColor
+                      : (isNight
+                          ? const Color(0xFF283A52)
+                          : const Color(0xFFDCCEC8)),
+                  width: member.isSpeaking ? 3.0 : 1.4,
                 ),
+                boxShadow: member.isSpeaking
+                    ? [
+                        BoxShadow(
+                          color: speakingGlow.withValues(alpha: 0.45),
+                          blurRadius: 12,
+                          spreadRadius: 2.5,
+                        )
+                      ]
+                    : [],
               ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (member.isHost)
-                Padding(
-                  padding: const EdgeInsets.only(right: 3),
-                  child: Icon(
-                    Icons.star,
-                    size: 14,
-                    color: isNight
-                        ? AppTheme.moonSilverWhite
-                        : AppTheme.sunsetCoral,
-                  ),
-                ),
-              Flexible(
+              child: Center(
                 child: Text(
-                  displayName,
+                  member.nickname.isNotEmpty
+                      ? member.nickname.characters.first
+                      : "?",
                   style: TextStyle(
-                    fontSize: 14,
                     color: isNight
-                        ? AppTheme.darkTextSecondary
-                        : AppTheme.lightTextSecondary,
+                        ? AppTheme.darkTextPrimary
+                        : AppTheme.lightTextPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 22,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ],
-          ),
-          if (code != null && hasConflict)
-            Text(
-              '${DeviceCode.separator}$code',
-              style: TextStyle(
-                fontSize: 11,
-                letterSpacing: 0.4,
-                fontFeatures: const [FontFeature.tabularFigures()],
-                color: (isNight
-                        ? AppTheme.darkTextSecondary
-                        : AppTheme.lightTextSecondary)
-                    .withValues(alpha: 0.7),
-              ),
             ),
-        ],
+            const SizedBox(height: 6),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (member.isHost)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 3),
+                    child: Icon(
+                      Icons.star,
+                      size: 14,
+                      color: isNight
+                          ? AppTheme.moonSilverWhite
+                          : AppTheme.sunsetCoral,
+                    ),
+                  ),
+                Flexible(
+                  child: Text(
+                    displayName,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isNight
+                          ? AppTheme.darkTextSecondary
+                          : AppTheme.lightTextSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (code != null && hasConflict)
+              Text(
+                '${DeviceCode.separator}$code',
+                style: TextStyle(
+                  fontSize: 11,
+                  letterSpacing: 0.4,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: (isNight
+                          ? AppTheme.darkTextSecondary
+                          : AppTheme.lightTextSecondary)
+                      .withValues(alpha: 0.7),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

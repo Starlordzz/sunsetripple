@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import '../audio/audio_io.dart';
 import '../diagnostics/app_log.dart';
+import '../diagnostics/session_metrics.dart';
 import '../diagnostics/trace.dart';
 import '../protocol/frame.dart';
 import '../protocol/frame_type.dart';
@@ -76,9 +77,13 @@ class RoomSession {
 
   /// 传输层。房主转移要靠它取对端端点、接任监听、重连到新房主。
   RoomTransport? transport;
+  bool _ownsTransport = true;
 
   /// 房主分配 joinOrder 用的单调计数器（房主自己是 0）。
   int _nextJoinOrder = 1;
+  int _audioSeq = 0;
+  int _reconnectGeneration = 0;
+  Future<bool>? _activeReconnect;
 
   /// 房主故障转移的决策状态（防重放的 joinOrder、缓存的交接快照、
   /// 迁移互斥标记）。判定逻辑是纯函数，见 [HostFailoverTracker]。
@@ -98,6 +103,7 @@ class RoomSession {
 
   /// 麦克风/扬声器是否已经打开，[startAudio] 用它做幂等。
   bool _audioStarted = false;
+  DateTime? _sessionStartedAt;
   late ReconnectController _reconnectController;
 
   /// 纯内存聊天状态与规则（历史表、去重窗口、撤回、同人识别）。
@@ -161,6 +167,21 @@ class RoomSession {
   /// 实测往返延迟（毫秒）。仅客户端在收到首份名单时可测得，房主为 null。
   int? get roundTripTimeMs => _telemetry.roundTripTimeMs;
 
+  /// 当前会话结构化诊断指标快照。
+  SessionMetrics get metrics {
+    final started = _sessionStartedAt;
+    final uptime = started == null
+        ? 0
+        : clock.now().difference(started).inSeconds.clamp(0, 86400 * 365);
+    return SessionMetrics(
+      receivedFrames: receivedFrameCount,
+      lostFrames: lostFrameCount,
+      memberCount: _members.length,
+      uptimeSeconds: uptime,
+      roundTripTimeMs: roundTripTimeMs,
+    );
+  }
+
   /// 会话令牌：进房时随机生成，同一台设备跨重连保持不变。
   /// 房主用它判定成员重连。昵称不能作为身份依据。
   RoomSession({
@@ -194,14 +215,17 @@ class RoomSession {
     _reconnectController = ReconnectController(
       onAttemptReconnect: _attemptReconnect,
       onMaxRetriesReached: () {
-        _updateState(RoomState.disconnected);
+        checkHostFailover();
+        if (!_failover.transferInProgress) _updateState(RoomState.disconnected);
       },
     );
   }
 
   /// 把传输层交给会话统一管理。收到的帧按到达顺序串行处理，
   /// 旧传输层的迟到事件会被 generation 丢弃。
-  void attachTransport(RoomTransport value) {
+  /// [ownsTransport] 为 false 时仅停止借用的传输层，其所有者负责最终销毁。
+  void attachTransport(RoomTransport value, {bool ownsTransport = true}) {
+    _ownsTransport = ownsTransport;
     _transportGeneration++;
     final generation = _transportGeneration;
     unawaited(_incomingSubscription?.cancel());
@@ -238,6 +262,7 @@ class RoomSession {
     // 诊断报告里把一次完整会话的日志挑出来。已有在跑的 trace 就不新建
     // （重连/房主迁移会再次走到这里）。
     if (!TraceId.isActive) TraceId.begin();
+    _sessionStartedAt ??= clock.now();
     _isHost = true;
     _selfMemberId = 1;
     _members.clear();
@@ -270,6 +295,7 @@ class RoomSession {
     // 见 createRoom：重连与房主迁移也会走到这里，必须带 isActive 守卫，
     // 否则同一场会话会被拆成多条 trace 并留下未弹出的栈帧。
     if (!TraceId.isActive) TraceId.begin();
+    _sessionStartedAt ??= clock.now();
     _isHost = false;
     _selfMemberId = 0;
     _members.clear();
@@ -317,12 +343,13 @@ class RoomSession {
 
   /// Process incoming binary frames
   ///
-  /// [recordStats] 仅供加密帧内部递归调用时传 false：外层信封已经计过一次，
-  /// 解出来的内层帧不能再重复计数。
-  Future<void> handleIncomingFrame(Frame frame,
-      {bool recordStats = true}) async {
+  /// [recordStats] 可关闭遥测计数。加密帧仅在认证成功后计一次内层帧。
+  Future<void> handleIncomingFrame(Frame frame, {bool recordStats = true}) =>
+      _handleIncomingFrame(frame, recordStats: recordStats);
+
+  Future<void> _handleIncomingFrame(Frame frame,
+      {required bool recordStats, bool authenticated = false}) async {
     if (_disposed) return;
-    if (recordStats) _telemetry.recordFrame(frame, selfMemberId: _selfMemberId);
     if (frame.type == FrameType.sealed) {
       if (secureCodec == null) {
         AppLog.warn('RoomSession', '收到加密帧但未配置安全编解码器，已丢弃');
@@ -330,7 +357,8 @@ class RoomSession {
       }
       try {
         final opened = await secureCodec!.open(frame);
-        await handleIncomingFrame(opened, recordStats: false);
+        await _handleIncomingFrame(opened,
+            recordStats: recordStats, authenticated: true);
       } catch (e) {
         AppLog.error('RoomSession', '解封加密帧失败，可能为伪造或重放帧', e);
       }
@@ -341,7 +369,8 @@ class RoomSession {
     // 否则攻击者只需继续发明文帧就能注入聊天与状态，AES 信封形同虚设——
     // 这比不加密更危险，因为它会让人得出「已启用端到端加密」的错误结论。
     // 握手帧保持放行：它们本身就是建立 codec 之前的明文协商。
-    if (secureCodec != null &&
+    if (!authenticated &&
+        secureCodec != null &&
         frame.type != FrameType.handshakeHello &&
         frame.type != FrameType.handshakeConfirm) {
       AppLog.warn(
@@ -351,6 +380,7 @@ class RoomSession {
       return;
     }
 
+    if (recordStats) _telemetry.recordFrame(frame, selfMemberId: _selfMemberId);
     final activeSender = _members[frame.senderId];
     if (activeSender != null) {
       _presence.touch(activeSender);
@@ -609,7 +639,11 @@ class RoomSession {
 
   /// 房主超时后自动迁移。
   void checkHostFailover() {
-    if (_isHost || _state != RoomState.inRoom) return;
+    if (_disposed ||
+        _isHost ||
+        (_state != RoomState.inRoom && _state != RoomState.reconnecting)) {
+      return;
+    }
     if (_failover.transferInProgress) return;
 
     final verdict = _failover.evaluate(
@@ -634,6 +668,10 @@ class RoomSession {
   }
 
   Future<void> _runTransfer(HostTransferPlan plan) async {
+    _reconnectGeneration++;
+    _reconnectController.cancel();
+    await _activeReconnect;
+    if (_disposed || _leaveFuture != null) return;
     final t = transport;
     if (t == null || !t.supportsHostTransfer) {
       AppLog.error('RoomSession', '当前房型不支持房主转移');
@@ -797,7 +835,7 @@ class RoomSession {
         sendFrame(Frame(
           type: FrameType.audio,
           senderId: _selfMemberId,
-          seq: _nextSeq(),
+          seq: _audioSeq++ & 0xFFFF,
           payload: opusPacket,
         ));
       },
@@ -900,14 +938,35 @@ class RoomSession {
   }
 
   Future<bool> _attemptReconnect() async {
+    final attempt = _performReconnect();
+    _activeReconnect = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (identical(_activeReconnect, attempt)) _activeReconnect = null;
+    }
+  }
+
+  Future<bool> _performReconnect() async {
     _updateState(RoomState.reconnecting);
     // 不重开麦：音频管线与传输层是独立的，重连期间它一直在跑，
     // 重启一次反而会造成一段可听见的断音。
     final t = transport;
-    if (t == null || !await t.reconnect()) {
+    if (t == null || _failover.transferInProgress) return false;
+    final generation = _reconnectGeneration;
+    final reconnected = await t.reconnect();
+    if (_disposed ||
+        _leaveFuture != null ||
+        generation != _reconnectGeneration ||
+        !reconnected) {
       return false;
     }
     await joinRoom(startAudio: false);
+    if (_disposed ||
+        _leaveFuture != null ||
+        generation != _reconnectGeneration) {
+      return false;
+    }
 
     if (_state == RoomState.inRoom) return true;
 
@@ -1118,7 +1177,9 @@ class RoomSession {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _audioStarted = false;
+    _reconnectGeneration++;
     _reconnectController.cancel();
+    await _activeReconnect;
 
     await audioIo.stopCapture();
     await audioIo.stopPlayback();
@@ -1129,6 +1190,7 @@ class RoomSession {
     _presence.clear();
     _failover.reset();
     _nextJoinOrder = 1;
+    _sessionStartedAt = null;
     _resetTelemetry();
 
     // 清空聊天状态（历史表、去重窗口、未读、同人识别一并重置）
@@ -1173,7 +1235,7 @@ class RoomSession {
     await _disconnectSubscription?.cancel();
     _incomingSubscription = null;
     _disconnectSubscription = null;
-    await transport?.dispose();
+    if (_ownsTransport) await transport?.dispose();
     await _chat.dispose();
     await _stateController.close();
     await _membersController.close();

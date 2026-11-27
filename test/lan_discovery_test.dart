@@ -125,5 +125,47 @@ void main() {
         reason: '匿名广播可以伪造大量 roomId，列表必须有硬上限',
       );
     });
+
+    test('stop() 在关闭 socket 前完成 ROOM_CLOSED 解散广播发送', () async {
+      final listener = await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        LanRoomDiscovery.discoveryPort,
+        reuseAddress: true,
+        reusePort: !Platform.isWindows,
+      );
+      addTearDown(listener.close);
+
+      final receivedActions = <String?>[];
+      final sub = listener.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final dg = listener.receive();
+        if (dg == null) return;
+        try {
+          final json = jsonDecode(utf8.decode(dg.data)) as Map<String, dynamic>;
+          if (json['roomId'] == 'room_goodbye_flush') {
+            receivedActions.add(json['action'] as String?);
+          }
+        } catch (_) {}
+      });
+      addTearDown(sub.cancel);
+
+      final host = LanRoomDiscovery();
+      expect(await host.startListening(), isTrue);
+      host.startAdvertising(
+        roomId: 'room_goodbye_flush',
+        roomName: '退场广播测试房',
+        hostNickname: '房主',
+        tcpPort: 8988,
+        getMemberCount: () => 1,
+      );
+
+      await host.stop();
+
+      await pumpUntil(
+        () => receivedActions.contains('ROOM_CLOSED'),
+        reason: 'stop() 必须在关闭 socket 前发出 ROOM_CLOSED 包',
+      );
+      host.dispose();
+    });
   });
 }

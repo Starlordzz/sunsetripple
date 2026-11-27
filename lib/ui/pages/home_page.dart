@@ -6,6 +6,7 @@ import '../services/room_launcher.dart';
 import '../../core/session/room_session.dart';
 import '../../core/transport/ble_l2cap_transport.dart';
 import '../../core/transport/lan_discovery.dart';
+import '../../core/transport/lan_transport.dart';
 import '../../core/transport/wifi_direct_manager.dart';
 import '../theme/app_theme.dart';
 import '../transitions/stage_choreography.dart';
@@ -62,6 +63,7 @@ class _HomeContentState extends State<HomeContent> {
   Timer? _periodicScanTimer;
   StreamSubscription<List<WifiP2pPeer>>? _p2pSubscription;
   StreamSubscription<List<DiscoveredBleRoom>>? _bleSubscription;
+  StreamSubscription<RoomState>? _activeSessionHostSub;
   bool _isHostingWifiDirect = false;
 
   @override
@@ -98,6 +100,8 @@ class _HomeContentState extends State<HomeContent> {
 
   void _onStageStatusChanged(AnimationStatus status) {
     if (status == AnimationStatus.dismissed) {
+      _activeSessionHostSub?.cancel();
+      _activeSessionHostSub = null;
       _stopPeriodicScan();
       _lanDiscovery.stopAdvertising();
       _bleTransport.stopScan();
@@ -142,6 +146,7 @@ class _HomeContentState extends State<HomeContent> {
     _periodicScanTimer?.cancel();
     _p2pSubscription?.cancel();
     _bleSubscription?.cancel();
+    _activeSessionHostSub?.cancel();
     _nicknameController.dispose();
     _lanDiscovery.dispose();
     _bleTransport.stopScan();
@@ -764,7 +769,7 @@ class _HomeContentState extends State<HomeContent> {
 
     switch (result) {
       case RoomLaunchSuccess(:final session, :final roomName):
-        if (mounted) widget.onEnterRoom(session, roomName);
+        if (mounted) _enterLaunchedRoom(session, roomName);
       case RoomLaunchFailure():
         _isHostingWifiDirect = false;
         _stopPeriodicScan();
@@ -787,7 +792,7 @@ class _HomeContentState extends State<HomeContent> {
 
     switch (result) {
       case RoomLaunchSuccess(:final session, :final roomName):
-        if (mounted) widget.onEnterRoom(session, roomName);
+        if (mounted) _enterLaunchedRoom(session, roomName);
       case RoomLaunchFailure():
         if (mounted) _showLaunchError(s.errJoinRoom);
     }
@@ -804,7 +809,7 @@ class _HomeContentState extends State<HomeContent> {
 
     switch (result) {
       case RoomLaunchSuccess(:final session, :final roomName):
-        if (mounted) widget.onEnterRoom(session, roomName);
+        if (mounted) _enterLaunchedRoom(session, roomName);
       case RoomLaunchFailure():
         if (mounted) _showLaunchError(s.errJoinBleRoom);
     }
@@ -825,11 +830,41 @@ class _HomeContentState extends State<HomeContent> {
           final displayName = peer.name.isNotEmpty
               ? s.defaultWifiRoomTitle(peer.name)
               : s.wifiRoom;
-          widget.onEnterRoom(session, displayName);
+          _enterLaunchedRoom(session, displayName);
         }
       case RoomLaunchFailure():
         if (mounted) _showLaunchError(s.errJoinWifiDirectHost);
     }
+  }
+
+  void _enterLaunchedRoom(RoomSession session, String roomName) {
+    _activeSessionHostSub?.cancel();
+    var wasHost = session.isHost;
+    _activeSessionHostSub = session.stateStream.listen((state) {
+      if (!mounted) return;
+      final isNowHost = session.isHost;
+      if (!isNowHost && wasHost) {
+        wasHost = false;
+        _lanDiscovery.stopAdvertising();
+        _isHostingWifiDirect = false;
+        _stopPeriodicScan();
+      } else if (state == RoomState.inRoom && isNowHost && !wasHost) {
+        wasHost = true;
+        if (session.mode == RoomMode.wifiFullDuplex) {
+          final t = session.transport;
+          final port =
+              t is LanTransport ? t.boundControlPort : LanTransport.controlPort;
+          _lanDiscovery.startAdvertising(
+            roomId: _roomId,
+            roomName: roomName,
+            hostNickname: _identityNickname,
+            tcpPort: port,
+            getMemberCount: () => session.members.length,
+          );
+        }
+      }
+    });
+    widget.onEnterRoom(session, roomName);
   }
 
   void _showLaunchError(String message) {

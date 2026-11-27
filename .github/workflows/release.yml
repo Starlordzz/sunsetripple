@@ -80,7 +80,7 @@ jobs:
           echo "channel_tag=$channel_tag" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Run unit tests
         run: flutter test
@@ -127,8 +127,8 @@ jobs:
           # 这里曾经只是 `apksigner ... | grep 'Signer #1 certificate DN'`，而 2026-09-29 的
           # 发布实测 apksigner 在该 runner 上**退出码 0 且不输出任何内容**，于是变量为空、
           # 断言形同不存在（这一步照样打勾），错误被推迟到后面签名清单那一步才炸。
-          # 现在统一走 scripts/apk-certificate-sha256.sh：它自己找 apksigner、读不出就回退
-          # keystore 并打印诊断、两条路都拿不到摘要时失败——读不出摘要本身就不允许继续发布。
+          # 现在统一走 scripts/apk-certificate-sha256.sh：它自己找 apksigner，验证失败或摘要缺失时直接失败。
+          # keystore 仅用于交叉校验，不能替代对实际 APK 的验证。
           # 顺带把「APK 的签名证书 == 发布 keystore 的证书」这条更强的断言也做了（两边都能读到时必须一致）。
           cert="$(bash scripts/apk-certificate-sha256.sh \
             build/app/outputs/flutter-apk/app-release.apk \
@@ -147,21 +147,18 @@ jobs:
           mkdir -p release-artifacts
           cp build/app/outputs/flutter-apk/app-release.apk "release-artifacts/$apk_name"
 
-          # 提取对应版本的更新日志并格式化为 GitHub Release 简洁格式
+          # 提取对应版本的更新日志并格式化为 GitHub Release 格式（完整保留正文段落与换行，避免截断）
           {
             echo "# 更新日志"
             echo ""
             awk -v heading="## $version_name - " '
               index($0, heading) == 1 { found = 1; next }
               found && /^## / { exit }
-              found && /^[-*] / {
-                sub(/^[-*] /, "- ")
-                print
-              }
-            ' CHANGELOG.md
+              found { print }
+            ' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba'
           } > release-artifacts/release-notes.md
 
-          if [[ $(grep -c '^- ' release-artifacts/release-notes.md) -eq 0 ]]; then
+          if [[ $(grep -E -c '^[*-] |^### ' release-artifacts/release-notes.md) -eq 0 ]]; then
             echo "- 更新依赖项与常规问题修复" >> release-artifacts/release-notes.md
           fi
 
@@ -233,11 +230,24 @@ jobs:
             exit 1
           fi
 
+          # 所有历史版本 tag 的构建号都必须低于本次发布；相同提交重跑允许。
+          while IFS= read -r previous_tag; do
+            if [[ "$(git rev-parse "$previous_tag^{commit}")" == "$(git rev-parse HEAD)" ]]; then
+              continue
+            fi
+            previous_version="$(git show "$previous_tag:pubspec.yaml" 2>/dev/null | sed -n 's/^version: *//p' | tr -d '\r')"
+            previous_code="${previous_version##*+}"
+            if [[ "$previous_code" =~ ^[0-9]+$ ]] && (( 10#$previous_code >= 10#$version_code )); then
+              echo "::error::versionCode $version_code 必须高于历史版本 $previous_tag 的 $previous_code" >&2
+              exit 1
+            fi
+          done < <(git tag --list 'v[0-9]*')
+
           # 证书摘要取自**实际要发布的 APK**（而不是本地 keystore），
           # 这样清单里承诺的就是用户真正会装上的那个包的签名。
           # apksigner 在某些 runner 上会退出码 0 却不输出内容（见校验步骤的说明），
-          # 所以统一走 scripts/apk-certificate-sha256.sh：读不出就回退 keystore、打印诊断，
-          # 两条路都失败才报错——绝不接受一个空摘要。
+          # 所以统一走 scripts/apk-certificate-sha256.sh：要求 APK 验证成功并读到摘要，
+          # keystore 仅用于交叉校验——绝不接受未验证的 APK 或空摘要。
           certificate_sha256="$(bash scripts/apk-certificate-sha256.sh \
             "release-artifacts/$apk_name" \
             "$RUNNER_TEMP/sunset-ripple-release.p12" \
@@ -305,7 +315,12 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
+
+      - name: Install iOS CocoaPods dependencies
+        run: |
+          flutter precache --ios
+          (cd ios && pod install)
 
       - name: Build unsigned iOS release
         run: flutter build ios --release --no-codesign
@@ -430,6 +445,8 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${upload_files[@]}" --clobber
             gh release edit "$tag" \
+              --tag "$tag" \
+              --draft=false \
               --title "$tag" \
               --notes-file final-artifacts/release-notes.md \
               "${prerelease_args[@]}"
@@ -465,6 +482,7 @@ jobs:
 
           if gh release view "$channel_tag" >/dev/null 2>&1; then
             gh release upload "$channel_tag" "$manifest" --clobber
+            gh release edit "$channel_tag" --draft=false "${channel_flags[@]}"
           else
             gh release create "$channel_tag" "$manifest" \
               --title "SunsetRipple ${channel} update channel" \

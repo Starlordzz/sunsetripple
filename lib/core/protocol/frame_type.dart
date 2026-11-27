@@ -1,4 +1,4 @@
-/// 11 supported binary frame types in SunsetRipple protocol.
+/// 14 supported binary frame types in SunsetRipple protocol.
 enum FrameType {
   audio(0x01),
   joinReq(0x02),

@@ -53,7 +53,9 @@ class LanRoomDiscovery {
 
   RawDatagramSocket? _socket;
   Timer? _broadcastTimer;
+  Timer? _goodbyeTimer;
   Timer? _pruneTimer;
+  Future<void>? _pendingGoodbye;
   final Map<String, DiscoveredRoom> _discoveredRooms = {};
 
   /// 自己作为房主时广播的房间号——用来把自己从「附近的房间」里滤掉。
@@ -147,9 +149,14 @@ class LanRoomDiscovery {
   /// 停止广播；[sendGoodbye] 为 true 时向局域网发送即时解散通知，
   /// 让其他设备列表立刻清除该房间，无需等待超时。
   void stopAdvertising({bool sendGoodbye = true}) {
+    _goodbyeTimer?.cancel();
+    _goodbyeTimer = null;
+
     if (sendGoodbye && _selfRoomId != null && _socket != null) {
       final lastRoomId = _selfRoomId!;
-      _sendBroadcast(
+      final activeSocket = _socket!;
+      _pendingGoodbye = _sendBroadcast(
+        socketOverride: activeSocket,
         roomId: lastRoomId,
         roomName: "",
         hostNickname: "",
@@ -157,9 +164,11 @@ class LanRoomDiscovery {
         memberCount: 0,
         action: "ROOM_CLOSED",
       );
-      Future.delayed(const Duration(milliseconds: 80), () {
-        if (_socket != null) {
+      _goodbyeTimer = Timer(const Duration(milliseconds: 80), () {
+        final sock = _socket;
+        if (sock != null) {
           _sendBroadcast(
+            socketOverride: sock,
             roomId: lastRoomId,
             roomName: "",
             hostNickname: "",
@@ -204,7 +213,8 @@ class LanRoomDiscovery {
     return addresses.toList();
   }
 
-  void _sendBroadcast({
+  Future<void> _sendBroadcast({
+    RawDatagramSocket? socketOverride,
     required String roomId,
     required String roomName,
     required String hostNickname,
@@ -212,7 +222,7 @@ class LanRoomDiscovery {
     required int memberCount,
     String? action,
   }) async {
-    final socket = _socket;
+    final socket = socketOverride ?? _socket;
     if (socket == null) return;
 
     final jsonPayload = jsonEncode({
@@ -355,6 +365,17 @@ class LanRoomDiscovery {
 
   Future<void> stop() async {
     stopAdvertising();
+    _goodbyeTimer?.cancel();
+    _goodbyeTimer = null;
+    final pendingGoodbye = _pendingGoodbye;
+    _pendingGoodbye = null;
+    if (pendingGoodbye != null) {
+      try {
+        await pendingGoodbye.timeout(const Duration(milliseconds: 300));
+      } catch (_) {
+        // 忽略超时，确保端口清理不阻塞离开路径
+      }
+    }
     _pruneTimer?.cancel();
     _pruneTimer = null;
     _socket?.close();

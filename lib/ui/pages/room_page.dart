@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../../core/session/device_code.dart';
 import '../../core/session/member.dart';
 import '../../core/session/room_session.dart';
 import '../theme/app_theme.dart';
@@ -62,6 +65,7 @@ class _RoomContentState extends State<RoomContent> {
                 return MemberOrbit(
                   members: snapshot.data ?? [],
                   isNight: isNight,
+                  onMemberTap: widget.session.isHost ? _onMemberTap : null,
                 );
               },
             ),
@@ -117,6 +121,42 @@ class _RoomContentState extends State<RoomContent> {
         ],
       ),
     );
+  }
+
+  Future<void> _onMemberTap(Member member) async {
+    final session = widget.session;
+    if (!session.isHost || member.memberId == session.selfMemberId) return;
+
+    final s = AppStrings.of(context);
+    if (!session.isFullDuplex) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.bluetoothTransferUnsupported)),
+      );
+      return;
+    }
+
+    final (displayName, _) = DeviceCode.split(member.nickname);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.transferHost),
+        content: Text(s.transferHostConfirm(displayName)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(s.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(s.confirm),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      unawaited(session.transferHost(member.memberId));
+    }
   }
 
   Widget _buildDuplexDisc(bool isNight, double size) {

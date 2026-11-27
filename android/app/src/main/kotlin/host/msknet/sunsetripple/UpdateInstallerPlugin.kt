@@ -159,6 +159,13 @@ class UpdateInstallerPlugin(
             return
         }
 
+        @Suppress("DEPRECATION")
+        val installed = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (actualVersionCode <= versionCodeOf(installed)) {
+            result.error(ERROR_APK_REJECTED, "更新包构建号必须高于当前安装版本", null)
+            return
+        }
+
         val expectedCertificate =
             call.argument<String>("expectedCertificateSha256")?.lowercase()?.trim()
         if (!expectedCertificate.isNullOrBlank()) {
