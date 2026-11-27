@@ -13,25 +13,29 @@ class RunnerTests: XCTestCase {
         defer { opus_decoder_destroy(decoder) }
         let samples = (0..<320).map { Int16(8000 * sin(2 * .pi * 440 * Double($0) / 16000)) }
         var packet = [UInt8](repeating: 0, count: 512)
-        let length = samples.withUnsafeBufferPointer { input in
-            packet.withUnsafeMutableBufferPointer { output in
-                opus_encode(encoder, input.baseAddress, 320, output.baseAddress, 512)
+        let length = samples.withUnsafeBufferPointer { input -> Int32 in
+            guard let inBase = input.baseAddress else { return -1 }
+            return packet.withUnsafeMutableBufferPointer { output -> Int32 in
+                guard let outBase = output.baseAddress else { return -1 }
+                return opus_encode(encoder, inBase, 320, outBase, 512)
             }
         }
         XCTAssertGreaterThan(length, 0)
         XCTAssertLessThanOrEqual(length, 512)
         var decoded = [Int16](repeating: 0, count: 320)
-        let count = packet.withUnsafeBufferPointer { input in
-            decoded.withUnsafeMutableBufferPointer { output in
-                opus_decode(decoder, input.baseAddress, length, output.baseAddress, 320, 0)
+        let count = packet.withUnsafeBufferPointer { input -> Int32 in
+            decoded.withUnsafeMutableBufferPointer { output -> Int32 in
+                guard let outBase = output.baseAddress else { return -1 }
+                return opus_decode(decoder, input.baseAddress, length, outBase, 320, 0)
             }
         }
         XCTAssertEqual(count, 320)
         XCTAssertGreaterThan(decoded.reduce(0) { $0 + abs(Int($1)) }, 100000)
 
         var plc = [Int16](repeating: 0, count: 320)
-        let plcCount = plc.withUnsafeMutableBufferPointer { output in
-            opus_decode(decoder, nil, 0, output.baseAddress, 320, 0)
+        let plcCount = plc.withUnsafeMutableBufferPointer { output -> Int32 in
+            guard let outBase = output.baseAddress else { return -1 }
+            return opus_decode(decoder, nil, 0, outBase, 320, 0)
         }
         XCTAssertEqual(plcCount, 320)
     }

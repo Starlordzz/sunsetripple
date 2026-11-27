@@ -599,10 +599,12 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 captureRingCount -= PlatformAudioPlugin.frameSamples
                 hasMore = captureRingCount >= PlatformAudioPlugin.frameSamples
 
-                let count = captureFrameScratch.withUnsafeBufferPointer { pcm in
-                    encodePacketScratch.withUnsafeMutableBufferPointer { output in
-                        opus_encode(enc, pcm.baseAddress, Int32(PlatformAudioPlugin.frameSamples),
-                                    output.baseAddress, Int32(output.count))
+                let count = captureFrameScratch.withUnsafeBufferPointer { pcm -> Int32 in
+                    guard let pcmBase = pcm.baseAddress else { return -1 }
+                    return encodePacketScratch.withUnsafeMutableBufferPointer { output -> Int32 in
+                        guard let outBase = output.baseAddress else { return -1 }
+                        return opus_encode(enc, pcmBase, Int32(PlatformAudioPlugin.frameSamples),
+                                           outBase, Int32(output.count))
                     }
                 }
                 if count > 0 {
@@ -659,16 +661,18 @@ public final class PlatformAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     case .notReady:
                         decoded = -1
                     case .packet(let bytes):
-                        decoded = bytes.withUnsafeBufferPointer { input in
-                            stream.pcm.withUnsafeMutableBufferPointer { output in
-                                opus_decode(stream.decoder, input.baseAddress, Int32(bytes.count),
-                                            output.baseAddress, Int32(PlatformAudioPlugin.frameSamples), 0)
+                        decoded = bytes.withUnsafeBufferPointer { input -> Int32 in
+                            stream.pcm.withUnsafeMutableBufferPointer { output -> Int32 in
+                                guard let outBase = output.baseAddress else { return -1 }
+                                return opus_decode(stream.decoder, input.baseAddress, Int32(bytes.count),
+                                                   outBase, Int32(PlatformAudioPlugin.frameSamples), 0)
                             }
                         }
                     case .lost:
-                        decoded = stream.pcm.withUnsafeMutableBufferPointer { output in
-                            opus_decode(stream.decoder, nil, 0,
-                                        output.baseAddress, Int32(PlatformAudioPlugin.frameSamples), 0)
+                        decoded = stream.pcm.withUnsafeMutableBufferPointer { output -> Int32 in
+                            guard let outBase = output.baseAddress else { return -1 }
+                            return opus_decode(stream.decoder, nil, 0,
+                                               outBase, Int32(PlatformAudioPlugin.frameSamples), 0)
                         }
                     }
                     if case .notReady = polled { break }
