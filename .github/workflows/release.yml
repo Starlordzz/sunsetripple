@@ -293,109 +293,12 @@ jobs:
           if-no-files-found: error
 
   # ==========================================
-  # 2. iOS 构建链 · Flutter 统一核心 (.ipa, 未签名)
-  # ==========================================
-  build-ios-flutter:
-    name: Build iOS Flutter (.ipa, unsigned)
-    runs-on: macos-latest
-    timeout-minutes: 40
-    steps:
-      - name: Check out release tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          # 与 flutter-ci.yml 同一版本，理由（锁文件在干净环境下全新解析）见
-          # flutter-ci.yml 中 Set up Flutter 上方的说明。
-          flutter-version: '3.29.0'
-          channel: 'stable'
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get --enforce-lockfile
-
-      - name: Install iOS CocoaPods dependencies
-        run: |
-          flutter precache --ios
-          (cd ios && pod install)
-
-      - name: Build unsigned iOS release
-        run: flutter build ios --release --no-codesign
-
-      - name: Package unsigned IPA
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.tag || github.ref_name }}"
-          mkdir -p ios-flutter-artifacts/Payload
-          cp -R build/ios/iphoneos/Runner.app ios-flutter-artifacts/Payload/
-          cd ios-flutter-artifacts
-          zip -qry "SunsetRipple-flutter-${tag}-unsigned.ipa" Payload
-          rm -rf Payload
-          ls -la
-
-      - name: Upload iOS Flutter artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-flutter-release
-          path: ios-flutter-artifacts/
-          if-no-files-found: error
-
-  # ==========================================
-  # 3. HarmonyOS NEXT · 源码工程校验与打包
-  #
-  # 这里【不】产出 .hap，因为在 GitHub Actions 上产出真 HAP 不可行：
-  #   1. 真 HAP 需要 hvigor 把 ArkTS 编成 .abc 字节码、restool 把资源编成
-  #      resources.index、生成 module.json 与 pack.info，最后签名。
-  #   2. DevEco 命令行工具 / HarmonyOS SDK 需华为开发者账号登录后下载，
-  #      没有可供 CI 直接拉取的公开地址。
-  #   3. 鸿蒙 NEXT 零售机只接受 AGC 调试证书签名（绑定设备 UDID、上限 100 台）
-  #      或应用市场发布包，不存在未签名侧载路径。
-  # 历史版本曾把源码 zip 改名成 .hap 发布（13 KB），那个文件无法安装，已移除。
-  # 真机构建请用 DevEco Studio 打开 harmonyos/，见 docs/harmonyos-build.md。
-  # ==========================================
-  package-harmonyos:
-    name: Validate & package HarmonyOS NEXT project
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out release tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      # 捕捉「配置引用了不存在的资源」这类会让 hvigor 直接失败的问题。
-      # alpha.8 时 $media:app_icon 被引用 3 次而 media/ 目录根本不存在，
-      # 但当时 CI 只做 zip，所以一直没暴露。
-      - name: Validate HarmonyOS project
-        shell: bash
-        run: bash scripts/check-harmonyos-resources.sh
-
-      - name: Package HarmonyOS source project
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.tag || github.ref_name }}"
-          mkdir -p harmonyos-artifacts
-          zip -qry "harmonyos-artifacts/SunsetRipple-HarmonyOS-source-${tag}.zip" harmonyos/ \
-            -x 'harmonyos/oh_modules/*' 'harmonyos/build/*' 'harmonyos/.hvigor/*'
-
-      - name: Upload HarmonyOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: harmonyos-release
-          path: harmonyos-artifacts/
-          if-no-files-found: error
-
-  # ==========================================
-  # 4. 发布聚合（统一发布到 GitHub Release）
+  # 2. 发布聚合（仅 Android APK + 签名更新清单）
+  # iOS 与 HarmonyOS NEXT 已暂停开发与发版，ios/、harmonyos/ 目录冻结占位，见 docs/platform-support.md。
   # ==========================================
   publish-release:
     name: Publish GitHub Release
-    needs: [build-android, build-ios-flutter, package-harmonyos]
+    needs: [build-android]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -410,18 +313,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: android-release
-          path: final-artifacts
-
-      - name: Download iOS Flutter artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-flutter-release
-          path: final-artifacts
-
-      - name: Download HarmonyOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: harmonyos-release
           path: final-artifacts
 
       - name: Append install instructions to release notes
@@ -440,7 +331,7 @@ jobs:
           fi
 
           shopt -s nullglob
-          upload_files=(final-artifacts/*.apk final-artifacts/*.ipa final-artifacts/*.zip final-artifacts/*.json)
+          upload_files=(final-artifacts/*.apk final-artifacts/*.json)
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${upload_files[@]}" --clobber

@@ -1,5 +1,7 @@
 # iOS Flutter 端架构与适配进展
 
+> **状态声明（已暂停开发）**：iOS 端已暂停开发并停用 CI 与发版产物，当前仅维护 Android 端；`ios/` 目录作为冻结占位保留，详情见 [平台支持范围](platform-support.md)。
+
 从 v0.1.0-alpha.9 起，iOS 平台已彻底废除并移除早期的独立 SwiftUI 子工程（`ios/SunsetRipple/`），全面收敛至 Flutter 统一宿主（`ios/Runner/`）。
 
 三端（Android / iOS / HarmonyOS）基于同一套二进制帧协议与会话模型演进，iOS 与 Android 100% 共享 Dart 会话核心（`lib/core/`）与 UI 界面。

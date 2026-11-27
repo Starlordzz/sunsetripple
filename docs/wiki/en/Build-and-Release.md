@@ -99,19 +99,17 @@ Gradle actually reads, and — when `gh` is available — sets the four reposito
 
 ### Publishing to GitHub Releases
 
-Published versions are listed under [Releases](https://github.com/Starlordzz/sunsetripple/releases). `.github/workflows/release.yml` runs tests, restores the signing material, builds the
-release APK, verifies the signature, and uploads the GitHub Release after a `v*` tag is
-pushed. It also produces an unsigned iOS `.ipa` and a HarmonyOS source-project zip.
+Published versions are listed under [Releases](https://github.com/Starlordzz/sunsetripple/releases). `.github/workflows/release.yml` runs tests, restores the signing material, builds and verifies the release APK, signs `update.json`, and uploads the GitHub Release after a `v*` tag is pushed (iOS and HarmonyOS NEXT development and releases are paused, with both directories frozen as placeholders).
 
 Before the first run, configure the four secrets `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
 (`scripts/setup-release-signing.sh` can write them). Back the keystore up offline.
 
-> **Update manifest & verification**: On Android, ECDSA P-256 manifest verification, streamed APK SHA-256 verification, and system-installer handoff are implemented across `UpdateService`, `UpdateManifest`, `UpdateInstaller`, and `UpdateInstallerPlugin.kt`. iOS and HarmonyOS builds are obtained manually from GitHub Releases.
+> **Update manifest & verification**: On Android, ECDSA P-256 manifest verification, streamed APK SHA-256 verification, and system-installer handoff are implemented across `UpdateService`, `UpdateManifest`, `UpdateInstaller`, and `UpdateInstallerPlugin.kt`.
 
 Release steps:
 
-1. Update `versionCode` / `versionName` (in both `pubspec.yaml` and `harmonyos/AppScope/app.json5`) and `CHANGELOG.md`.
+1. Update `pubspec.yaml` (`versionName` and `versionCode`), `lib/core/version.dart`, and `CHANGELOG.md` (syncing `harmonyos/AppScope/app.json5` is no longer required).
 2. Commit the changes and create a tag with the same name, for example `v0.1.0-alpha.11`.
 3. Push the tag: `git push origin v0.1.0-alpha.11`.
 4. Actions automatically creates the version Release and updates the rolling `updates-prerelease` or `updates-stable` manifest.

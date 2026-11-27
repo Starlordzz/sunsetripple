@@ -18,8 +18,6 @@
   <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&amp;color=FF7138&amp;labelColor=3A1030"></a>
   <img alt="Flutter 3.29.0" src="https://img.shields.io/badge/Flutter-3.29.0-02569B?labelColor=3A1030">
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
-  <img alt="iOS 15+，实验性支持" src="https://img.shields.io/badge/iOS-15.0%2B%20(experimental)-007AFF?labelColor=3A1030">
-  <img alt="HarmonyOS NEXT，源码工程" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(source%20project)-C00000?labelColor=3A1030">
   <a href="https://github.com/Starlordzz/sunsetripple/actions/workflows/flutter-ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Starlordzz/sunsetripple/flutter-ci.yml?branch=master&amp;label=CI&amp;color=F4B85C&amp;labelColor=3A1030"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
@@ -30,7 +28,7 @@
 
 <br>
 
-**一款近场语音对讲应用，支持最多 6 台设备通过局域网、Wi-Fi Direct 或蓝牙通话，无需注册账号或部署服务器。当前主要支持 Android。**
+**一款近场语音对讲应用，支持最多 6 台设备通过局域网、Wi-Fi Direct 或蓝牙通话，无需注册账号或部署服务器。当前仅维护 Android 端。**
 
 <br>
 
@@ -57,8 +55,8 @@
 | 平台 | 当前状态 | 分发方式 |
 | --- | --- | --- |
 | Android 8.0+ | 可用；蓝牙房需 Android 10+ | APK，直接安装 |
-| iOS 15+ | 音频与 BLE 已实现，尚未接入 Bonjour 搜房，暂不可完整使用 | 未签名 IPA，需自行重签 |
-| HarmonyOS NEXT | 仅实现 UDP 发现，语音与消息传输尚未接通 | 源码工程，需自行构建和签名 |
+| iOS 15+ | 已暂停开发（`ios/` 冻结占位）；已停用 CI 与发版 | 无（已停止产出 IPA） |
+| HarmonyOS NEXT | 已暂停开发（`harmonyos/` 冻结占位）；仅有 UDP 发现，已停用校验与打包 | 无（已停止产出源码包） |
 | Windows / macOS / Linux | 不支持，缺少原生音频后端 | 无 |
 
 详细能力与限制见 [平台支持说明](docs/platform-support.md)。
@@ -84,7 +82,7 @@
 
 ## 从源码构建
 
-主工程使用 Flutter / Dart，Android 与 iOS 通过原生插件接入平台能力。HarmonyOS 为独立 ArkTS 工程。
+主工程使用 Flutter / Dart，当前仅面向 Android 端构建与维护（通过 Kotlin 原生插件及 C++ 核心接入平台能力）；`ios/` 与 `harmonyos/` 目录已冻结占位。
 
 开发环境：Flutter **3.29.0**（与 [CI](.github/workflows/flutter-ci.yml) 一致）、JDK 17 和 Android SDK。
 
@@ -106,7 +104,7 @@ flutter build apk --release
 
 时间检查脚本需要 Bash 环境。APK 输出路径为 `build/app/outputs/flutter-apk/app-release.apk`。
 
-iOS 与 HarmonyOS 的构建和签名步骤分别见 [iOS 指南](docs/ios-flutter-port.md) 和 [HarmonyOS 指南](docs/harmonyos-build.md)。
+已冻结平台的留档构建说明见 [iOS 指南（冻结）](docs/ios-flutter-port.md) 和 [HarmonyOS 指南（冻结）](docs/harmonyos-build.md)。
 
 <br>
 

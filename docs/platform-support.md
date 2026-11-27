@@ -8,8 +8,8 @@
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
 | **Android 8.0+ (API 26)** | ✅ 完整支持 | WiFi 房（局域网/热点/Wi-Fi Direct）、蓝牙 PTT 房、房内文字、房主转移、自动更新 |
-| **iOS 15.0+** | 🚧 部分支持 | 音频与 BLE 插件已就绪；**搜房未接入 Bonjour，实际不可用**（见下） |
-| **HarmonyOS NEXT** | 🚧 实验性 | `harmonyos/` 是独立 ArkTS 工程，仅有 UDP 房间发现；**数据面未接通**，无 `.hap` 产物 |
+| **iOS 15.0+** | ⏸️ 暂停开发（冻结） | 保留 `ios/` 目录占位，停用 CI 与发版产物，当前不再维护 |
+| **HarmonyOS NEXT** | ⏸️ 暂停开发（冻结） | 保留 `harmonyos/` 目录占位，停用校验与源码打包，当前不再维护 |
 | **Windows / macOS / Linux** | ❌ 不支持 | 无桌面音频后端，见下 |
 
 ## 桌面端（Windows / macOS / Linux）为什么标记为不支持
@@ -32,6 +32,8 @@ PulseAudio）、`native/` 的桌面构建脚本、以及桌面端的传输层适
 
 ## iOS 搜房为何仍不可用
 
+> **状态声明**：iOS 端已暂停开发并停用 CI（`test-ios`）与发版产物（`build-ios-flutter`），`ios/` 目录作为冻结占位保留，当前仅维护 Android 8.0+。
+
 iOS 14+ 起，向 `255.255.255.255` 发 UDP 广播需要
 `com.apple.developer.networking.multicast` 授权（付费开发者账号 + Apple 逐案审批）。
 本项目没有付费账号，因此 iOS 侧必须改走 **Bonjour**（系统代为完成组播）。
@@ -44,14 +46,14 @@ iOS 14+ 起，向 `255.255.255.255` 发 UDP 广播需要
 
 ## 鸿蒙的现状
 
+> **状态声明**：HarmonyOS NEXT 端已暂停开发并停用 CI 校验与源码打包（`package-harmonyos`），`harmonyos/` 目录作为冻结占位保留，当前仅维护 Android 8.0+。
+
 `harmonyos/` 只有 **UDP 房间发现**（`LanRoomDiscovery.ets`）、音频引擎骨架与
 一个 63 行的会话管理器；`HarmonyRoomSession.onLocalAudioCaptured` 是空实现
-（注释写着「可在此打包 Frame 并通过 UDP 发送」）。发布产物是**源码工程 zip**，
-需自行用 DevEco Studio 构建，CI 不产出 `.hap`（原因见
-[构建与发布](构建与发布.md)）。
+（注释写着「可在此打包 Frame 并通过 UDP 发送」）。
 
 ## 维护约定
 
 - 新增平台能力时，**先改本文件**，再改 README 与代码；
 - 不要把「能编译」当成「支持」——判据是**该平台核心场景端到端可用**；
-- 桌面目录在补齐后端之前不接受与平台能力无关的重构（避免给人「正在支持桌面」的错觉）。
+- `ios/`、`harmonyos/` 与桌面端占位目录在恢复对应平台开发前冻结维护，不接受与 Android 主线无关的重构，也不接入 CI / Release 产物链路。

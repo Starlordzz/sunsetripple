@@ -1,5 +1,7 @@
 # HarmonyOS NEXT 构建说明
 
+> **状态声明（已暂停开发）**：HarmonyOS NEXT 端已暂停开发并停用 CI 校验与源码打包，当前仅维护 Android 端；`harmonyos/` 目录作为冻结占位保留，详情见 [平台支持范围](platform-support.md)。
+
 `harmonyos/` 是一套**独立的原生 ArkTS 实现**（不是 Flutter-ohos 移植），
 需用 DevEco Studio 构建。CI 只做工程校验与源码打包，**不产出 `.hap`**。
 

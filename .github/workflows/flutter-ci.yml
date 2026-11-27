@@ -181,29 +181,4 @@ jobs:
           path: build/app/outputs/flutter-apk/
           if-no-files-found: ignore
 
-
-  test-ios:
-    name: iOS Simulator Build & Opus Tests
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.29.0'
-          channel: stable
-          cache: true
-      - name: Install locked dependencies
-        run: flutter pub get --enforce-lockfile
-      - name: Install iOS CocoaPods dependencies
-        run: |
-          flutter precache --ios
-          (cd ios && pod install)
-      - name: Compile iOS simulator app
-        run: flutter build ios --simulator --debug
-      - name: Test iOS codec
-        shell: bash
-        run: |
-          set -euo pipefail
-          simulator_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k in sorted((r for r in d["devices"] if "iOS" in r), reverse=True) for x in d["devices"][k] if x.get("isAvailable", True) and x["name"].startswith("iPhone")))')
-          xcodebuild test -workspace ios/Runner.xcworkspace -scheme Runner \
-            -destination "platform=iOS Simulator,id=$simulator_id" -only-testing:RunnerTests
+# iOS（`ios/`）已暂停开发并冻结占位，`test-ios` job 同步停用；平台权威范围见 docs/platform-support.md。
