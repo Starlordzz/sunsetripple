@@ -18,8 +18,6 @@
   <a href="https://github.com/Starlordzz/sunsetripple/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Starlordzz/sunsetripple?include_prereleases&amp;color=FF7138&amp;labelColor=3A1030"></a>
   <img alt="Flutter 3.29.0" src="https://img.shields.io/badge/Flutter-3.29.0-02569B?labelColor=3A1030">
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-FF8A3D?labelColor=3A1030">
-  <img alt="iOS 15+, experimental support" src="https://img.shields.io/badge/iOS-15.0%2B%20(experimental)-007AFF?labelColor=3A1030">
-  <img alt="HarmonyOS NEXT, source project" src="https://img.shields.io/badge/HarmonyOS-NEXT%20(source%20project)-C00000?labelColor=3A1030">
   <a href="https://github.com/Starlordzz/sunsetripple/actions/workflows/flutter-ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Starlordzz/sunsetripple/flutter-ci.yml?branch=master&amp;label=CI&amp;color=F4B85C&amp;labelColor=3A1030"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7D6B67?labelColor=3A1030"></a>
 </p>
@@ -30,7 +28,7 @@
 
 <br>
 
-**A local voice intercom app for up to 6 devices over a LAN, Wi-Fi Direct, or Bluetooth. No account or server setup is required. Android is currently the primary supported platform.**
+**A local voice intercom app for up to 6 devices over a LAN, Wi-Fi Direct, or Bluetooth. No account or server setup is required. Android is currently the only actively maintained platform.**
 
 <br>
 
@@ -57,8 +55,8 @@
 | Platform | Current status | Distribution |
 | --- | --- | --- |
 | Android 8.0+ | Available; Bluetooth rooms require Android 10+ | APK, install directly |
-| iOS 15+ | Audio and BLE implemented; Bonjour room discovery is not integrated, so the app is not fully usable | Unsigned IPA, requires re-signing |
-| HarmonyOS NEXT | UDP discovery only; voice and message transport is not connected | Source project, requires local build and signing |
+| iOS 15+ | Paused (`ios/` frozen placeholder); CI and releases disabled | None (IPA output stopped) |
+| HarmonyOS NEXT | Paused (`harmonyos/` frozen placeholder); UDP discovery only, checks and packaging disabled | None (source-zip output stopped) |
 | Windows / macOS / Linux | Unsupported; native audio backends are missing | None |
 
 See [Platform Support](docs/platform-support.md) (Chinese) for detailed capabilities and limitations.
@@ -84,7 +82,7 @@ Voice and in-room messages are not relayed through a cloud server. Manual update
 
 ## Build from Source
 
-The main app uses Flutter / Dart with native plugins for Android and iOS platform capabilities. HarmonyOS is a separate ArkTS project.
+The main app uses Flutter / Dart and is currently built and maintained for Android only (via Kotlin native plugins and the C++ core); `ios/` and `harmonyos/` are frozen as placeholders.
 
 Development requirements: Flutter **3.29.0** (matching [CI](.github/workflows/flutter-ci.yml)), JDK 17, and the Android SDK.
 
@@ -106,7 +104,7 @@ flutter build apk --release
 
 The clock-injection check requires Bash. The APK is written to `build/app/outputs/flutter-apk/app-release.apk`.
 
-For iOS and HarmonyOS build and signing instructions, see the [iOS guide](docs/wiki/en/iOS-Platform-Guide.md) and [HarmonyOS guide](docs/wiki/en/HarmonyOS-Platform-Guide.md).
+For archived build notes on the frozen platforms, see [iOS notes (frozen)](docs/ios-flutter-port.md) and [HarmonyOS notes (frozen)](docs/harmonyos-build.md).
 
 <br>
 

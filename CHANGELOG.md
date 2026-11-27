@@ -2,6 +2,12 @@
 
 ## 0.1.0-alpha.14 - 2026-09-29
 
+### 平台范围调整（待发布）
+
+- 暂停 iOS 与 HarmonyOS NEXT 端开发，保留 `ios/` 与 `harmonyos/` 目录冻结占位。
+- 停用 `flutter-ci.yml` 中的 `test-ios` 与 `release.yml` 中的 `build-ios-flutter`、`package-harmonyos`，发布链路收口为仅产出与发布 Android 签名 APK 及 `update.json`。
+- 同步更新 `docs/platform-support.md`、`README.md`、`README_EN.md`、`pubspec.yaml` 及发布相关文档。
+
 ### 未发布：发布签名可复现性（YOU-9）
 
 - 修正签名向导的 Flutter 工程根目录检查，声明工具依赖；输入中断时退出，生成材料默认仅当前用户可读。

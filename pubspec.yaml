@@ -1,5 +1,5 @@
 name: sunset_ripple
-description: "SunsetRipple - Near-field voice intercom for Android and iOS."
+description: "SunsetRipple - Near-field voice intercom for Android."
 publish_to: 'none'
 
 # versionName 取 `+` 前半段，versionCode 取后半段。
