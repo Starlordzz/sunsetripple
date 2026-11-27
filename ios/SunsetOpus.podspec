@@ -147,12 +147,18 @@ Pod::Spec.new do |s|
     'silk/float/schur_FLP.c',
     'silk/float/sort_FLP.c', 'include/*.h']
   s.preserve_paths = 'src/*.h', 'celt/**/*.h', 'silk/**/*.h'
-  s.public_header_files = 'include/*.h'
+  s.public_header_files = [
+    'include/opus.h',
+    'include/opus_defines.h',
+    'include/opus_types.h',
+    'include/opus_multistream.h',
+    'include/opus_projection.h',
+  ]
   s.header_mappings_dir = 'include'
-  s.header_dir = 'SunsetOpus'
-  s.compiler_flags = '-DOPUS_BUILD -DUSE_ALLOCA -DHAVE_LRINTF -DHAVE_LRINT'
+  s.compiler_flags = '-DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF -DHAVE_LRINT'
   s.pod_target_xcconfig = {
     'HEADER_SEARCH_PATHS' => '$(inherited) "$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/src" "$(PODS_TARGET_SRCROOT)/celt" "$(PODS_TARGET_SRCROOT)/silk" "$(PODS_TARGET_SRCROOT)/silk/float"',
-    'GCC_C_LANGUAGE_STANDARD' => 'c99'
+    'GCC_C_LANGUAGE_STANDARD' => 'c99',
+    'CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER' => 'NO'
   }
 end

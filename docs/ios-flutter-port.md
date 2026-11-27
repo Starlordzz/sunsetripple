@@ -73,10 +73,12 @@ secrets 即可产出 ad-hoc 签名 IPA，配合 `itms-services` 清单实现
 每个远端成员使用独立解码器。AudioUnit 回调长度不同于 320 时，会保留剩余采样。
 API 依据 [Opus 1.5 编解码说明](https://opus-codec.org/docs/opus_api-1.5/)。
 
-在 macOS / Xcode 上运行：
+在 macOS / Xcode 上运行（由于 `pubspec.yaml` 不含 Flutter 插件，`flutter build ios` 不会自动运行 `pod install`，需在 `flutter precache --ios` 后手动安装 CocoaPods 依赖）：
 
 ```sh
 flutter pub get
+flutter precache --ios
+(cd ios && pod install)
 flutter build ios --simulator --debug
 xcodebuild test -workspace ios/Runner.xcworkspace -scheme Runner \
   -destination 'platform=iOS Simulator,id=<可用模拟器 UDID>' -only-testing:RunnerTests
